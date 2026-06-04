@@ -55,21 +55,24 @@ Get live updates on your AI credit consumption with an always-visible status bar
 ## Screenshots
 
 ### Status Bar for Live cost tracking
+See session delta (+2.3 credits) and period total in real time.
+
 ![Live cost indicator in status bar](media/statusbar.png)
 
-Shows session delta (+2.3 credits) and period total in real time.
-
+-----------
 
 ### Cost Overview Tree
 Hierarchical breakdown: budget → period → models → sessions.
 
 ![Hierarchical cost breakdown in sidebar](media/costoverview.png)
 
+--------------------------------
 
-### Dashboard — 6-tab analytics
-Overview, Budget, Sessions, Models, Heatmap, Tokens with Chart.js visualizations.
+### Dashboard (6-tab analytics)
+Quick overview, Budget tracking, Sessions list, Models statistics, Tokens statistics with Chart.js visualizations.
 ![6-tab Chart.js dashboard](media/MainDashboard.png)
 
+Includes filters, sorting, and detailed breakdowns.
 
 ---
 
@@ -81,7 +84,7 @@ Your VS Code must have these telemetry settings enabled so Copilot Chat writes u
 "github.copilot.chat.otel.dbSpanExporter.enabled": true
 ```
 
-**That's it.** The extension reads data that Copilot Chat already creates — no external APIs or authentication needed.
+**That's it.** The extension reads data that Copilot Chat already creates no external APIs or authentication needed.
 
 *(Optional: enable JSONL fallback logs if the database becomes unavailable)*
 
