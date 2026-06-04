@@ -6,20 +6,35 @@ const pkg = require("../package.json");
 
 const vsixName = `${pkg.name}-${pkg.version}.vsix`;
 const vsixPath = join(__dirname, "..", vsixName);
+const extensionId = `${pkg.publisher}.${pkg.name}`;
 
 if (!existsSync(vsixPath)) {
   console.error(`VSIX not found: ${vsixPath}`);
   process.exit(1);
 }
 
-const result = spawnSync("code", ["--install-extension", vsixPath, "--force"], {
-  stdio: "inherit",
-  shell: process.platform === "win32",
-});
+function runCode(args, { allowNonZero = false } = {}) {
+  const result = spawnSync("code", args, {
+    stdio: "inherit",
+    shell: process.platform === "win32",
+  });
 
-if (result.error) {
-  console.error(result.error.message);
-  process.exit(result.status ?? 1);
+  if (result.error) {
+    console.error(result.error.message);
+    process.exit(result.status ?? 1);
+  }
+
+  if (!allowNonZero && result.status !== 0) {
+    process.exit(result.status ?? 1);
+  }
+
+  return result;
 }
 
-process.exit(result.status ?? 0);
+// Prevent VS Code CLI "restart before reinstall" by clearing old install state first.
+runCode(["--uninstall-extension", extensionId], { allowNonZero: true });
+const installResult = runCode(["--install-extension", vsixPath, "--force"], {
+  allowNonZero: true,
+});
+
+process.exit(installResult.status ?? 0);
