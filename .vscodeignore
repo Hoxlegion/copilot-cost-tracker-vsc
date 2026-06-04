@@ -1,0 +1,14 @@
+.vscode/**
+node_modules/**
+src/**
+.gitignore
+.npmrc
+tsconfig.json
+**/*.map
+.docs/**
+.agents/**
+.context/**
+.github/**
+test/**
+scripts/**
+media/*.svg

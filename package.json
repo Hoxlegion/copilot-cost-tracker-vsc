@@ -1,0 +1,320 @@
+{
+  "name": "copilot-cost-tracker",
+  "displayName": "Copilot Cost Tracker",
+  "description": "Track and visualize your GitHub Copilot usage costs.",
+  "version": "0.2.0",
+  "publisher": "Hoxlegion",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Hoxlegion/copilot-cost-tracker-vsc"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "keywords": [
+    "copilot",
+    "cost",
+    "tracking",
+    "ai-credits",
+    "billing",
+    "budget",
+    "monitoring",
+    "github",
+    "usage-analytics"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "copilot-cost-tracker",
+          "title": "Copilot Cost Tracker",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "copilot-cost-tracker": [
+        {
+          "id": "copilotCostTracker.overview",
+          "name": "Cost Overview",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "copilotCostTracker.refresh",
+        "title": "Refresh Cost Data",
+        "category": "Copilot Cost Tracker",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "copilotCostTracker.openDashboard",
+        "title": "Open Dashboard",
+        "category": "Copilot Cost Tracker",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "copilotCostTracker.scanAll",
+        "title": "Scan All Workspaces",
+        "category": "Copilot Cost Tracker",
+        "icon": "$(search)"
+      },
+      {
+        "command": "copilotCostTracker.scanFullHistory",
+        "title": "Scan Full History",
+        "category": "Copilot Cost Tracker",
+        "icon": "$(history)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "copilotCostTracker.refresh",
+          "when": "view == copilotCostTracker.overview",
+          "group": "navigation"
+        },
+        {
+          "command": "copilotCostTracker.openDashboard",
+          "when": "view == copilotCostTracker.overview",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Copilot Cost Tracker",
+      "properties": {
+        "copilotCostTracker.plan": {
+          "type": "string",
+          "default": "enterprise",
+          "enum": [
+            "pro",
+            "pro_plus",
+            "max",
+            "business",
+            "enterprise"
+          ],
+          "description": "Your GitHub Copilot plan type."
+        },
+        "copilotCostTracker.creditsPerUser": {
+          "type": "number",
+          "default": 3900,
+          "description": "Monthly AI Credits included per user in your plan."
+        },
+        "copilotCostTracker.poolSize": {
+          "type": "number",
+          "default": 1,
+          "description": "Number of users in the credit pool."
+        },
+        "copilotCostTracker.budgetCredits": {
+          "type": "number",
+          "default": 180,
+          "description": "Total credit budget for the billing period. Used for threshold alerting."
+        },
+        "copilotCostTracker.budgetWarningThresholds": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "default": [
+            75,
+            90,
+            100
+          ],
+          "description": "Percentage thresholds at which budget warnings trigger (e.g., [75, 90, 100])."
+        },
+        "copilotCostTracker.billingCycleStartDay": {
+          "type": "number",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 31,
+          "description": "Day of month when the billing cycle resets (1-31). If the day exceeds the month length, the last day of the month is used."
+        },
+        "copilotCostTracker.pollIntervalMin": {
+          "type": "number",
+          "default": 5000,
+          "minimum": 1000,
+          "description": "Minimum polling interval in milliseconds (fastest rate when active)."
+        },
+        "copilotCostTracker.pollIntervalMax": {
+          "type": "number",
+          "default": 60000,
+          "minimum": 5000,
+          "description": "Maximum polling interval in milliseconds (slowest rate when idle)."
+        },
+        "copilotCostTracker.refreshDebounceMs": {
+          "type": "number",
+          "default": 2000,
+          "minimum": 100,
+          "maximum": 5000,
+          "description": "Debounce delay (ms) for UI refresh. Lower = snappier, higher = less CPU."
+        },
+        "copilotCostTracker.telemetrySource": {
+          "type": "string",
+          "default": "auto",
+          "enum": [
+            "auto",
+            "database",
+            "jsonl"
+          ],
+          "description": "Data source for Copilot usage. 'auto' uses traces DB with JSONL fallback. Override to force a specific source."
+        },
+        "copilotCostTracker.initialScanDays": {
+          "type": "number",
+          "default": 30,
+          "minimum": 1,
+          "maximum": 365,
+          "description": "Number of days to scan on first activation. Use 'Scan Full History' command for complete backfill."
+        },
+        "copilotCostTracker.customModelRates": {
+          "type": "object",
+          "default": {},
+          "description": "Custom pricing rates for unlisted models. Keys are model names, values are objects with 'input' and 'output' fields (credits per 1M tokens).",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "input": {
+                "type": "number",
+                "description": "Credits per 1M input tokens"
+              },
+              "output": {
+                "type": "number",
+                "description": "Credits per 1M output tokens"
+              }
+            },
+            "required": [
+              "input",
+              "output"
+            ]
+          }
+        },
+        "copilotCostTracker.logLevel": {
+          "type": "string",
+          "default": "error",
+          "enum": [
+            "error",
+            "warn",
+            "info",
+            "debug",
+            "trace"
+          ],
+          "description": "Log verbosity for the Copilot Cost Tracker output channel."
+        },
+        "copilotCostTracker.excludedModels": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "gpt-4o-mini"
+          ],
+          "description": "Models to exclude from cost tracking (e.g., code completion models). Uses substring matching."
+        },
+        "copilotCostTracker.enabledFileExtensions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            ".prompt",
+            ".md"
+          ],
+          "description": "File extensions that enable inline prompt token and cost preview."
+        },
+        "copilotCostTracker.currency": {
+          "type": "string",
+          "default": "USD",
+          "description": "Display currency (e.g., USD, EUR, GBP)."
+        },
+        "copilotCostTracker.exchangeRate": {
+          "type": "number",
+          "default": 1,
+          "description": "Exchange rate: 1 USD = X local currency."
+        },
+        "copilotCostTracker.showStatusBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show live cost indicator in the status bar."
+        },
+        "copilotCostTracker.pricingUrl": {
+          "type": "string",
+          "default": "",
+          "description": "URL to a remote pricing JSON file. Leave empty to use built-in pricing."
+        },
+        "copilotCostTracker.microTurnGapSeconds": {
+          "type": "number",
+          "default": 120,
+          "minimum": 10,
+          "description": "Maximum seconds between consecutive turns in the same session to be counted as a 'micro-turn' ping-pong pattern."
+        },
+        "copilotCostTracker.microTurnMinCount": {
+          "type": "number",
+          "default": 5,
+          "minimum": 2,
+          "description": "Minimum number of consecutive rapid turns required to trigger the Micro-Turn Bloat alert."
+        },
+        "copilotCostTracker.microTurnMaxOutputTokens": {
+          "type": "number",
+          "default": 200,
+          "minimum": 50,
+          "description": "Maximum average output tokens per turn for a rapid sequence to be classified as micro-turn bloat."
+        },
+        "copilotCostTracker.rawPasteMinInputTokens": {
+          "type": "number",
+          "default": 15000,
+          "minimum": 1000,
+          "description": "Minimum net (uncached) input tokens in a single turn to trigger the Raw Paste alert."
+        },
+        "copilotCostTracker.premiumMisallocationMinCredits": {
+          "type": "number",
+          "default": 2,
+          "minimum": 0.1,
+          "description": "Minimum credits consumed in a single turn (combined with low output) to trigger the Premium Model Misallocation alert."
+        },
+        "copilotCostTracker.premiumMisallocationMaxOutputTokens": {
+          "type": "number",
+          "default": 100,
+          "minimum": 10,
+          "description": "Maximum output tokens in a turn for it to be considered a 'trivial task' for the Premium Model Misallocation alert."
+        },
+        "copilotCostTracker.agentSprawlMinInputTokens": {
+          "type": "number",
+          "default": 80000,
+          "minimum": 10000,
+          "description": "Minimum input tokens in a single turn to trigger the Massive Context Turn alert."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap",
+    "watch": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "package": "vsce package --no-dependencies --allow-missing-repository --skip-license",
+    "deploy:local": "npm run package && node ./scripts/install-local-vsix.js",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.28.0",
+    "eslint": "^8.56.0",
+    "typescript": "^5.4.0",
+    "vitest": "^4.1.7"
+  },
+  "dependencies": {
+    "sql.js": "^1.10.0"
+  }
+}

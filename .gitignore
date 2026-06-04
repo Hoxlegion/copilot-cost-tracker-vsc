@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.vsix
+.vscode-test/
+coverage/
+*.log
+*.tsbuildinfo
+
+.context/
+.vscode/settings.json
