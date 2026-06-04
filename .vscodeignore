@@ -11,4 +11,5 @@ tsconfig.json
 .github/**
 test/**
 scripts/**
-media/*.svg
+media/*.png
+

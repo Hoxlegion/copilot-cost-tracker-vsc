@@ -4,11 +4,13 @@
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![VS Code](https://img.shields.io/badge/VS%20Code-%5E1.85.0-blue.svg)](https://code.visualstudio.com/)
 
-💰 **Real-time cost tracking for your GitHub Copilot usage — see exactly what you're spending, as you work.**
+💰 **Real-time cost tracking for your GitHub Copilot usage, see exactly what you're spending, as you work.**
 
-Get live updates on your AI credit consumption with an always-visible status bar, budget alerts, and beautiful dashboards. Works offline, requires no API keys.
+Get live updates on your AI credit consumption with an always-visible status bar, budget alerts, and dashboards. Requires no API keys.
 
-> ⚠️ **Requires VS Code settings change** — [Setup takes 30 seconds](#requirements)
+> ⚠️ **Requires VS Code settings change** [Setup <30 seconds](#requirements)
+
+
 
 ---
 
@@ -52,20 +54,22 @@ Get live updates on your AI credit consumption with an always-visible status bar
 
 ## Screenshots
 
-### Status Bar — Live cost tracking
-Shows session delta and period total at the bottom of VS Code:
-```
-$(credit-card)  +2.3 | 42.5 cr
-```
-[Status bar screenshot coming soon]
+### Status Bar for Live cost tracking
+![Live cost indicator in status bar](media/statusbar.png)
+
+Shows session delta (+2.3 credits) and period total in real time.
+
 
 ### Cost Overview Tree
 Hierarchical breakdown: budget → period → models → sessions.
-[Tree view screenshot coming soon]
+
+![Hierarchical cost breakdown in sidebar](media/costoverview.png)
+
 
 ### Dashboard — 6-tab analytics
 Overview, Budget, Sessions, Models, Heatmap, Tokens with Chart.js visualizations.
-[Dashboard screenshot coming soon]
+![6-tab Chart.js dashboard](media/MainDashboard.png)
+
 
 ---
 
