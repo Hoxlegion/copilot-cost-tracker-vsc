@@ -105,16 +105,6 @@
           ],
           "description": "Your GitHub Copilot plan type."
         },
-        "copilotCostTracker.creditsPerUser": {
-          "type": "number",
-          "default": 3900,
-          "description": "Monthly AI Credits included per user in your plan."
-        },
-        "copilotCostTracker.poolSize": {
-          "type": "number",
-          "default": 1,
-          "description": "Number of users in the credit pool."
-        },
         "copilotCostTracker.budgetCredits": {
           "type": "number",
           "default": 180,
@@ -301,7 +291,7 @@
     "watch": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap --watch",
     "test": "vitest run",
     "test:watch": "vitest",
-    "package": "vsce package --no-dependencies --allow-missing-repository --skip-license",
+    "package": "vsce package --no-dependencies",
     "deploy:local": "npm run package && node ./scripts/install-local-vsix.js",
     "lint": "eslint src --ext ts"
   },

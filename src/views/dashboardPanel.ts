@@ -116,7 +116,7 @@ export class DashboardPanel {
       : avgResponseMs + "ms";
 
     const config = vscode.workspace.getConfiguration("copilotCostTracker");
-    const totalPoolCredits = config.get<number>("creditsPerUser", 3900) * config.get<number>("poolSize", 1);
+    const budgetCredits = config.get<number>("budgetCredits", 180);
 
     // Today & week data
     const now = new Date();
@@ -138,11 +138,11 @@ export class DashboardPanel {
     const agentBreakdownData = JSON.stringify(agentBreakdownSliced);
     const dailyAgentBreakdownData = JSON.stringify(dailyAgentBreakdown);
 
-    const usage = this.getUsagePresentation(periodCredits, totalPoolCredits);
+    const usage = this.getUsagePresentation(periodCredits, budgetCredits);
     const usagePct = usage.usagePct;
 
     // Days remaining in period
-    const budgetDetails = this.getBudgetDetails(billingPeriodStartMs, billingPeriodEndMs, periodAggregate.turns, periodCredits, totalPoolCredits);
+    const budgetDetails = this.getBudgetDetails(billingPeriodStartMs, billingPeriodEndMs, periodAggregate.turns, periodCredits, budgetCredits);
     const daysRemaining = budgetDetails.daysRemaining;
     const dailyBudgetRemaining = budgetDetails.dailyBudgetRemaining;
     const burnRate = budgetDetails.burnRate;
@@ -514,6 +514,130 @@ export class DashboardPanel {
       background: var(--border);
       color: var(--fg);
     }
+
+    /* Help Button & Modal */
+    .help-button {
+      background: transparent;
+      border: 1px solid var(--border);
+      cursor: pointer;
+      color: var(--muted);
+      padding: 6px 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 6px;
+      transition: all 0.2s ease;
+      min-width: 32px;
+      min-height: 32px;
+    }
+    .help-button:hover {
+      background-color: var(--card-bg);
+      color: var(--accent);
+      border-color: var(--accent);
+      transform: scale(1.05);
+    }
+    .help-button:active {
+      transform: scale(0.98);
+    }
+
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1000;
+    }
+    .modal.show {
+      display: flex;
+    }
+    .modal-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      cursor: pointer;
+    }
+    .modal-content {
+      position: relative;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      width: 90%;
+      max-width: 700px;
+      max-height: 80vh;
+      overflow-y: auto;
+      margin: auto;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    }
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      background: var(--bg);
+    }
+    .modal-header h2 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 600;
+    }
+    .modal-close {
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      color: var(--muted);
+      padding: 4px;
+      display: flex;
+      align-items: center;
+      border-radius: 4px;
+      transition: color 0.2s;
+    }
+    .modal-close:hover {
+      color: var(--fg);
+    }
+    .modal-body {
+      padding: 20px;
+    }
+    .help-section {
+      margin-bottom: 20px;
+    }
+    .help-section:last-child {
+      margin-bottom: 0;
+    }
+    .help-section h3 {
+      margin: 0 0 10px 0;
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .help-section p {
+      margin: 8px 0;
+      font-size: 13px;
+      line-height: 1.5;
+      color: var(--fg);
+    }
+    .help-section ul {
+      margin: 8px 0;
+      padding-left: 20px;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .help-section li {
+      margin: 4px 0;
+    }
+    .help-section code {
+      background: var(--card-bg);
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: monospace;
+      font-size: 12px;
+    }
   </style>
 </head>
 <body>
@@ -578,7 +702,7 @@ export class DashboardPanel {
       <div class="stat">
         <div class="stat-label">Budget Used (Period)</div>
         <div class="stat-value">${usagePct}%</div>
-        <div class="stat-sub">${periodCredits.toFixed(0)} / ${totalPoolCredits} cr</div>
+        <div class="stat-sub">${periodCredits.toFixed(0)} / ${budgetCredits} cr</div>
         <div class="budget-bar"><div class="budget-fill" style="width:${Math.min(100, Number.parseFloat(usagePct))}%"></div></div>
       </div>
       <div class="stat">
@@ -599,13 +723,82 @@ export class DashboardPanel {
     </div>
     <div class="chart-wrap">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
-        <div class="chart-section-title" id="overviewChartTitle" style="margin-bottom:0">Cost &amp; Credits — Current range</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="chart-section-title" id="overviewChartTitle" style="margin-bottom:0">Cost &amp; Credits — Current range</div>
+          <button id="helpButton" class="help-button" title="Show definitions for Credits, Tokens, Cost Calculation, Budget, and Billing Period">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <path d="M12 16v-4"></path>
+              <path d="M12 8h.01"></path>
+            </svg>
+          </button>
+        </div>
         <div class="period-toggle" id="overviewChartMode">
           <button class="active" data-mode="cost">Cost/Credits</button>
           <button data-mode="tokens">Tokens</button>
         </div>
       </div>
       <canvas id="dailyChart"></canvas>
+    </div>
+
+    <!-- Help Modal -->
+    <div id="helpModal" class="modal">
+      <div class="modal-overlay"></div>
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>Cost Tracking Definitions</h2>
+          <button id="closeHelpButton" class="modal-close" aria-label="Close">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M2 14l12-12M14 14L2 2"></path>
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="help-section">
+            <h3>💳 Credits (CR)</h3>
+            <p><strong>1 Credit = $0.01 USD</strong></p>
+            <p>Credits represent the monetary cost of using GitHub Copilot. The amount of credits used depends on the number of tokens consumed by your queries and the model you're using.</p>
+          </div>
+          
+          <div class="help-section">
+            <h3>🔤 Tokens</h3>
+            <p>Tokens are the units that language models use to process text. Both your input (prompt) and the model's output (response) consume tokens. The number of tokens varies by model and query complexity.</p>
+            <p><strong>Token Types:</strong></p>
+            <ul>
+              <li><strong>Input Tokens:</strong> Tokens from your prompts (questions/requests)</li>
+              <li><strong>Output Tokens:</strong> Tokens in the model's responses</li>
+              <li><strong>Cached Tokens:</strong> Previously processed tokens that are reused (cheaper than regular input tokens)</li>
+              <li><strong>Cache Write Tokens:</strong> Tokens used when writing new data to the cache</li>
+            </ul>
+          </div>
+
+          <div class="help-section">
+            <h3>💰 Cost Calculation</h3>
+            <p>Cost is calculated as: <code>(Tokens ÷ 1,000,000) × Price per Million Tokens</code></p>
+            <p>Different models have different pricing. For example:</p>
+            <ul>
+              <li>GPT-5 Mini: $0.25 per 1M input tokens</li>
+              <li>Claude Haiku: $1 per 1M input tokens</li>
+              <li>Gemini 3.5 Flash: $1.50 per 1M input tokens</li>
+            </ul>
+          </div>
+
+          <div class="help-section">
+            <h3>📊 Budget Tracking</h3>
+            <p>Your budget is set in the extension settings and represents your spending limit for the billing period. The dashboard tracks your usage against this budget.</p>
+            <ul>
+              <li><strong>Budget Used %:</strong> Percentage of your budget consumed</li>
+              <li><strong>Days Remaining:</strong> Days left in the current billing period</li>
+              <li><strong>Daily Budget:</strong> Average credits you can spend per remaining day</li>
+            </ul>
+          </div>
+
+          <div class="help-section">
+            <h3>⏱️ Billing Period</h3>
+            <p>The billing period is determined by your configured billing cycle start day (default: 1st of the month). All costs are grouped by this period for budget tracking and analysis.</p>
+          </div>
+        </div>
+      </div>
     </div>
     <!-- Activity heatmap — full-width below cost chart -->
     <div style="margin-top:24px;border-top:1px solid var(--border);padding-top:16px">
@@ -645,7 +838,7 @@ export class DashboardPanel {
       <div class="stat">
         <div class="stat-label" id="budgetUsedLabel">Range Used</div>
         <div class="stat-value" id="budgetUsageValue">${usagePct}%</div>
-        <div class="stat-sub" id="budgetUsageSub">${periodCredits.toFixed(0)} / ${totalPoolCredits} cr</div>
+        <div class="stat-sub" id="budgetUsageSub">${periodCredits.toFixed(0)} / ${budgetCredits} cr</div>
         <div class="budget-bar"><div class="budget-fill" id="budgetUsageFill" style="width:${Math.min(100, Number.parseFloat(usagePct))}%;background:${this.getBudgetColor(Number.parseFloat(usagePct))}" ></div></div>
       </div>
       <div class="stat">
@@ -655,8 +848,8 @@ export class DashboardPanel {
       </div>
       <div class="stat">
         <div class="stat-label" id="budgetRemainingLabel">Remaining Credits</div>
-        <div class="stat-value" id="budgetRemainingValue">${(totalPoolCredits - periodCredits).toFixed(0)}</div>
-        <div class="stat-sub" id="budgetRemainingSub">of ${totalPoolCredits} total</div>
+        <div class="stat-value" id="budgetRemainingValue">${(budgetCredits - periodCredits).toFixed(0)}</div>
+        <div class="stat-sub" id="budgetRemainingSub">of ${budgetCredits} total</div>
       </div>
       <div class="stat">
         <div class="stat-label">Forecast (Period End)</div>
@@ -926,9 +1119,40 @@ export class DashboardPanel {
       });
     });
 
+    // Help modal
+    const helpButton = document.getElementById('helpButton');
+    const helpModal = document.getElementById('helpModal');
+    const closeHelpButton = document.getElementById('closeHelpButton');
+    const modalOverlay = helpModal.querySelector('.modal-overlay');
+
+    if (helpButton) {
+      helpButton.addEventListener('click', () => {
+        helpModal.classList.add('show');
+      });
+    }
+
+    if (closeHelpButton) {
+      closeHelpButton.addEventListener('click', () => {
+        helpModal.classList.remove('show');
+      });
+    }
+
+    if (modalOverlay) {
+      modalOverlay.addEventListener('click', () => {
+        helpModal.classList.remove('show');
+      });
+    }
+
+    // Close modal on Escape key
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && helpModal.classList.contains('show')) {
+        helpModal.classList.remove('show');
+      }
+    });
+
     const textColor = getComputedStyle(document.body).getPropertyValue('color') || '#ccc';
     const gridColor = 'rgba(128,128,128,0.15)';
-    const totalPoolCredits = ${totalPoolCredits};
+    const budgetCredits = ${budgetCredits};
     const billingPeriodStartMs = ${billingPeriodStartMs};
 
     function appendCell(tr, value, className, title) {
@@ -1203,7 +1427,7 @@ export class DashboardPanel {
       const billableInput = totalInput + totalCached;
       const cacheHitPct = billableInput > 0 ? (totalCached / billableInput) * 100 : 0;
       const totalTokens = billableInput + totalOutput;
-      const usagePct = totalPoolCredits > 0 ? ((totalCredits / totalPoolCredits) * 100) : 0;
+      const usagePct = budgetCredits > 0 ? ((totalCredits / budgetCredits) * 100) : 0;
       const usageColor = usagePct >= 100 ? '#e57373' : usagePct >= 80 ? '#ffb74d' : '#81c784';
       const presetLabel = getRangePresetLabel();
 
@@ -1224,9 +1448,9 @@ export class DashboardPanel {
 
       setText('budgetUsedLabel', 'Range Used');
       setText('budgetUsageValue', usagePct.toFixed(1) + '%');
-      setText('budgetUsageSub', totalCredits.toFixed(0) + ' / ' + totalPoolCredits + ' cr');
-      setText('budgetRemainingValue', Math.max(0, totalPoolCredits - totalCredits).toFixed(0));
-      setText('budgetRemainingSub', 'of ' + totalPoolCredits + ' total');
+      setText('budgetUsageSub', totalCredits.toFixed(0) + ' / ' + budgetCredits + ' cr');
+      setText('budgetRemainingValue', Math.max(0, budgetCredits - totalCredits).toFixed(0));
+      setText('budgetRemainingSub', 'of ' + budgetCredits + ' total');
       const tokenDensity = totalCredits > 0 ? (totalTokens / totalCredits) : 0;
       setText('budgetTokenDensity', formatCompactNumber(tokenDensity));
       setText('budgetTokenDensitySub', totalCredits > 0 ? 'tokens per credit in range' : 'no credits in range');
@@ -1932,9 +2156,9 @@ export class DashboardPanel {
     return Math.round(sortedValues[idx]);
   }
 
-  private getUsagePresentation(periodCredits: number, totalPoolCredits: number): { usagePct: string } {
-    const usagePct = totalPoolCredits > 0
-      ? ((periodCredits / totalPoolCredits) * 100).toFixed(1)
+  private getUsagePresentation(periodCredits: number, budgetCredits: number): { usagePct: string } {
+    const usagePct = budgetCredits > 0
+      ? ((periodCredits / budgetCredits) * 100).toFixed(1)
       : "0";
     return { usagePct };
   }
@@ -1944,7 +2168,7 @@ export class DashboardPanel {
     periodEndMs: number,
     periodTurns: number,
     periodCredits: number,
-    totalPoolCredits: number
+    budgetCredits: number
   ): {
     daysRemaining: number;
     dailyBudgetRemaining: string;
@@ -1955,7 +2179,7 @@ export class DashboardPanel {
   } {
     const daysRemaining = Math.max(0, Math.ceil((periodEndMs - Date.now()) / (24 * 60 * 60 * 1000)));
     const dailyBudgetRemaining = daysRemaining > 0
-      ? ((totalPoolCredits - periodCredits) / daysRemaining).toFixed(1)
+      ? ((budgetCredits - periodCredits) / daysRemaining).toFixed(1)
       : "0";
 
     const msInDay = 24 * 60 * 60 * 1000;
@@ -1964,7 +2188,7 @@ export class DashboardPanel {
     const burnRate = periodCredits / daysSincePeriodStart;
     const projectedPeriodCredits = burnRate * totalDaysInPeriod;
     const forecastVisible = periodTurns >= 50 || periodCredits >= 0.5;
-    const forecastOverage = projectedPeriodCredits - totalPoolCredits;
+    const forecastOverage = projectedPeriodCredits - budgetCredits;
 
     return {
       daysRemaining,

@@ -48,8 +48,6 @@ export interface ExtensionConfig {
 
   // Plan
   plan: string;
-  creditsPerUser: number;
-  poolSize: number;
 
   // Display
   currency: string;
@@ -170,8 +168,6 @@ function readConfig(): ExtensionConfig {
     : [".prompt", ".md"];
 
   const plan = cfg.get<string>("plan") ?? "pro";
-  const creditsPerUser = Math.max(cfg.get<number>("creditsPerUser") ?? 180, 0);
-  const poolSize = Math.max(Math.round(cfg.get<number>("poolSize") ?? 1), 1);
 
   const currency = cfg.get<string>("currency") ?? "USD";
   const exchangeRate = Math.max(cfg.get<number>("exchangeRate") ?? 1, 0.0001);
@@ -197,8 +193,6 @@ function readConfig(): ExtensionConfig {
     excludedModels,
     enabledFileExtensions,
     plan,
-    creditsPerUser,
-    poolSize,
     currency,
     exchangeRate,
     showStatusBar,

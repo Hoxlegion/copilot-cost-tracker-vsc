@@ -44,13 +44,13 @@ A VS Code extension that tracks and visualizes your GitHub Copilot AI credit con
 
 ## Overview
 
-GitHub Copilot switched from flat request-based billing to token-based billing on **June 1, 2026**. Each model interaction now consumes AI credits based on the number of input, output, and cached tokens used. This extension reads that raw usage data directly from VS Code's internal telemetry and gives you a live view of your spend — inside the editor where you're actually doing the work.
+GitHub Copilot switched from flat request-based billing to token-based billing on **June 1, 2026**. Each model interaction now consumes AI credits based on the number of input, output, and cached tokens used. This extension reads that raw usage data directly from VS Code's internal telemetry and gives you a live view of your spend; inside the editor where you're **actually** doing the work.
 
 Key design goals:
-- **Zero external dependencies** at runtime — reads telemetry written by VS Code itself
-- **Accurate per-token billing** using official GitHub pricing tables
-- **Billing-period aware** — tracks against your actual cycle (any start day 1–31), not calendar month
-- **Non-intrusive** — passive observer only; no API calls, no credentials required
+- **Zero external dependencies** at runtime: reads telemetry written by VS Code itself
+- **Accurate per-token billing** using official GitHub pricing tables and allows for self-defined custom rates
+- **Billing-period aware** tracks against your actual cycle and lets you view any set period.
+- **Non-intrusive** passive observer only; no API calls, no credentials required.
 
 ---
 
@@ -163,13 +163,11 @@ All settings live under `copilotCostTracker.*` in VS Code Settings (UI or `setti
 | `budgetCredits` | `number` | `180` | Total AI credit budget for the billing period. Used for threshold alerts and the budget progress bar. |
 | `budgetWarningThresholds` | `number[]` | `[75, 90, 100]` | Percentage thresholds that trigger a one-time VS Code notification. Fired once per threshold per period. |
 
-### Plan & Pool
+### Plan
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `plan` | `string` | `"enterprise"` | Your Copilot plan: `pro`, `pro_plus`, `max`, `business`, or `enterprise`. |
-| `creditsPerUser` | `number` | `3900` | Monthly AI credits included in your plan per user. |
-| `poolSize` | `number` | `1` | Number of users whose credits are pooled at your billing entity level. |
 
 ### Data Ingestion
 

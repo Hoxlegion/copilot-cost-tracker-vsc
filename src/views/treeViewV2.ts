@@ -152,11 +152,7 @@ export class CostTreeProvider implements vscode.TreeDataProvider<CostTreeItem> {
 
   private getRootItems(): CostTreeItem[] {
     const config = vscode.workspace.getConfiguration("copilotCostTracker");
-    const creditsPerUser = config.get<number>("creditsPerUser", 3900);
-    const poolSize = config.get<number>("poolSize", 1);
-    const totalPoolCredits = creditsPerUser * poolSize;
-    const budgetCredits = config.get<number>("budgetCredits", totalPoolCredits);
-    const effectiveBudgetCredits = budgetCredits > 0 ? budgetCredits : totalPoolCredits;
+    const budgetCredits = config.get<number>("budgetCredits", 180);
     const billingCycleStartDay = config.get<number>("billingCycleStartDay", 1);
     const periodStartMs = getBillingPeriodStartMs(billingCycleStartDay);
 
@@ -174,8 +170,8 @@ export class CostTreeProvider implements vscode.TreeDataProvider<CostTreeItem> {
     const items: CostTreeItem[] = [];
 
     // ━━ Budget ━━
-    const usedPct = effectiveBudgetCredits > 0 ? (periodTotal.credits / effectiveBudgetCredits) * 100 : 0;
-    const remainingCredits = effectiveBudgetCredits - periodTotal.credits;
+    const usedPct = budgetCredits > 0 ? (periodTotal.credits / budgetCredits) * 100 : 0;
+    const remainingCredits = budgetCredits - periodTotal.credits;
     const progressBar = this.makeProgressBar(usedPct);
     let budgetIconColor = 'charts.green';
     if (usedPct > 90) { budgetIconColor = 'charts.red'; }
@@ -210,13 +206,8 @@ export class CostTreeProvider implements vscode.TreeDataProvider<CostTreeItem> {
         },
         {
           type: "budgetDetail",
-          label: `Target: ${effectiveBudgetCredits.toFixed(0)} cr (this period)`,
+          label: `Target: ${budgetCredits.toFixed(0)} cr (this period)`,
           iconId: "target",
-        },
-        {
-          type: "budgetDetail",
-          label: `Pool: ${totalPoolCredits} cr · ${poolSize} user(s)`,
-          iconId: "organization",
         },
       ],
     });
