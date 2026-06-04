@@ -27,6 +27,7 @@
     "github",
     "usage-analytics"
   ],
+  "icon": "media/icon.png",
   "activationEvents": [
     "onStartupFinished"
   ],
