@@ -84,6 +84,21 @@ export interface DailyAgentBreakdown {
   turnCount: number;
 }
 
+export interface CacheSavingsMetrics {
+  totalCacheWriteTokens: number;
+  totalCacheReadTokens: number;
+  totalSavingsCostUsd: number;
+  totalSavingsCredits: number;
+  byModel: Array<{
+    modelFamily: string;
+    cacheWriteTokens: number;
+    cacheReadTokens: number;
+    savingsCostUsd: number;
+    savingsCredits: number;
+    percentage: number;
+  }>;
+}
+
 export interface ModelLatencySample {
   model: string;
   duration: number;
@@ -1078,6 +1093,19 @@ export class CostDatabase {
   }
 
   /**
+   * Get the model_family of the most recently ingested turn.
+   * Used by the status bar context predictor (Feature E) to estimate cost
+   * using the model the user is most likely actively using.
+   */
+  getMostRecentModel(): string | null {
+    if (!this.db) { return null; }
+
+    const result = this.db.exec("SELECT model_family FROM turns ORDER BY timestamp DESC LIMIT 1");
+    if (result.length === 0 || result[0].values.length === 0) { return null; }
+    return (result[0].values[0][0] as string) || null;
+  }
+
+  /**
    * Get aggregated cost since a given timestamp.
    */
   getCostSince(sinceMs: number, workspace?: string): { costUsd: number; credits: number; turns: number } {
@@ -1283,6 +1311,72 @@ export class CostDatabase {
       premiumMisallocationCount,
       premiumMisallocationAvgCredits,
       massiveContextMaxInput,
+    };
+  }
+
+  /**
+   * Get cache savings metrics for a billing period.
+   * Cache savings = cost of tokens that hit cache (cache_read_tokens) +
+   * cost of caching for future use (cache_write_tokens).
+   */
+  getCacheSavingsMetrics(sinceMs: number, workspace?: string): CacheSavingsMetrics {    if (!this.db) {
+      return {
+        totalCacheWriteTokens: 0,
+        totalCacheReadTokens: 0,
+        totalSavingsCostUsd: 0,
+        totalSavingsCredits: 0,
+        byModel: [],
+      };
+    }
+
+    const safeSince = Number.isFinite(sinceMs) ? Math.floor(sinceMs) : 0;
+
+    // Query total cache tokens by model
+    const stmt = this.db.prepare(`
+      SELECT 
+        model_family,
+        SUM(COALESCE(cache_write_tokens, 0)) as total_write_tokens,
+        SUM(COALESCE(cached_tokens, 0)) as total_read_tokens
+      FROM turns
+      WHERE timestamp >= :since
+        AND (:workspace IS NULL OR workspace = :workspace)
+      GROUP BY model_family
+      ORDER BY total_write_tokens + total_read_tokens DESC
+    `);
+    stmt.bind({
+      ':since': safeSince,
+      ':workspace': workspace ?? null,
+    });
+
+    const byModel: CacheSavingsMetrics['byModel'] = [];
+    let totalWriteTokens = 0;
+    let totalReadTokens = 0;
+
+    while (stmt.step()) {
+      const row = stmt.getAsObject();
+      const writeTokens = (row.total_write_tokens as number) || 0;
+      const readTokens = (row.total_read_tokens as number) || 0;
+      
+      totalWriteTokens += writeTokens;
+      totalReadTokens += readTokens;
+
+      byModel.push({
+        modelFamily: row.model_family as string,
+        cacheWriteTokens: writeTokens,
+        cacheReadTokens: readTokens,
+        savingsCostUsd: 0, // Will be populated by PricingEngine
+        savingsCredits: 0,
+        percentage: 0,
+      });
+    }
+    stmt.free();
+
+    return {
+      totalCacheWriteTokens: totalWriteTokens,
+      totalCacheReadTokens: totalReadTokens,
+      totalSavingsCostUsd: 0, // Will be populated by PricingEngine
+      totalSavingsCredits: 0,
+      byModel,
     };
   }
 

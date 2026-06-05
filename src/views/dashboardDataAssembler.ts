@@ -3,7 +3,7 @@
  * Separates data gathering from view-model transformation and rendering.
  */
 
-import { CostDatabase, InsightMetrics } from "../database";
+import { CostDatabase, InsightMetrics, CacheSavingsMetrics } from "../database";
 import { TracesDbReader, SurfaceBreakdown } from "../parser";
 import { getBillingPeriodEndMs, getBillingPeriodStartMs } from "../billing";
 import { getAlerts, buildPlaybook, DashboardAlert, PlaybookRow } from "../insights";
@@ -13,6 +13,7 @@ export interface DashboardRawData {
   alerts: DashboardAlert[];
   playbook: PlaybookRow[];
   surfaceData: SurfaceBreakdown[];
+  cacheSavings: CacheSavingsMetrics;
   monthTotal: { costUsd: number; credits: number; turns: number };
   dailyCosts: Array<{ period: string; totalCostUsd: number; totalCredits: number; turnCount: number }>;
   dailyCostsForRange: Array<{ period: string; totalCostUsd: number; totalCredits: number; turnCount: number }>;
@@ -78,6 +79,7 @@ export class DashboardDataAssembler {
       allSessions,
       periodCredits,
       periodAggregate,
+      cacheSavings,
     ] = await Promise.all([
       Promise.resolve(this.database.getInsightMetrics(30)),
       this.reader.getSurfaceBreakdown(sinceMs30d),
@@ -91,6 +93,7 @@ export class DashboardDataAssembler {
       Promise.resolve(this.database.getSessionSummaries(undefined, 1000)),
       Promise.resolve(this.database.getCreditsSince(periodStartMs)),
       Promise.resolve(this.database.getCostSince(periodStartMs)),
+      Promise.resolve(this.database.getCacheSavingsMetrics(periodStartMs)),
     ]);
 
     const sessionModelRows = this.database.getSessionModelBreakdowns(allSessions.map((s) => s.sessionId));
@@ -122,6 +125,7 @@ export class DashboardDataAssembler {
       alerts,
       playbook,
       surfaceData,
+      cacheSavings,
       monthTotal,
       dailyCosts,
       dailyCostsForRange,

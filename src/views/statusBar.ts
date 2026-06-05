@@ -138,8 +138,51 @@ export class StatusBarIndicator implements vscode.Disposable {
     tooltip.appendMarkdown(`Session: **+$${sessionUsd.toFixed(2)}** (${sessionTotals.credits.toFixed(2)} credits)\n\n`);
     tooltip.appendMarkdown(`Period: **$${periodUsd.toFixed(2)}** · ${periodCredits.toFixed(2)} / ${budget} credits (${pct}%)\n\n`);
     tooltip.appendMarkdown(`Pacing: **${this.getPaceDisplayLabel(pace)}** · expected by now ${pace.expectedCreditsNow.toFixed(1)} credits\n\n`);
+
+    // Feature E: Context cost predictor
+    const contextEstimate = this.estimateContextCost();
+    if (contextEstimate !== null) {
+      tooltip.appendMarkdown(`Context: ~${contextEstimate.tokens.toLocaleString()} tokens → est. **$${contextEstimate.costUsd.toFixed(4)}** per call\n\n`);
+    }
+
     tooltip.appendMarkdown(`*Click for options*`);
     this.statusBarItem.tooltip = tooltip;
+  }
+
+  /**
+   * Estimate the context cost for the currently open editor documents.
+   * Uses a character-based token estimate (4 chars ≈ 1 token) and the
+   * input rate for the most recently observed model in the cost database.
+   * Returns null if no editors are open or estimation fails.
+   */
+  private estimateContextCost(): { tokens: number; costUsd: number } | null {
+    try {
+      const editors = vscode.window.visibleTextEditors;
+      if (editors.length === 0) { return null; }
+
+      // Sum characters across visible editors (cap at 500KB to avoid huge estimates)
+      const MAX_CHARS = 500_000;
+      let totalChars = 0;
+      for (const editor of editors) {
+        totalChars += Math.min(editor.document.getText().length, MAX_CHARS);
+        if (totalChars >= MAX_CHARS) { break; }
+      }
+
+      if (totalChars === 0) { return null; }
+
+      // 4 characters ≈ 1 token (consistent with estimates tab)
+      const tokens = Math.round(totalChars / 4);
+
+      // Get recent model from DB for cost calculation
+      const recentModel = this.database.getMostRecentModel();
+      const costUsd = recentModel
+        ? this.pricing.calculateCost(recentModel, tokens, 0, 0)
+        : this.pricing.calculateCost("gpt-5.4", tokens, 0, 0);
+
+      return { tokens, costUsd };
+    } catch {
+      return null;
+    }
   }
 
   /**

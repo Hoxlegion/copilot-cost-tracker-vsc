@@ -95,7 +95,7 @@ export class DashboardPanel {
     const cspSource = this.panel.webview.cspSource;
 
     // Extract raw data into local vars for backward compatibility with existing template
-    const { insightMetrics, alerts, playbook, surfaceData, monthTotal, dailyCosts, dailyCostsForRange, insightMetricsFullRange, modelBreakdown, agentBreakdown, dailyAgentBreakdown, allSessions, billingPeriodStartMs, billingPeriodEndMs, periodCredits, periodAggregate } = rawData;
+    const { insightMetrics, alerts, playbook, surfaceData, cacheSavings, monthTotal, dailyCosts, dailyCostsForRange, insightMetricsFullRange, modelBreakdown, agentBreakdown, dailyAgentBreakdown, allSessions, billingPeriodStartMs, billingPeriodEndMs, periodCredits, periodAggregate } = rawData;
 
     const sessionCount = allSessions.length;
     const agentBreakdownSliced = agentBreakdown.slice(0, 12);
@@ -177,6 +177,20 @@ export class DashboardPanel {
     const surfaceLabels = JSON.stringify(meaningfulSurfaces.map(s => s.label));
     const surfaceInputs = JSON.stringify(meaningfulSurfaces.map(s => s.inputTokens + s.cachedTokens));
 
+    // Surface cost breakdown (Feature C) — use agentBreakdown from cost DB
+    const surfaceCostView = this.buildSurfaceCostView(agentBreakdown);
+    const surfaceCostLabels = JSON.stringify(surfaceCostView.map(s => s.label));
+    const surfaceCostData = JSON.stringify(surfaceCostView.map(s => s.costUsd));
+    const surfaceCostTableHtml = surfaceCostView.map(s =>
+      `<tr>
+        <td>${s.label}</td>
+        <td style="text-align:right">${s.pct.toFixed(1)}%</td>
+        <td style="text-align:right">$${s.costUsd.toFixed(3)}</td>
+        <td style="text-align:right">${s.credits.toFixed(1)} cr</td>
+        <td style="text-align:right;color:var(--muted)">${s.turnCount}</td>
+      </tr>`
+    ).join('');
+
     // ── Estimates tab data ────────────────────────────────────────────────────
     const estimateData = this.buildEstimateData(insightMetrics, monthTotal.costUsd);
     const estHoursSaved = estimateData.estHoursSaved;
@@ -195,6 +209,9 @@ export class DashboardPanel {
 
     // ── Alert cards HTML ──────────────────────────────────────────────────────
     const alertCardsHtml = this.buildAlertCardsHtml(alerts);
+
+    // ── Cache savings — populate cost fields using pricing engine ──────────────
+    const cacheSavingsView = this.buildCacheSavingsView(cacheSavings, periodAggregate.costUsd);
 
     // ── Playbook table HTML ───────────────────────────────────────────────────
     const playbookRowsHtml = playbook.map(r =>
@@ -728,6 +745,12 @@ export class DashboardPanel {
         <div class="stat-value">${avgResponseLabel}</div>
         <div class="stat-sub">last 30 days</div>
       </div>
+      <div class="stat" style="${cacheSavingsView.hasSavings ? '' : 'opacity:0.5'}">
+        <div class="stat-label">Cache Savings (Period)</div>
+        <div class="stat-value" style="color:var(--green-color, #4caf50)">$${cacheSavingsView.savingsCostUsd}</div>
+        <div class="stat-sub">${cacheSavingsView.savingsCredits} cr · ${cacheSavingsView.savingsPct}% of spend${cacheSavingsView.hasSavings ? '' : ' · no data yet'}</div>
+        ${cacheSavingsView.hasSavings ? `<details style="margin-top:4px;font-size:0.8em"><summary style="cursor:pointer;color:var(--muted)">by model</summary><table style="width:100%;margin-top:4px">${cacheSavingsView.topModelRows}</table></details>` : ''}
+      </div>
     </div>
     <div class="chart-wrap">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
@@ -1042,7 +1065,16 @@ export class DashboardPanel {
         <div class="chart-wrap"><canvas id="tokenTrendChart"></canvas></div>
       </div>
       <div>
-        <div class="chart-section-title">Cost by Surface (total input tokens)</div>
+        <div class="chart-section-title">Spend by Action Type (30d)</div>
+        <div class="chart-wrap" style="display:flex;align-items:center;justify-content:center">
+          ${surfaceCostView.length > 0 ? '<canvas id="surfaceCostPieChart"></canvas>' : '<span style="color:var(--muted);font-size:12px">No data yet</span>'}
+        </div>
+        ${surfaceCostView.length > 0 ? `<table style="margin-top:8px;width:100%;font-size:11px"><thead><tr><th>Surface</th><th style="text-align:right">%</th><th style="text-align:right">Cost</th><th style="text-align:right">Credits</th><th style="text-align:right;color:var(--muted)">Turns</th></tr></thead><tbody>${surfaceCostTableHtml}</tbody></table>` : ''}
+      </div>
+    </div>
+    <div class="chart-grid">
+      <div>
+        <div class="chart-section-title">Token Distribution by Surface (total input tokens)</div>
         <div class="chart-wrap" style="display:flex;align-items:center;justify-content:center">
           ${this.getSurfacePieHtml(meaningfulSurfaces.length > 0)}
         </div>
@@ -2196,6 +2228,34 @@ export class DashboardPanel {
       });
     }
 
+    // Feature C: Spend by action type (cost-based surface breakdown)
+    const surfaceCostLabels = ${surfaceCostLabels};
+    const surfaceCostData = ${surfaceCostData};
+    if (surfaceCostLabels.length > 0) {
+      new Chart(document.getElementById('surfaceCostPieChart'), {
+        type: 'doughnut',
+        data: {
+          labels: surfaceCostLabels,
+          datasets: [{ data: surfaceCostData, backgroundColor: colors.slice(0, surfaceCostLabels.length) }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: {
+            legend: { labels: { color: textColor, font: { size: 11 } }, position: 'right' },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => {
+                  const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+                  const pct = total > 0 ? ((ctx.parsed / total) * 100).toFixed(1) : '0';
+                  return ctx.label + ': $' + ctx.parsed.toFixed(3) + ' (' + pct + '%)';
+                }
+              }
+            }
+          }
+        }
+      });
+    }
+
     renderAgentsForRange();
     applyPreset('period');
   </script>
@@ -2311,6 +2371,79 @@ export class DashboardPanel {
       ? Math.round(totalBillableInput30d / insightMetrics.totalTurns / 100) / 10
       : 0;
     return { totalBillableInput30d, avgInputPerTurn };
+  }
+
+  private buildSurfaceCostView(
+    agentBreakdown: Array<{ agentName: string; totalCostUsd: number; totalCredits: number; turnCount: number; percentage: number }>
+  ): Array<{ label: string; costUsd: number; credits: number; turnCount: number; pct: number }> {
+    // Map raw agent_name values to human-readable surface labels (matching tracesDbReader.ts)
+    const labelMap: Record<string, string> = {
+      "GitHub Copilot Chat": "Sidebar Chat",
+      "panel/editAgent": "Inline Chat",
+      "XtabProvider": "Next Edit Suggestions",
+      "summarizeConversationHistory": "Context Summarization",
+      "progressMessages": "Background Processing",
+      "title": "Title Generation",
+    };
+
+    const totalCost = agentBreakdown.reduce((sum, r) => sum + r.totalCostUsd, 0);
+    return agentBreakdown.filter(r => r.totalCostUsd > 0).map(r => ({
+      label: labelMap[r.agentName] ?? r.agentName ?? "Other",
+      costUsd: r.totalCostUsd,
+      credits: r.totalCredits,
+      turnCount: r.turnCount,
+      pct: totalCost > 0 ? (r.totalCostUsd / totalCost) * 100 : 0,
+    }));
+  }
+
+  private buildCacheSavingsView(
+    cacheSavings: import("../database").CacheSavingsMetrics,
+    periodCostUsd: number
+  ): {
+    hasSavings: boolean;
+    savingsCostUsd: string;
+    savingsCredits: string;
+    savingsPct: string;
+    topModelRows: string;
+  } {
+    // Populate per-model costs from pricing engine
+    let totalSavingsCostUsd = 0;
+
+    for (const entry of cacheSavings.byModel) {
+      const cost = this.pricing.calculateCacheSavingsCost(
+        entry.modelFamily,
+        entry.cacheWriteTokens,
+        entry.cacheReadTokens
+      );
+      entry.savingsCostUsd = cost;
+      entry.savingsCredits = cost * 100;
+      totalSavingsCostUsd += cost;
+    }
+
+    cacheSavings.totalSavingsCostUsd = totalSavingsCostUsd;
+    cacheSavings.totalSavingsCredits = totalSavingsCostUsd * 100;
+
+    // Populate per-model percentage
+    for (const entry of cacheSavings.byModel) {
+      entry.percentage = totalSavingsCostUsd > 0 ? (entry.savingsCostUsd / totalSavingsCostUsd) * 100 : 0;
+    }
+
+    const savingsPct = periodCostUsd > 0 && totalSavingsCostUsd > 0
+      ? ((totalSavingsCostUsd / (periodCostUsd + totalSavingsCostUsd)) * 100).toFixed(1)
+      : "0.0";
+
+    const topModels = cacheSavings.byModel.filter(e => e.savingsCostUsd > 0).slice(0, 4);
+    const topModelRows = topModels.map(e =>
+      `<tr><td>${e.modelFamily}</td><td style="text-align:right;">${e.percentage.toFixed(0)}%</td><td style="text-align:right;color:var(--green-color, #4caf50);">$${e.savingsCostUsd.toFixed(3)}</td></tr>`
+    ).join('');
+
+    return {
+      hasSavings: totalSavingsCostUsd > 0,
+      savingsCostUsd: totalSavingsCostUsd.toFixed(3),
+      savingsCredits: (totalSavingsCostUsd * 100).toFixed(1),
+      savingsPct,
+      topModelRows,
+    };
   }
 
   private buildEstimateData(insightMetrics: InsightMetrics, monthCostUsd: number): {

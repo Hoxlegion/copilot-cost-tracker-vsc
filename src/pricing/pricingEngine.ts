@@ -224,4 +224,30 @@ export class PricingEngine {
 
     return inputCost + outputCost + cachedCost + cacheWriteCost;
   }
+
+  /**
+   * Calculate the cost of cache tokens (write + read) for a given model.
+   * Used to compute cache savings metrics.
+   * Returns cost in USD.
+   */
+  calculateCacheSavingsCost(
+    modelFamily: string,
+    cacheWriteTokens: number,
+    cacheReadTokens: number
+  ): number {
+    const pricing = this.getModelPricing(modelFamily);
+    if (!pricing) {
+      // Use fallback pricing if model not found
+      const writeTokensCost = (cacheWriteTokens / 1_000_000) * (pricing?.cacheWrite ?? DEFAULT_FALLBACK_RATE.cacheWrite ?? 0);
+      const readTokensCost = (cacheReadTokens / 1_000_000) * (pricing?.cached ?? DEFAULT_FALLBACK_RATE.cached ?? 0);
+      return writeTokensCost + readTokensCost;
+    }
+
+    // Cache write cost (if available) + cache read cost (cached rate)
+    const writeTokensCost = pricing.cacheWrite
+      ? (cacheWriteTokens / 1_000_000) * pricing.cacheWrite
+      : 0;
+    const readTokensCost = (cacheReadTokens / 1_000_000) * pricing.cached;
+    return writeTokensCost + readTokensCost;
+  }
 }
