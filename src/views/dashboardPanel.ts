@@ -95,7 +95,7 @@ export class DashboardPanel {
     const cspSource = this.panel.webview.cspSource;
 
     // Extract raw data into local vars for backward compatibility with existing template
-    const { insightMetrics, alerts, playbook, surfaceData, cacheSavings, monthTotal, dailyCosts, dailyCostsForRange, insightMetricsFullRange, modelBreakdown, agentBreakdown, dailyAgentBreakdown, allSessions, billingPeriodStartMs, billingPeriodEndMs, periodCredits, periodAggregate } = rawData;
+    const { insightMetrics, alerts, playbook, surfaceData, turnDiscovery, cacheSavings, monthTotal, dailyCosts, dailyCostsForRange, insightMetricsFullRange, modelBreakdown, agentBreakdown, dailyAgentBreakdown, allSessions, billingPeriodStartMs, billingPeriodEndMs, periodCredits, periodAggregate } = rawData;
 
     const sessionCount = allSessions.length;
     const agentBreakdownSliced = agentBreakdown.slice(0, 12);
@@ -184,10 +184,10 @@ export class DashboardPanel {
     const surfaceCostTableHtml = surfaceCostView.map(s =>
       `<tr>
         <td>${s.label}</td>
-        <td style="text-align:right">${s.pct.toFixed(1)}%</td>
-        <td style="text-align:right">$${s.costUsd.toFixed(3)}</td>
-        <td style="text-align:right">${s.credits.toFixed(1)} cr</td>
-        <td style="text-align:right;color:var(--muted)">${s.turnCount}</td>
+        <td class="num">${s.pct.toFixed(1)}%</td>
+        <td class="num">$${s.costUsd.toFixed(3)}</td>
+        <td class="num">${s.credits.toFixed(1)} cr</td>
+        <td class="num" style="color:var(--muted)">${s.turnCount}</td>
       </tr>`
     ).join('');
 
@@ -213,6 +213,11 @@ export class DashboardPanel {
     // ── Cache savings — populate cost fields using pricing engine ──────────────
     const cacheSavingsView = this.buildCacheSavingsView(cacheSavings, periodAggregate.costUsd);
 
+    // ── Workspace and freshness context ─────────────────────────────────────────
+    const workspaceSummaryView = this.buildWorkspaceSummaryView(allSessions);
+    const recentSessionRowsHtml = this.buildRecentSessionRowsHtml(allSessions);
+    const freshnessLabel = this.formatFreshnessLabel(workspaceSummaryView.lastUpdatedMs);
+
     // ── Playbook table HTML ───────────────────────────────────────────────────
     const playbookRowsHtml = playbook.map(r =>
       `<tr>
@@ -227,6 +232,7 @@ export class DashboardPanel {
     const sessionsJson = JSON.stringify(allSessions.map((s) => ({
       ts: s.startTimestamp,
       sessionId: s.sessionId,
+      workspace: s.workspace,
       model: s.primaryModel,
       turns: s.turnCount,
       costUsd: s.totalCostUsd,
@@ -238,6 +244,7 @@ export class DashboardPanel {
       avgLatencyMs: Math.round(s.avgDurationMs),
       modelBreakdown: s.modelBreakdown,
     })));
+    const turnDiscoveryJson = JSON.stringify(turnDiscovery.slice(0, 400));
 
     return /*html*/ `<!DOCTYPE html>
 <html lang="en">
@@ -537,6 +544,33 @@ export class DashboardPanel {
       background: var(--border);
       color: var(--fg);
     }
+    .freshness-chip {
+      margin-left: auto;
+      font-size: 11px;
+      color: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 3px 10px;
+      background: color-mix(in srgb, var(--card-bg) 75%, transparent);
+    }
+
+    .insight-panel {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 12px;
+      background: color-mix(in srgb, var(--card-bg) 72%, transparent);
+      margin-top: 12px;
+    }
+    .insight-panel h4 {
+      margin: 0 0 6px 0;
+      font-size: 12px;
+      color: var(--fg);
+    }
+    .insight-note {
+      font-size: 11px;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
 
     /* Help Button & Modal */
     .help-button {
@@ -702,6 +736,7 @@ export class DashboardPanel {
     <button class="action apply" id="globalApply">Apply</button>
     <button class="action reset" id="globalReset">Reset</button>
     <span id="globalRangeSummary" class="label"></span>
+    <span class="freshness-chip" title="Last ingested turn timestamp">Updated: ${freshnessLabel}</span>
   </div>
 
   ${unknownModelBannerHtml}
@@ -736,6 +771,11 @@ export class DashboardPanel {
         <div class="stat-sub" id="overviewSessionCountSub">current range</div>
       </div>
       <div class="stat">
+        <div class="stat-label">Top Workspace (Range)</div>
+        <div class="stat-value" style="font-size:15px;line-height:1.2">${workspaceSummaryView.topWorkspaceLabel}</div>
+        <div class="stat-sub">$${workspaceSummaryView.topWorkspaceCostUsd.toFixed(2)} · ${workspaceSummaryView.topWorkspaceSessions} sessions</div>
+      </div>
+      <div class="stat">
         <div class="stat-label">LLM Calls</div>
         <div class="stat-value" id="overviewCallCount">${monthTotal.turns}</div>
         <div class="stat-sub" id="overviewCallCountSub">turns in range</div>
@@ -745,11 +785,10 @@ export class DashboardPanel {
         <div class="stat-value">${avgResponseLabel}</div>
         <div class="stat-sub">last 30 days</div>
       </div>
-      <div class="stat" style="${cacheSavingsView.hasSavings ? '' : 'opacity:0.5'}">
+      <div class="stat">
         <div class="stat-label">Cache Savings (Period)</div>
-        <div class="stat-value" style="color:var(--green-color, #4caf50)">$${cacheSavingsView.savingsCostUsd}</div>
-        <div class="stat-sub">${cacheSavingsView.savingsCredits} cr · ${cacheSavingsView.savingsPct}% of spend${cacheSavingsView.hasSavings ? '' : ' · no data yet'}</div>
-        ${cacheSavingsView.hasSavings ? `<details style="margin-top:4px;font-size:0.8em"><summary style="cursor:pointer;color:var(--muted)">by model</summary><table style="width:100%;margin-top:4px">${cacheSavingsView.topModelRows}</table></details>` : ''}
+        <div class="stat-value" style="color:${cacheSavingsView.hasSavings ? 'var(--vscode-charts-green, #4caf50)' : 'var(--muted)'}">${cacheSavingsView.hasSavings ? '$' + cacheSavingsView.savingsCostUsd : '—'}</div>
+        <div class="stat-sub">${cacheSavingsView.hasSavings ? cacheSavingsView.savingsCredits + ' cr · ' + cacheSavingsView.savingsPct + '% of spend' : 'No cache data this period'}</div>
       </div>
     </div>
     <div class="chart-wrap">
@@ -1040,7 +1079,7 @@ export class DashboardPanel {
       <div class="stat">
         <div class="stat-label">Cache Hit Rate (Range)</div>
         <div class="stat-value" id="insightCacheHitValue" style="color:${cacheHitColor}">${insightMetrics.cacheHitPct.toFixed(1)}%</div>
-        <div class="stat-sub" id="insightCacheHitSub">${(insightMetrics.totalCachedTokens / 1000).toFixed(0)}K cached of ${((insightMetrics.totalInputTokens + insightMetrics.totalCachedTokens) / 1000).toFixed(0)}K total input</div>
+        <div class="stat-sub" id="insightCacheHitSub">${(insightMetrics.totalCachedTokens / 1000).toFixed(0)}K cached of ${((insightMetrics.totalInputTokens + insightMetrics.totalCachedTokens) / 1000).toFixed(0)}K total input · ${insightMetrics.cacheHitPct >= 70 ? 'Excellent' : insightMetrics.cacheHitPct >= 40 ? 'Moderate — reuse files across sessions' : 'Low — avoid large one-off pastes'}</div>
         <div class="budget-bar"><div class="budget-fill" id="insightCacheHitFill" style="width:${Math.min(100, insightMetrics.cacheHitPct)}%;background:${cacheHitColor}"></div></div>
       </div>
       <div class="stat">
@@ -1069,28 +1108,64 @@ export class DashboardPanel {
         <div class="chart-wrap" style="display:flex;align-items:center;justify-content:center">
           ${surfaceCostView.length > 0 ? '<canvas id="surfaceCostPieChart"></canvas>' : '<span style="color:var(--muted);font-size:12px">No data yet</span>'}
         </div>
-        ${surfaceCostView.length > 0 ? `<table style="margin-top:8px;width:100%;font-size:11px"><thead><tr><th>Surface</th><th style="text-align:right">%</th><th style="text-align:right">Cost</th><th style="text-align:right">Credits</th><th style="text-align:right;color:var(--muted)">Turns</th></tr></thead><tbody>${surfaceCostTableHtml}</tbody></table>` : ''}
       </div>
     </div>
-    <div class="chart-grid">
-      <div>
-        <div class="chart-section-title">Token Distribution by Surface (total input tokens)</div>
-        <div class="chart-wrap" style="display:flex;align-items:center;justify-content:center">
-          ${this.getSurfacePieHtml(meaningfulSurfaces.length > 0)}
-        </div>
-      </div>
-    </div>
-    <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
-      <div class="chart-section-title" style="margin-bottom:8px">Cache Hit Rate Interpretation</div>
-      <table>
-        <thead><tr><th>Rate</th><th>Meaning</th><th>Action</th></tr></thead>
-        <tbody>
-          <tr><td>>70%</td><td>Excellent — context is being reused efficiently</td><td>No action needed</td></tr>
-          <tr><td>40–70%</td><td>Moderate — some context churn</td><td>Reuse the same files across sessions where possible</td></tr>
-          <tr><td><40%</td><td>Poor — context is being rebuilt on every prompt</td><td>Open fewer unique files per session; avoid large one-off pastes</td></tr>
-        </tbody>
+    ${surfaceCostView.length > 0 ? `
+    <div style="margin-top:4px">
+      <div class="chart-section-title" style="margin-bottom:6px">Action Type Breakdown (30d)</div>
+      <table style="font-size:12px">
+        <thead><tr><th>Surface</th><th class="num">%</th><th class="num">Cost</th><th class="num">Credits</th><th class="num" style="color:var(--muted)">Turns</th></tr></thead>
+        <tbody>${surfaceCostTableHtml}</tbody>
+      </table>
+    </div>` : ''}
+    <div class="insight-panel">
+      <h4>Workspace Focus (Current Range)</h4>
+      <div class="insight-note">Where costs are concentrated right now. Use this to decide where to optimize first.</div>
+      <table style="font-size:12px">
+        <thead><tr><th>Workspace</th><th class="num">Cost</th><th class="num">Credits</th><th class="num">Sessions</th><th class="num">LLM Calls</th></tr></thead>
+        <tbody>${workspaceSummaryView.workspaceRowsHtml}</tbody>
       </table>
     </div>
+    <div class="insight-panel">
+      <h4>Recent Session Snapshots</h4>
+      <div class="insight-note">Compact turn-level view: latest sessions, active model, call volume and cache efficiency.</div>
+      <table style="font-size:12px">
+        <thead><tr><th>Last Active</th><th>Workspace</th><th>Session</th><th>Primary Model</th><th class="num">LLM Calls</th><th class="num">Cache Hit</th><th class="num">Cost</th></tr></thead>
+        <tbody>${recentSessionRowsHtml}</tbody>
+      </table>
+    </div>
+    <div class="insight-panel">
+      <h4>Discovery: Turn / LLM Calls / Tool Calls</h4>
+      <div class="insight-note">Recent turns grouped by session + turn index. Expand rows to inspect agent, model and tool usage.</div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+        <button id="discoveryExpandAll" style="font-size:11px;border:1px solid var(--border);border-radius:4px;padding:3px 8px;background:var(--card-bg);color:var(--fg);cursor:pointer">Expand all</button>
+        <button id="discoveryCollapseAll" style="font-size:11px;border:1px solid var(--border);border-radius:4px;padding:3px 8px;background:var(--card-bg);color:var(--fg);cursor:pointer">Collapse all</button>
+        <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)">
+          <input id="discoveryOnlyTools" type="checkbox">
+          Only rows with tools
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)">
+          <input id="discoveryOnlyAnomalies" type="checkbox">
+          Only anomalies
+        </label>
+      </div>
+      <table style="font-size:12px">
+        <thead><tr><th></th><th class="sortable" data-sort="turnIndex">Turn</th><th>Session</th><th class="num sortable" data-sort="llmCalls">LLM</th><th class="num sortable" data-sort="toolCalls">Tools</th><th class="num sortable" data-sort="inputTotal">Input</th><th class="num sortable" data-sort="outputTokens">Output</th><th class="num sortable" data-sort="cacheHitPct">Cache%</th></tr></thead>
+        <tbody id="discoveryBody"></tbody>
+      </table>
+    </div>
+    ${cacheSavingsView.hasSavings ? `
+    <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+      <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:8px">
+        <div class="chart-section-title" style="margin-bottom:0">Cache Savings (Period)</div>
+        <span style="font-size:18px;font-weight:700;color:var(--vscode-charts-green,#4caf50)">$${cacheSavingsView.savingsCostUsd}</span>
+        <span style="font-size:11px;color:var(--muted)">${cacheSavingsView.savingsCredits} cr · ${cacheSavingsView.savingsPct}% of period spend</span>
+      </div>
+      <table style="font-size:12px">
+        <thead><tr><th>Model</th><th class="num">%</th><th class="num" style="color:var(--vscode-charts-green,#4caf50)">Saved</th></tr></thead>
+        <tbody>${cacheSavingsView.topModelRows}</tbody>
+      </table>
+    </div>` : ''}
     </div><!-- end 30d stats wrapper -->
   </div>
 
@@ -1152,12 +1227,22 @@ export class DashboardPanel {
 
   <script nonce="${nonce}">
     // Tab switching
+    function switchToTab(tabName) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      const tab = document.querySelector('.tab[data-tab="' + tabName + '"]');
+      if (tab) {
+        tab.classList.add('active');
+      }
+      const content = document.getElementById('tab-' + tabName);
+      if (content) {
+        content.classList.add('active');
+      }
+    }
+
     document.querySelectorAll('.tab').forEach(tab => {
       tab.addEventListener('click', () => {
-        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-        tab.classList.add('active');
-        document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+        switchToTab(tab.dataset.tab);
       });
     });
 
@@ -1282,6 +1367,7 @@ export class DashboardPanel {
     });
 
     const sessions = ${sessionsJson};
+    const turnDiscovery = ${turnDiscoveryJson};
     const MAX_SESSION_ROWS = 500;
     const globalFilter = {
       preset: 'period',
@@ -1292,7 +1378,22 @@ export class DashboardPanel {
     const sessionsSort = { key: 'ts', dir: 'desc' };
     const modelsSort = { key: 'cost', dir: 'desc' };
     const tokensSort = { key: 'totalCost', dir: 'desc' };
+    const discoverySort = { key: 'lastTimeMs', dir: 'desc' };
+    const discoveryState = {
+      onlyTools: false,
+      onlyAnomalies: false,
+      expandAll: false,
+      expandedKeys: new Set(),
+    };
     let overviewChartMode = 'cost';
+
+    function getDiscoveryKey(row) {
+      return String(row.chatSessionId || '') + '::' + String(Number(row.turnIndex || 0));
+    }
+
+    function isDiscoveryAnomaly(row) {
+      return Number(row.cacheHitPct || 0) < 40 || Number(row.toolCalls || 0) > 0;
+    }
 
     function formatLocalDateTimeInput(ts) {
       const d = new Date(ts);
@@ -1780,6 +1881,7 @@ export class DashboardPanel {
       sessionsBody.innerHTML = '';
       visible.forEach(s => {
         const tr = document.createElement('tr');
+        tr.dataset.sessionId = s.sessionId;
         const toggleTd = document.createElement('td');
         const toggleButton = document.createElement('button');
         toggleButton.type = 'button';
@@ -1826,6 +1928,148 @@ export class DashboardPanel {
       });
       const suffix = filtered.length > MAX_SESSION_ROWS ? ' (showing first ' + MAX_SESSION_ROWS + ')' : '';
       sessionCountEl.textContent = filtered.length + ' of ' + sessions.length + ' sessions' + suffix;
+    }
+
+    function formatTurnLabel(turnIndex) {
+      return 'Turn ' + String(Number(turnIndex) + 1);
+    }
+
+    function renderTurnDiscovery(baseSessions) {
+      const body = document.getElementById('discoveryBody');
+      if (!body) {
+        return;
+      }
+
+      const visibleSessionIds = new Set(baseSessions.map(s => s.sessionId));
+      const rows = turnDiscovery
+        .filter(r => visibleSessionIds.has(r.chatSessionId))
+        .filter(r => !discoveryState.onlyTools || Number(r.toolCalls || 0) > 0)
+        .map(r => ({
+          ...r,
+          inputTotal: Number(r.inputTokens || 0) + Number(r.cachedTokens || 0),
+        }))
+        .filter(r => !discoveryState.onlyAnomalies || isDiscoveryAnomaly(r))
+        .sort((a, b) => compareValues(a[discoverySort.key], b[discoverySort.key], discoverySort.dir))
+        .slice(0, 120);
+
+      body.innerHTML = '';
+
+      if (rows.length === 0) {
+        body.innerHTML = '<tr><td colspan="8" style="color:var(--muted)">No discovery rows in this range yet</td></tr>';
+        return;
+      }
+
+      rows.forEach((r) => {
+        const discoveryKey = getDiscoveryKey(r);
+        const tr = document.createElement('tr');
+        const toggleTd = document.createElement('td');
+        const toggleButton = document.createElement('button');
+        toggleButton.type = 'button';
+        toggleButton.textContent = '▸';
+        toggleButton.title = 'Show turn details';
+        toggleButton.style.width = '20px';
+        toggleButton.style.height = '20px';
+        toggleButton.style.border = '1px solid var(--border)';
+        toggleButton.style.background = 'var(--card-bg)';
+        toggleButton.style.color = 'var(--fg)';
+        toggleButton.style.borderRadius = '3px';
+        toggleButton.style.cursor = 'pointer';
+        toggleTd.appendChild(toggleButton);
+        tr.appendChild(toggleTd);
+
+        appendCell(tr, formatTurnLabel(r.turnIndex));
+        appendCell(tr, r.chatSessionId.length > 12 ? (r.chatSessionId.slice(0, 6) + '…' + r.chatSessionId.slice(-4)) : r.chatSessionId, '', r.chatSessionId);
+        appendCell(tr, Number(r.llmCalls || 0), 'num');
+        appendCell(tr, Number(r.toolCalls || 0), 'num');
+        appendCell(tr, formatCompactNumber(Number(r.inputTotal || 0)), 'num');
+        appendCell(tr, formatCompactNumber(Number(r.outputTokens || 0)), 'num');
+        const cacheTd = document.createElement('td');
+        cacheTd.className = 'num';
+        const cachePct = Number(r.cacheHitPct || 0);
+        cacheTd.textContent = cachePct.toFixed(1) + '%';
+        if (cachePct >= 70) {
+          cacheTd.style.color = '#81c784';
+        } else if (cachePct >= 40) {
+          cacheTd.style.color = '#ffb74d';
+        } else {
+          cacheTd.style.color = '#e57373';
+        }
+        tr.appendChild(cacheTd);
+
+        const detailTr = document.createElement('tr');
+        const isOpen = discoveryState.expandAll || discoveryState.expandedKeys.has(discoveryKey);
+        detailTr.style.display = isOpen ? '' : 'none';
+        const detailTd = document.createElement('td');
+        detailTd.colSpan = 8;
+
+        const detailWrap = document.createElement('div');
+        detailWrap.style.padding = '10px 12px';
+        detailWrap.style.background = 'var(--card-bg)';
+        detailWrap.style.border = '1px solid var(--border)';
+        detailWrap.style.borderRadius = '4px';
+
+        const lastActive = Number(r.lastTimeMs || 0) > 0
+          ? new Date(Number(r.lastTimeMs)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+          : '—';
+        const models = Array.isArray(r.models) && r.models.length > 0 ? r.models.join(', ') : 'unknown';
+        const agents = Array.isArray(r.agents) && r.agents.length > 0 ? r.agents.join(', ') : 'unknown';
+        const tools = Array.isArray(r.tools) && r.tools.length > 0 ? r.tools.join(', ') : 'none';
+
+        detailWrap.innerHTML =
+          '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">'
+          + '<div style="font-size:11px;color:var(--muted)">Last active: ' + lastActive + ' · Session: ' + r.chatSessionId + '</div>'
+          + '<button class="goto-session" data-session-id="' + r.chatSessionId + '" style="font-size:11px;border:1px solid var(--border);border-radius:4px;padding:3px 8px;background:var(--card-bg);color:var(--accent);cursor:pointer">Open in Sessions</button>'
+          + '</div>'
+          + '<div style="margin-top:8px;font-size:12px">'
+          + '<div><strong>Models:</strong> ' + models + '</div>'
+          + '<div><strong>Agents:</strong> ' + agents + '</div>'
+          + '<div><strong>Tools:</strong> ' + tools + '</div>'
+          + '</div>';
+        detailTd.appendChild(detailWrap);
+        detailTr.appendChild(detailTd);
+
+        toggleButton.addEventListener('click', () => {
+          const isClosed = detailTr.style.display === 'none';
+          detailTr.style.display = isClosed ? '' : 'none';
+          toggleButton.textContent = isClosed ? '▾' : '▸';
+          toggleButton.title = isClosed ? 'Hide turn details' : 'Show turn details';
+          if (isClosed) {
+            discoveryState.expandedKeys.add(discoveryKey);
+          } else {
+            discoveryState.expandedKeys.delete(discoveryKey);
+          }
+        });
+
+        if (isOpen) {
+          toggleButton.textContent = '▾';
+          toggleButton.title = 'Hide turn details';
+        }
+
+        body.appendChild(tr);
+        body.appendChild(detailTr);
+      });
+    }
+
+    function jumpToSession(sessionId) {
+      if (!sessionId) {
+        return;
+      }
+
+      switchToTab('sessions');
+      rerenderAll();
+
+      const row = Array.from(document.querySelectorAll('#sessionsBody tr')).find((el) => el.dataset && el.dataset.sessionId === sessionId);
+      if (!row) {
+        return;
+      }
+
+      row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      row.style.outline = '1px solid var(--accent)';
+      row.style.background = 'color-mix(in srgb, var(--accent) 14%, transparent)';
+      setTimeout(() => {
+        row.style.outline = '';
+        row.style.background = '';
+      }, 1600);
     }
 
     const budgetModelsBody = document.getElementById('budgetModelsBody');
@@ -1986,13 +2230,66 @@ export class DashboardPanel {
       updateTokensSummary(baseSessions, modelRows, filteredInsightDays);
       updateOverviewAndBudget(baseSessions, modelRows, filteredDailySeries, filteredInsightDays);
       renderInsightsFromRange(baseSessions);
+      renderTurnDiscovery(baseSessions);
 
       document.getElementById('globalRangeSummary').textContent = getRangeSummary(globalFilter.fromMs, globalFilter.toMs);
+    }
+
+    document.addEventListener('click', (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) {
+        return;
+      }
+      const btn = target.closest('.goto-session');
+      if (!(btn instanceof HTMLElement)) {
+        return;
+      }
+      const sessionId = btn.dataset.sessionId || '';
+      if (sessionId) {
+        jumpToSession(sessionId);
+      }
+    });
+
+    const discoveryExpandAllBtn = document.getElementById('discoveryExpandAll');
+    const discoveryCollapseAllBtn = document.getElementById('discoveryCollapseAll');
+    const discoveryOnlyToolsEl = document.getElementById('discoveryOnlyTools');
+    const discoveryOnlyAnomaliesEl = document.getElementById('discoveryOnlyAnomalies');
+
+    if (discoveryOnlyToolsEl) {
+      discoveryOnlyToolsEl.checked = discoveryState.onlyTools;
+      discoveryOnlyToolsEl.addEventListener('change', () => {
+        discoveryState.onlyTools = Boolean(discoveryOnlyToolsEl.checked);
+        rerenderAll();
+      });
+    }
+
+    if (discoveryOnlyAnomaliesEl) {
+      discoveryOnlyAnomaliesEl.checked = discoveryState.onlyAnomalies;
+      discoveryOnlyAnomaliesEl.addEventListener('change', () => {
+        discoveryState.onlyAnomalies = Boolean(discoveryOnlyAnomaliesEl.checked);
+        rerenderAll();
+      });
+    }
+
+    if (discoveryExpandAllBtn) {
+      discoveryExpandAllBtn.addEventListener('click', () => {
+        discoveryState.expandAll = true;
+        rerenderAll();
+      });
+    }
+
+    if (discoveryCollapseAllBtn) {
+      discoveryCollapseAllBtn.addEventListener('click', () => {
+        discoveryState.expandAll = false;
+        discoveryState.expandedKeys.clear();
+        rerenderAll();
+      });
     }
 
     bindSortHandlers('tab-sessions', sessionsSort, rerenderAll);
     bindSortHandlers('tab-models', modelsSort, rerenderAll);
     bindSortHandlers('tab-tokens', tokensSort, rerenderAll);
+    bindSortHandlers('tab-insights', discoverySort, rerenderAll);
 
     bindFilterInputs(['sessionsFilterDate', 'sessionsFilterModel', 'sessionsFilterTurns', 'sessionsFilterCost', 'sessionsFilterCredits', 'sessionsFilterTokens', 'sessionsFilterCachePct', 'sessionsFilterLatency'], rerenderAll);
     bindFilterInputs(['modelsFilterModel', 'modelsFilterTurns', 'modelsFilterCost', 'modelsFilterPct', 'modelsFilterTokens', 'modelsFilterCachePct', 'modelsFilterAvg', 'modelsFilterTail'], rerenderAll);
@@ -2432,9 +2729,9 @@ export class DashboardPanel {
       ? ((totalSavingsCostUsd / (periodCostUsd + totalSavingsCostUsd)) * 100).toFixed(1)
       : "0.0";
 
-    const topModels = cacheSavings.byModel.filter(e => e.savingsCostUsd > 0).slice(0, 4);
+    const topModels = cacheSavings.byModel.filter(e => e.savingsCostUsd > 0).slice(0, 6);
     const topModelRows = topModels.map(e =>
-      `<tr><td>${e.modelFamily}</td><td style="text-align:right;">${e.percentage.toFixed(0)}%</td><td style="text-align:right;color:var(--green-color, #4caf50);">$${e.savingsCostUsd.toFixed(3)}</td></tr>`
+      `<tr><td>${e.modelFamily}</td><td class="num">${e.percentage.toFixed(0)}%</td><td class="num">$${e.savingsCostUsd.toFixed(3)}</td></tr>`
     ).join('');
 
     return {
@@ -2444,6 +2741,147 @@ export class DashboardPanel {
       savingsPct,
       topModelRows,
     };
+  }
+
+  private buildWorkspaceSummaryView(allSessions: Array<{
+    sessionId: string;
+    workspace: string;
+    lastTimestamp: number;
+    turnCount: number;
+    totalCostUsd: number;
+    totalCredits: number;
+  }>): {
+    topWorkspaceLabel: string;
+    topWorkspaceCostUsd: number;
+    topWorkspaceSessions: number;
+    workspaceRowsHtml: string;
+    lastUpdatedMs: number;
+  } {
+    const byWorkspace = new Map<string, {
+      workspace: string;
+      costUsd: number;
+      credits: number;
+      sessions: number;
+      turns: number;
+      lastTimestamp: number;
+    }>();
+
+    let lastUpdatedMs = 0;
+    for (const s of allSessions) {
+      const key = s.workspace || "unknown";
+      const current = byWorkspace.get(key) ?? {
+        workspace: key,
+        costUsd: 0,
+        credits: 0,
+        sessions: 0,
+        turns: 0,
+        lastTimestamp: 0,
+      };
+
+      current.costUsd += s.totalCostUsd;
+      current.credits += s.totalCredits;
+      current.sessions += 1;
+      current.turns += s.turnCount;
+      current.lastTimestamp = Math.max(current.lastTimestamp, s.lastTimestamp || 0);
+      byWorkspace.set(key, current);
+
+      lastUpdatedMs = Math.max(lastUpdatedMs, s.lastTimestamp || 0);
+    }
+
+    const rows = Array.from(byWorkspace.values()).sort((a, b) => b.costUsd - a.costUsd).slice(0, 6);
+    const top = rows[0];
+
+    const workspaceRowsHtml = rows.length === 0
+      ? `<tr><td colspan="5" style="color:var(--muted)">No workspace data yet</td></tr>`
+      : rows.map((r) =>
+        `<tr>
+          <td title="${r.workspace}">${this.shortenWorkspaceName(r.workspace)}</td>
+          <td class="num">$${r.costUsd.toFixed(3)}</td>
+          <td class="num">${r.credits.toFixed(1)}</td>
+          <td class="num">${r.sessions}</td>
+          <td class="num">${r.turns}</td>
+        </tr>`
+      ).join("");
+
+    return {
+      topWorkspaceLabel: top ? this.shortenWorkspaceName(top.workspace) : "—",
+      topWorkspaceCostUsd: top?.costUsd ?? 0,
+      topWorkspaceSessions: top?.sessions ?? 0,
+      workspaceRowsHtml,
+      lastUpdatedMs,
+    };
+  }
+
+  private buildRecentSessionRowsHtml(allSessions: Array<{
+    sessionId: string;
+    workspace: string;
+    lastTimestamp: number;
+    turnCount: number;
+    primaryModel: string;
+    totalInputTokens: number;
+    totalCachedTokens: number;
+    totalCostUsd: number;
+  }>): string {
+    const recent = [...allSessions]
+      .sort((a, b) => (b.lastTimestamp || 0) - (a.lastTimestamp || 0))
+      .slice(0, 6);
+
+    if (recent.length === 0) {
+      return `<tr><td colspan="7" style="color:var(--muted)">No recent sessions yet</td></tr>`;
+    }
+
+    return recent.map((s) => {
+      const cacheBase = s.totalInputTokens + s.totalCachedTokens;
+      const cacheHitPct = cacheBase > 0 ? (s.totalCachedTokens / cacheBase) * 100 : 0;
+      const shortSession = s.sessionId.length > 12 ? `${s.sessionId.slice(0, 6)}…${s.sessionId.slice(-4)}` : s.sessionId;
+      const timeLabel = s.lastTimestamp > 0
+        ? new Date(s.lastTimestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+        : "—";
+
+      return `<tr>
+        <td>${timeLabel}</td>
+        <td title="${s.workspace}">${this.shortenWorkspaceName(s.workspace)}</td>
+        <td title="${s.sessionId}"><button class="goto-session" data-session-id="${s.sessionId}" style="background:none;border:none;color:var(--accent);cursor:pointer;padding:0">${shortSession}</button></td>
+        <td>${s.primaryModel || "unknown"}</td>
+        <td class="num">${s.turnCount}</td>
+        <td class="num">${cacheHitPct.toFixed(1)}%</td>
+        <td class="num">$${s.totalCostUsd.toFixed(3)}</td>
+      </tr>`;
+    }).join("");
+  }
+
+  private formatFreshnessLabel(lastUpdatedMs: number): string {
+    if (!lastUpdatedMs || !Number.isFinite(lastUpdatedMs)) {
+      return "no data";
+    }
+
+    const diffMs = Math.max(0, Date.now() - lastUpdatedMs);
+    const mins = Math.floor(diffMs / 60_000);
+    if (mins < 1) {
+      return "just now";
+    }
+    if (mins < 60) {
+      return `${mins}m ago`;
+    }
+
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) {
+      return `${hours}h ago`;
+    }
+
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
+  }
+
+  private shortenWorkspaceName(workspace: string): string {
+    if (!workspace) {
+      return "unknown";
+    }
+
+    const normalized = workspace.replaceAll("\\", "/");
+    const parts = normalized.split("/").filter(Boolean);
+    const tail = parts.slice(-2).join("/") || normalized;
+    return tail.length > 34 ? `${tail.slice(0, 31)}...` : tail;
   }
 
   private buildEstimateData(insightMetrics: InsightMetrics, monthCostUsd: number): {

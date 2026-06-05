@@ -1,6 +1,6 @@
 # Copilot Cost Tracker
 
-[![Version](https://img.shields.io/badge/version-0.2.3-blue.svg)](https://github.com/yourusername/copilot-cost-tracker/releases)
+[![Version](https://img.shields.io/badge/version-0.2.4-blue.svg)](https://github.com/yourusername/copilot-cost-tracker/releases)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![VS Code](https://img.shields.io/badge/VS%20Code-%5E1.85.0-blue.svg)](https://code.visualstudio.com/)
 
@@ -40,7 +40,10 @@ Get live updates on your AI credit consumption with an always-visible status bar
 | Live status bar | Session delta (`+2.3 cr`) and period total (`42.5 cr`) updated as you work |
 | Budget threshold alerts | One-time VS Code notifications at configurable % thresholds (default: 75%, 90%, 100%) |
 | Cost tree view | Hierarchical sidebar: budget → today/week/month → models → sessions |
-| Dashboard webview | 6-tab Chart.js dashboard: Overview, Budget health, Sessions, Models, Heatmap, Tokens |
+| Dashboard webview | 7-tab Chart.js dashboard: Overview, Budget health, Sessions, Models, Tokens, Insights, Estimates |
+| Workspace focus insights | Top workspace card + workspace leaderboard for current range |
+| Discovery turn analytics | Turn-level discovery with LLM calls, tool calls, cache %, expand/collapse, and filters |
+| Cache savings visibility | Period-level savings card with model breakdown |
 | Billing period tracking | Correct period boundaries for any `billingCycleStartDay`, including short months |
 | Multi-model pricing | Built-in rates for all June 2026 GA models from OpenAI, Anthropic, Google, GitHub |
 | Custom model rates | Define credits-per-1M-tokens for models not in the built-in table |
@@ -68,9 +71,9 @@ Hierarchical breakdown: budget → period → models → sessions.
 
 --------------------------------
 
-### Dashboard (6-tab analytics)
-Quick overview, Budget tracking, Sessions list, Models statistics, Tokens statistics with Chart.js visualizations.
-![6-tab Chart.js dashboard](media/MainDashboard.png)
+### Dashboard (7-tab analytics)
+Quick overview, Budget tracking, Sessions list, model/token analytics, and curated Insights with discovery views.
+![7-tab Chart.js dashboard](media/MainDashboard.png)
 
 Includes filters, sorting, and detailed breakdowns.
 
@@ -181,13 +184,20 @@ Hierarchical sidebar view:
 - Models and sessions with turn counts
 
 ### Dashboard
-6-tab webview with Chart.js visualizations:
-- **Overview**: Daily spend, stat cards
+7-tab webview with Chart.js visualizations:
+- **Overview**: Daily spend, budget context, cache savings, top workspace
 - **Budget**: Period progress, allowance/day
 - **Sessions**: Table of all sessions with cost
 - **Models**: Cost breakdown by model
-- **Heatmap**: GitHub-style contribution grid
 - **Tokens**: Input/output/cached token charts
+- **Insights**: Workspace focus, action-type spend breakdown, turn discovery (LLM/tool call view)
+- **Estimates**: Time/cost heuristics (speculative)
+
+Discovery in Insights includes:
+- `Expand all` / `Collapse all`
+- `Only rows with tools` filter
+- `Only anomalies` filter (cache hit < 40% or turn used tools)
+- Click-through from discovery/session snapshots to the Sessions tab
 
 Open via **Copilot Cost Tracker: Open Dashboard** command or the graph icon in the tree view.
 

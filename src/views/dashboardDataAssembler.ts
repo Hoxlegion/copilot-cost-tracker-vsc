@@ -4,7 +4,7 @@
  */
 
 import { CostDatabase, InsightMetrics, CacheSavingsMetrics } from "../database";
-import { TracesDbReader, SurfaceBreakdown } from "../parser";
+import { TracesDbReader, SurfaceBreakdown, TurnDiscoveryRow } from "../parser";
 import { getBillingPeriodEndMs, getBillingPeriodStartMs } from "../billing";
 import { getAlerts, buildPlaybook, DashboardAlert, PlaybookRow } from "../insights";
 
@@ -13,6 +13,7 @@ export interface DashboardRawData {
   alerts: DashboardAlert[];
   playbook: PlaybookRow[];
   surfaceData: SurfaceBreakdown[];
+  turnDiscovery: TurnDiscoveryRow[];
   cacheSavings: CacheSavingsMetrics;
   monthTotal: { costUsd: number; credits: number; turns: number };
   dailyCosts: Array<{ period: string; totalCostUsd: number; totalCredits: number; turnCount: number }>;
@@ -69,6 +70,7 @@ export class DashboardDataAssembler {
     const [
       insightMetrics,
       surfaceData,
+      turnDiscovery,
       monthTotal,
       dailyCosts,
       dailyCostsForRange,
@@ -83,6 +85,7 @@ export class DashboardDataAssembler {
     ] = await Promise.all([
       Promise.resolve(this.database.getInsightMetrics(30)),
       this.reader.getSurfaceBreakdown(sinceMs30d),
+      this.reader.getTurnDiscovery(sinceMs30d),
       Promise.resolve(this.database.getCurrentMonthTotal()),
       Promise.resolve(this.database.getDailyCosts(30)),
       Promise.resolve(this.database.getDailyCosts(365)),
@@ -125,6 +128,7 @@ export class DashboardDataAssembler {
       alerts,
       playbook,
       surfaceData,
+      turnDiscovery,
       cacheSavings,
       monthTotal,
       dailyCosts,

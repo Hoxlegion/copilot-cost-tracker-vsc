@@ -37,6 +37,22 @@ export interface SurfaceBreakdown {
   cachedTokens: number;
 }
 
+export interface TurnDiscoveryRow {
+  chatSessionId: string;
+  turnIndex: number;
+  firstTimeMs: number;
+  lastTimeMs: number;
+  llmCalls: number;
+  toolCalls: number;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  cacheHitPct: number;
+  models: string[];
+  agents: string[];
+  tools: string[];
+}
+
 /** Maps raw agent_name values from agent-traces.db to human-friendly surface labels. */
 function surfaceLabel(agentName: string | null): string {
   switch (agentName) {
@@ -248,6 +264,148 @@ export class TracesDbReader {
         outputTokens: (row[3] as number) || 0,
         cachedTokens: (row[4] as number) || 0,
       }));
+    } finally {
+      db.close();
+    }
+  }
+
+  /**
+   * Build a compact turn-level discovery view from traces.
+   * Groups spans by (chat_session_id, turn_index), counting LLM and tool calls.
+   */
+  async getTurnDiscovery(sinceMs?: number): Promise<TurnDiscoveryRow[]> {
+    if (!this.exists()) {
+      return [];
+    }
+
+    const fileBuffer = fs.readFileSync(this.dbPath);
+    const SQL = await initSqlJs({
+      locateFile: () => this.wasmPath ?? path.join(__dirname, "sql-wasm.wasm"),
+    });
+    const db = new SQL.Database(fileBuffer);
+
+    try {
+      const whereClause = sinceMs
+        ? `WHERE chat_session_id IS NOT NULL AND turn_index IS NOT NULL AND start_time_ms >= ${Math.floor(sinceMs)}`
+        : "WHERE chat_session_id IS NOT NULL AND turn_index IS NOT NULL";
+
+      const result = db.exec(`
+        SELECT
+          chat_session_id,
+          turn_index,
+          start_time_ms,
+          end_time_ms,
+          agent_name,
+          request_model,
+          response_model,
+          input_tokens,
+          output_tokens,
+          cached_tokens,
+          tool_name
+        FROM spans
+        ${whereClause}
+        ORDER BY start_time_ms DESC
+      `);
+
+      if (result.length === 0) {
+        return [];
+      }
+
+      type Acc = {
+        chatSessionId: string;
+        turnIndex: number;
+        firstTimeMs: number;
+        lastTimeMs: number;
+        llmCalls: number;
+        toolCalls: number;
+        inputTokens: number;
+        outputTokens: number;
+        cachedTokens: number;
+        models: Set<string>;
+        agents: Set<string>;
+        tools: Set<string>;
+      };
+
+      const grouped = new Map<string, Acc>();
+
+      for (const row of result[0].values) {
+        const chatSessionId = (row[0] as string) || "";
+        const turnIndex = Number(row[1] ?? 0);
+        const startTimeMs = Number(row[2] ?? 0);
+        const endTimeMs = Number(row[3] ?? 0);
+        const agentName = (row[4] as string | null) ?? "unknown";
+        const requestModel = (row[5] as string | null) ?? "";
+        const responseModel = (row[6] as string | null) ?? "";
+        const inputTokens = Number(row[7] ?? 0);
+        const outputTokens = Number(row[8] ?? 0);
+        const cachedTokens = Number(row[9] ?? 0);
+        const toolName = (row[10] as string | null) ?? "";
+
+        const key = `${chatSessionId}::${turnIndex}`;
+        const acc = grouped.get(key) ?? {
+          chatSessionId,
+          turnIndex,
+          firstTimeMs: startTimeMs,
+          lastTimeMs: endTimeMs || startTimeMs,
+          llmCalls: 0,
+          toolCalls: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+          cachedTokens: 0,
+          models: new Set<string>(),
+          agents: new Set<string>(),
+          tools: new Set<string>(),
+        };
+
+        acc.firstTimeMs = Math.min(acc.firstTimeMs, startTimeMs || acc.firstTimeMs);
+        acc.lastTimeMs = Math.max(acc.lastTimeMs, endTimeMs || startTimeMs || acc.lastTimeMs);
+        acc.inputTokens += inputTokens;
+        acc.outputTokens += outputTokens;
+        acc.cachedTokens += cachedTokens;
+
+        const model = responseModel || requestModel;
+        if (model) {
+          acc.models.add(model);
+        }
+        if (agentName) {
+          acc.agents.add(agentName);
+        }
+
+        const isLlmCall = (inputTokens + outputTokens + cachedTokens) > 0;
+        if (isLlmCall) {
+          acc.llmCalls += 1;
+        }
+
+        if (toolName) {
+          acc.toolCalls += 1;
+          acc.tools.add(toolName);
+        }
+
+        grouped.set(key, acc);
+      }
+
+      const rows = Array.from(grouped.values()).map((acc) => {
+        const billableInput = acc.inputTokens + acc.cachedTokens;
+        const cacheHitPct = billableInput > 0 ? (acc.cachedTokens / billableInput) * 100 : 0;
+        return {
+          chatSessionId: acc.chatSessionId,
+          turnIndex: acc.turnIndex,
+          firstTimeMs: acc.firstTimeMs,
+          lastTimeMs: acc.lastTimeMs,
+          llmCalls: acc.llmCalls,
+          toolCalls: acc.toolCalls,
+          inputTokens: acc.inputTokens,
+          outputTokens: acc.outputTokens,
+          cachedTokens: acc.cachedTokens,
+          cacheHitPct,
+          models: Array.from(acc.models).sort(),
+          agents: Array.from(acc.agents).sort(),
+          tools: Array.from(acc.tools).sort(),
+        } as TurnDiscoveryRow;
+      });
+
+      rows.sort((a, b) => b.lastTimeMs - a.lastTimeMs);
+      return rows;
     } finally {
       db.close();
     }
