@@ -241,6 +241,11 @@
           "default": "",
           "description": "URL to a remote pricing JSON file. Leave empty to use built-in pricing."
         },
+        "copilotCostTracker.excludeUnknownModelsFromTotals": {
+          "type": "boolean",
+          "default": false,
+          "description": "When enabled, turns for models that are missing built-in and custom pricing are excluded from totals (cost=0) and flagged in the dashboard."
+        },
         "copilotCostTracker.microTurnGapSeconds": {
           "type": "number",
           "default": 120,

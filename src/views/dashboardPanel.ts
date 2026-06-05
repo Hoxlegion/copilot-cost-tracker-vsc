@@ -19,6 +19,7 @@ export class DashboardPanel {
   private readonly panel: vscode.WebviewPanel;
   private readonly extensionUri: vscode.Uri;
   private readonly database: CostDatabase;
+  private readonly pricing: PricingEngine;
   private readonly assembler: DashboardDataAssembler;
   private disposables: vscode.Disposable[] = [];
 
@@ -32,6 +33,7 @@ export class DashboardPanel {
     this.panel = panel;
     this.extensionUri = extensionUri;
     this.database = database;
+    this.pricing = pricing;
     this.assembler = new DashboardDataAssembler(database, reader);
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
@@ -117,6 +119,8 @@ export class DashboardPanel {
 
     const config = vscode.workspace.getConfiguration("copilotCostTracker");
     const budgetCredits = config.get<number>("budgetCredits", 180);
+    const unknownModelDiagnostics = this.pricing.getUnknownModelDiagnostics();
+    const unknownModelBannerHtml = this.getUnknownModelBannerHtml(unknownModelDiagnostics);
 
     // Today & week data
     const now = new Date();
@@ -205,6 +209,7 @@ export class DashboardPanel {
     // Sessions table data — send all (up to 1000) with raw timestamps for client-side filtering
     const sessionsJson = JSON.stringify(allSessions.map((s) => ({
       ts: s.startTimestamp,
+      sessionId: s.sessionId,
       model: s.primaryModel,
       turns: s.turnCount,
       costUsd: s.totalCostUsd,
@@ -214,6 +219,7 @@ export class DashboardPanel {
       cachedTokens: s.totalCachedTokens,
       totalTokens: s.totalInputTokens + s.totalOutputTokens + s.totalCachedTokens,
       avgLatencyMs: Math.round(s.avgDurationMs),
+      modelBreakdown: s.modelBreakdown,
     })));
 
     return /*html*/ `<!DOCTYPE html>
@@ -681,6 +687,8 @@ export class DashboardPanel {
     <span id="globalRangeSummary" class="label"></span>
   </div>
 
+  ${unknownModelBannerHtml}
+
   <!-- Overview -->
   <div class="tab-content active" id="tab-overview">
     <div class="stat-row">
@@ -876,6 +884,7 @@ export class DashboardPanel {
     <table>
       <thead>
         <tr>
+          <th style="width:28px"></th>
           <th class="sortable" data-sort="ts">Date</th>
           <th class="sortable" data-sort="model">Model</th>
           <th class="num sortable" data-sort="turns">Turns</th>
@@ -886,6 +895,7 @@ export class DashboardPanel {
           <th class="num sortable" data-sort="avgLatencyMs">Avg Latency (ms)</th>
         </tr>
         <tr class="table-filter-row">
+          <th></th>
           <th><input id="sessionsFilterDate" placeholder="Filter date"></th>
           <th><input id="sessionsFilterModel" placeholder="Filter model"></th>
           <th><input id="sessionsFilterTurns" placeholder="Filter turns"></th>
@@ -1646,6 +1656,70 @@ export class DashboardPanel {
     const sessionsBody = document.getElementById('sessionsBody');
     const sessionCountEl = document.getElementById('sessionCount');
 
+    function createSessionDetailContent(session) {
+      const wrapper = document.createElement('div');
+      wrapper.style.padding = '10px 12px';
+      wrapper.style.background = 'var(--card-bg)';
+      wrapper.style.border = '1px solid var(--border)';
+      wrapper.style.borderRadius = '4px';
+
+      const title = document.createElement('div');
+      title.style.fontSize = '11px';
+      title.style.textTransform = 'uppercase';
+      title.style.letterSpacing = '0.3px';
+      title.style.color = 'var(--muted)';
+      title.style.marginBottom = '8px';
+      title.textContent = 'Per-model breakdown';
+      wrapper.appendChild(title);
+
+      const rows = Array.isArray(session.modelBreakdown) ? session.modelBreakdown : [];
+      if (rows.length === 0) {
+        const empty = document.createElement('div');
+        empty.style.fontSize = '12px';
+        empty.style.color = 'var(--muted)';
+        empty.textContent = 'No per-model breakdown is available for this session.';
+        wrapper.appendChild(empty);
+        return wrapper;
+      }
+
+      const table = document.createElement('table');
+      table.style.marginBottom = '0';
+
+      const thead = document.createElement('thead');
+      const headTr = document.createElement('tr');
+      ['Model', 'Turns', 'Cost', 'Credits', 'Tokens', 'Cache%'].forEach((label, idx) => {
+        const th = document.createElement('th');
+        th.textContent = label;
+        if (idx > 0) {
+          th.className = 'num';
+        }
+        headTr.appendChild(th);
+      });
+      thead.appendChild(headTr);
+      table.appendChild(thead);
+
+      const tbody = document.createElement('tbody');
+      rows.forEach((row) => {
+        const tr = document.createElement('tr');
+        appendCell(tr, row.model);
+        appendCell(tr, Number(row.turnCount || 0), 'num');
+        appendCell(tr, '$' + Number(row.totalCostUsd || 0).toFixed(3), 'num');
+        appendCell(tr, Number(row.totalCredits || 0).toFixed(1), 'num');
+        const modelTotalTokens = Number(row.totalInputTokens || 0) + Number(row.totalOutputTokens || 0) + Number(row.totalCachedTokens || 0);
+        appendCell(tr, formatCompactNumber(modelTotalTokens), 'num');
+        const modelInputPlusCached = Number(row.totalInputTokens || 0) + Number(row.totalCachedTokens || 0);
+        const modelCachePct = modelInputPlusCached > 0
+          ? (Number(row.totalCachedTokens || 0) / modelInputPlusCached) * 100
+          : 0;
+        appendCell(tr, modelCachePct.toFixed(1) + '%', 'num');
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+
+      wrapper.appendChild(table);
+      return wrapper;
+    }
+
     function renderSessions(filteredBase) {
       const dateFilter = getTextFilter('sessionsFilterDate');
       const modelFilter = getTextFilter('sessionsFilterModel');
@@ -1674,6 +1748,21 @@ export class DashboardPanel {
       sessionsBody.innerHTML = '';
       visible.forEach(s => {
         const tr = document.createElement('tr');
+        const toggleTd = document.createElement('td');
+        const toggleButton = document.createElement('button');
+        toggleButton.type = 'button';
+        toggleButton.textContent = '▸';
+        toggleButton.title = 'Show per-model details';
+        toggleButton.style.width = '20px';
+        toggleButton.style.height = '20px';
+        toggleButton.style.border = '1px solid var(--border)';
+        toggleButton.style.background = 'var(--card-bg)';
+        toggleButton.style.color = 'var(--fg)';
+        toggleButton.style.borderRadius = '3px';
+        toggleButton.style.cursor = 'pointer';
+        toggleTd.appendChild(toggleButton);
+        tr.appendChild(toggleTd);
+
         appendCell(tr, formatSessionDate(s.ts));
         appendCell(tr, s.model);
         appendCell(tr, s.turns, 'num');
@@ -1685,7 +1774,23 @@ export class DashboardPanel {
           : 0;
         appendCell(tr, cachePct.toFixed(1) + '%', 'num');
         appendCell(tr, s.avgLatencyMs, 'num');
+
+        const detailTr = document.createElement('tr');
+        detailTr.style.display = 'none';
+        const detailTd = document.createElement('td');
+        detailTd.colSpan = 9;
+        detailTd.appendChild(createSessionDetailContent(s));
+        detailTr.appendChild(detailTd);
+
+        toggleButton.addEventListener('click', () => {
+          const isClosed = detailTr.style.display === 'none';
+          detailTr.style.display = isClosed ? '' : 'none';
+          toggleButton.textContent = isClosed ? '▾' : '▸';
+          toggleButton.title = isClosed ? 'Hide per-model details' : 'Show per-model details';
+        });
+
         sessionsBody.appendChild(tr);
+        sessionsBody.appendChild(detailTr);
       });
       const suffix = filtered.length > MAX_SESSION_ROWS ? ' (showing first ' + MAX_SESSION_ROWS + ')' : '';
       sessionCountEl.textContent = filtered.length + ' of ' + sessions.length + ' sessions' + suffix;
@@ -2348,6 +2453,32 @@ export class DashboardPanel {
     }
 
     return JSON.stringify(days);
+  }
+
+  private getUnknownModelBannerHtml(diagnostics: ReturnType<PricingEngine["getUnknownModelDiagnostics"]>): string {
+    if (diagnostics.excludedTurnCount > 0) {
+      const modelList = diagnostics.excludedModels.slice(0, 5).join(", ");
+      const moreCount = Math.max(0, diagnostics.excludedModels.length - 5);
+      const moreText = moreCount > 0 ? ` (+${moreCount} more)` : "";
+      return `
+        <div style="margin:10px 16px 0 16px;padding:10px 12px;border:1px solid var(--vscode-editorWarning-foreground, #cca700);border-left:3px solid var(--vscode-editorWarning-foreground, #cca700);border-radius:4px;background:var(--vscode-editorWidget-background);font-size:12px;line-height:1.45">
+          <strong>Unknown models excluded from totals</strong>: ${diagnostics.excludedTurnCount} turns across ${diagnostics.excludedModelCount} model(s) were excluded because <code>copilotCostTracker.excludeUnknownModelsFromTotals</code> is enabled.${modelList ? ` Missing models: ${modelList}${moreText}.` : ""}
+        </div>
+      `;
+    }
+
+    if (diagnostics.fallbackModelCount > 0) {
+      const modelList = diagnostics.fallbackModels.slice(0, 5).join(", ");
+      const moreCount = Math.max(0, diagnostics.fallbackModels.length - 5);
+      const moreText = moreCount > 0 ? ` (+${moreCount} more)` : "";
+      return `
+        <div style="margin:10px 16px 0 16px;padding:10px 12px;border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:4px;background:var(--vscode-editorWidget-background);font-size:12px;line-height:1.45;color:var(--muted)">
+          Unknown model pricing fallback is active for ${diagnostics.fallbackModelCount} model(s). Add <code>copilotCostTracker.customModelRates</code> for more accurate totals.${modelList ? ` Models: ${modelList}${moreText}.` : ""}
+        </div>
+      `;
+    }
+
+    return "";
   }
 
   private getBudgetColor(percentage: number): string {

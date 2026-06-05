@@ -168,6 +168,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   }, 24 * 60 * 60 * 1000); // 24 hours
 
+  // Periodic pricing refresh: check remote pricing URL once per day.
+  // PricingEngine keeps its own 24h fetch gate, so this is safe to run on a fixed interval.
+  const pricingRefreshInterval = setInterval(() => {
+    void pricing.refreshPricing()
+      .then(() => logger.trace("Periodic pricing refresh check completed"))
+      .catch((err) => logger.warn("Periodic pricing refresh check failed", err));
+  }, 24 * 60 * 60 * 1000); // 24 hours
+
   logger.info("Activation complete");
 
   // Register disposables
@@ -185,7 +193,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     scanAllCmd,
     scanFullHistoryCmd,
     { dispose: () => clearInterval(saveInterval) },
-    { dispose: () => clearInterval(pruneInterval) }
+    { dispose: () => clearInterval(pruneInterval) },
+    { dispose: () => clearInterval(pricingRefreshInterval) }
   );
 }
 

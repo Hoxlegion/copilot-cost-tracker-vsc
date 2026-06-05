@@ -152,6 +152,41 @@ describe("Pricing Engine", () => {
       const customRates = {} as Record<string, { input: number; output: number }>;
       expect(Object.keys(customRates).length).toBe(0);
     });
+
+    it("excludes unknown models from totals when configured", () => {
+      const engine = new PricingEngine();
+      engine.setDependencies({
+        config: {
+          customModelRates: {},
+          excludeUnknownModelsFromTotals: true,
+        },
+      } as any, undefined as any);
+
+      const costUsd = engine.calculateCost("unknown-new-model", 1_000_000, 0, 0);
+      const diagnostics = engine.getUnknownModelDiagnostics();
+
+      expect(costUsd).toBe(0);
+      expect(diagnostics.excludedTurnCount).toBe(1);
+      expect(diagnostics.excludedModelCount).toBe(1);
+      expect(diagnostics.excludedModels).toContain("unknown-new-model");
+    });
+
+    it("tracks fallback unknown models when exclusion is disabled", () => {
+      const engine = new PricingEngine();
+      engine.setDependencies({
+        config: {
+          customModelRates: {},
+          excludeUnknownModelsFromTotals: false,
+        },
+      } as any, undefined as any);
+
+      const costUsd = engine.calculateCost("another-unknown-model", 1_000_000, 0, 0);
+      const diagnostics = engine.getUnknownModelDiagnostics();
+
+      expect(costUsd).toBeCloseTo(2.5);
+      expect(diagnostics.fallbackModelCount).toBe(1);
+      expect(diagnostics.fallbackModels).toContain("another-unknown-model");
+    });
   });
 
   describe("Cache Discounts", () => {

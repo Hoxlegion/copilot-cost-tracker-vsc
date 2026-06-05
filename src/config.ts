@@ -41,6 +41,7 @@ export interface ExtensionConfig {
   // Pricing
   customModelRates: Record<string, ModelRate>;
   pricingUrl: string;
+  excludeUnknownModelsFromTotals: boolean;
 
   // Filtering
   excludedModels: string[];
@@ -139,6 +140,7 @@ function readConfig(): ExtensionConfig {
   const customModelRates = parseCustomModelRates(rawCustomRates);
 
   const pricingUrl = cfg.get<string>("pricingUrl") ?? "";
+  const excludeUnknownModelsFromTotals = cfg.get<boolean>("excludeUnknownModelsFromTotals") ?? false;
 
   const rawExcluded = cfg.get<string[]>("excludedModels") ?? ["gpt-4o-mini"];
   const excludedModels = Array.isArray(rawExcluded)
@@ -190,6 +192,7 @@ function readConfig(): ExtensionConfig {
     retentionDays,
     customModelRates,
     pricingUrl,
+    excludeUnknownModelsFromTotals,
     excludedModels,
     enabledFileExtensions,
     plan,

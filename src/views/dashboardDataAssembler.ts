@@ -33,6 +33,15 @@ export interface DashboardRawData {
     totalCredits: number;
     primaryModel: string;
     avgDurationMs: number;
+    modelBreakdown: Array<{
+      model: string;
+      turnCount: number;
+      totalInputTokens: number;
+      totalOutputTokens: number;
+      totalCachedTokens: number;
+      totalCostUsd: number;
+      totalCredits: number;
+    }>;
   }>;
   billingPeriodStartMs: number;
   billingPeriodEndMs: number;
@@ -84,6 +93,27 @@ export class DashboardDataAssembler {
       Promise.resolve(this.database.getCostSince(periodStartMs)),
     ]);
 
+    const sessionModelRows = this.database.getSessionModelBreakdowns(allSessions.map((s) => s.sessionId));
+    const sessionModelMap = new Map<string, typeof sessionModelRows>();
+    for (const row of sessionModelRows) {
+      const list = sessionModelMap.get(row.sessionId) ?? [];
+      list.push(row);
+      sessionModelMap.set(row.sessionId, list);
+    }
+
+    const allSessionsWithBreakdown = allSessions.map((session) => ({
+      ...session,
+      modelBreakdown: (sessionModelMap.get(session.sessionId) ?? []).map((row) => ({
+        model: row.model,
+        turnCount: row.turnCount,
+        totalInputTokens: row.totalInputTokens,
+        totalOutputTokens: row.totalOutputTokens,
+        totalCachedTokens: row.totalCachedTokens,
+        totalCostUsd: row.totalCostUsd,
+        totalCredits: row.totalCredits,
+      })),
+    }));
+
     const alerts = getAlerts(this.database);
     const playbook = buildPlaybook(alerts);
 
@@ -99,7 +129,7 @@ export class DashboardDataAssembler {
       modelBreakdown,
       agentBreakdown,
       dailyAgentBreakdown,
-      allSessions,
+      allSessions: allSessionsWithBreakdown,
       billingPeriodStartMs: periodStartMs,
       billingPeriodEndMs: periodEndMs,
       periodCredits,

@@ -42,6 +42,17 @@ export interface SessionSummary {
   avgDurationMs: number;
 }
 
+export interface SessionModelBreakdownRow {
+  sessionId: string;
+  model: string;
+  turnCount: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCachedTokens: number;
+  totalCostUsd: number;
+  totalCredits: number;
+}
+
 export interface AggregatedCost {
   period: string; // ISO date or "YYYY-WW" or "YYYY-MM"
   totalCostUsd: number;
@@ -575,6 +586,67 @@ export class CostDatabase {
       });
     }
     stmt.free();
+    return rows;
+  }
+
+  /**
+   * Return per-model aggregates for a set of sessions.
+   */
+  getSessionModelBreakdowns(sessionIds: string[]): SessionModelBreakdownRow[] {
+    if (!this.db || sessionIds.length === 0) {
+      return [];
+    }
+
+    const uniqueSessionIds = Array.from(new Set(sessionIds.filter((id) => id.trim().length > 0)));
+    if (uniqueSessionIds.length === 0) {
+      return [];
+    }
+
+    const rows: SessionModelBreakdownRow[] = [];
+    const chunkSize = 300;
+
+    for (let i = 0; i < uniqueSessionIds.length; i += chunkSize) {
+      const chunk = uniqueSessionIds.slice(i, i + chunkSize);
+      const placeholders = chunk.map((_id, idx) => `:sid${idx}`).join(", ");
+      const stmt = this.db.prepare(`
+        SELECT
+          session_id,
+          model_family,
+          COUNT(*) as turn_count,
+          SUM(input_tokens) as total_input_tokens,
+          SUM(output_tokens) as total_output_tokens,
+          SUM(cached_tokens) as total_cached_tokens,
+          SUM(cost_usd) as total_cost_usd,
+          SUM(credits) as total_credits
+        FROM turns
+        WHERE session_id IN (${placeholders})
+        GROUP BY session_id, model_family
+        ORDER BY session_id ASC, total_cost_usd DESC
+      `);
+
+      const bindings: Record<string, string> = {};
+      chunk.forEach((sessionId, idx) => {
+        bindings[`:sid${idx}`] = sessionId;
+      });
+      stmt.bind(bindings);
+
+      while (stmt.step()) {
+        const row = stmt.getAsObject();
+        rows.push({
+          sessionId: row.session_id as string,
+          model: row.model_family as string,
+          turnCount: row.turn_count as number,
+          totalInputTokens: row.total_input_tokens as number,
+          totalOutputTokens: row.total_output_tokens as number,
+          totalCachedTokens: row.total_cached_tokens as number,
+          totalCostUsd: row.total_cost_usd as number,
+          totalCredits: row.total_credits as number,
+        });
+      }
+
+      stmt.free();
+    }
+
     return rows;
   }
 

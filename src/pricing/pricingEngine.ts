@@ -10,6 +10,14 @@ const DEFAULT_FALLBACK_RATE: ModelPricing = {
   cached: 0.25, // 25 credits/1M → $0.25 USD
 };
 
+export interface UnknownModelDiagnostics {
+  fallbackModelCount: number;
+  fallbackModels: string[];
+  excludedTurnCount: number;
+  excludedModelCount: number;
+  excludedModels: string[];
+}
+
 export class PricingEngine {
   private pricing: PricingData = DEFAULT_PRICING;
   private lastFetch: number = 0;
@@ -17,6 +25,9 @@ export class PricingEngine {
   private configManager: ConfigManager | undefined;
   private logger: Logger | undefined;
   private readonly warnedModels: Set<string> = new Set();
+  private readonly unknownFallbackModels: Set<string> = new Set();
+  private readonly unknownExcludedModels: Set<string> = new Set();
+  private unknownExcludedTurnCount: number = 0;
 
   /**
    * Set dependencies (called after construction to avoid circular deps).
@@ -83,8 +94,23 @@ export class PricingEngine {
       pricing = this.getCustomRate(modelFamily);
 
       if (!pricing) {
+        if (this.shouldExcludeUnknownModels()) {
+          this.unknownExcludedTurnCount++;
+          this.unknownExcludedModels.add(modelFamily);
+          if (!this.warnedModels.has(modelFamily)) {
+            this.warnedModels.add(modelFamily);
+            this.logger?.warn(
+              `Unknown model "${modelFamily}" — excluded from totals due to ` +
+              `copilotCostTracker.excludeUnknownModelsFromTotals=true. ` +
+              `Configure custom rates in copilotCostTracker.customModelRates to include it.`
+            );
+          }
+          return 0;
+        }
+
         // Use built-in fallback and warn (once per model)
         pricing = DEFAULT_FALLBACK_RATE;
+        this.unknownFallbackModels.add(modelFamily);
         if (!this.warnedModels.has(modelFamily)) {
           this.warnedModels.add(modelFamily);
           this.logger?.warn(
@@ -154,6 +180,21 @@ export class PricingEngine {
 
   getAllModels(): string[] {
     return Object.keys(this.pricing.models);
+  }
+
+  getUnknownModelDiagnostics(): UnknownModelDiagnostics {
+    return {
+      fallbackModelCount: this.unknownFallbackModels.size,
+      fallbackModels: Array.from(this.unknownFallbackModels).sort((a, b) => a.localeCompare(b)),
+      excludedTurnCount: this.unknownExcludedTurnCount,
+      excludedModelCount: this.unknownExcludedModels.size,
+      excludedModels: Array.from(this.unknownExcludedModels).sort((a, b) => a.localeCompare(b)),
+    };
+  }
+
+  private shouldExcludeUnknownModels(): boolean {
+    return this.configManager?.config.excludeUnknownModelsFromTotals
+      ?? vscode.workspace.getConfiguration("copilotCostTracker").get<boolean>("excludeUnknownModelsFromTotals", false);
   }
 
   private normalizeModelName(name: string): string {
