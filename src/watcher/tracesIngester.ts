@@ -216,7 +216,8 @@ export class TracesIngester implements vscode.Disposable {
     }
 
     // Filter excluded models (e.g., gpt-4o-mini code completions)
-    const model = span.requestModel ?? "unknown";
+    // Prefer responseModel because requestModel may be a generic routing model.
+    const model = span.responseModel ?? span.requestModel ?? "unknown";
     const excluded = this.configManager.config.excludedModels;
     if (excluded.some((e) => model.toLowerCase().includes(e.toLowerCase()))) {
       this.lastProcessedTimestamp = span.startTimeMs;
@@ -318,11 +319,16 @@ export class TracesIngester implements vscode.Disposable {
     let newTurns = 0;
 
     for (const session of sessions) {
-      if (this.database.isSessionProcessed(session.sessionId)) {
+      const lastProcessedSessionTimestamp = this.database.getSessionLastTimestamp(session.sessionId);
+      const sessionTurns = lastProcessedSessionTimestamp == null
+        ? session.turns
+        : session.turns.filter((turn) => turn.timestamp > lastProcessedSessionTimestamp);
+
+      if (sessionTurns.length === 0) {
         continue;
       }
 
-      for (const turn of session.turns) {
+      for (const turn of sessionTurns) {
         const costUsd = this.pricing.calculateCost(
           turn.modelFamily,
           turn.inputTokens,

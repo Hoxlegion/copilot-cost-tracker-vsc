@@ -47,7 +47,7 @@ describe("TracesDbReader", () => {
     mockReadFileSync.mockReturnValue(Buffer.from("db"));
   });
 
-  it("reads cache_write_tokens when the DB schema exposes that column", async () => {
+  it("reads spans from DB and defaults cacheWriteTokens to 0 (column removed from schema)", async () => {
     mockExec.mockReturnValue([
       {
         values: [
@@ -79,7 +79,6 @@ describe("TracesDbReader", () => {
         input_tokens: 100,
         output_tokens: 50,
         cached_tokens: 25,
-        cache_write_tokens: 10,
         reasoning_tokens: 0,
         tool_name: null,
         chat_session_id: "session-1",
@@ -94,9 +93,9 @@ describe("TracesDbReader", () => {
     const reader = new TracesDbReader();
     const spans = await reader.querySpans();
 
-    expect(mockPrepare).toHaveBeenCalledWith(expect.stringContaining("cache_write_tokens"));
+    expect(mockPrepare).not.toHaveBeenCalledWith(expect.stringContaining("cache_write_tokens"));
     expect(spans).toHaveLength(1);
-    expect(spans[0].cacheWriteTokens).toBe(10);
+    expect(spans[0].cacheWriteTokens).toBe(0); // always 0 since column was removed
     expect(spans[0].cachedTokens).toBe(25);
     expect(spans[0].inputTokens).toBe(100);
   });

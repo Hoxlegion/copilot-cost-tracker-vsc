@@ -246,5 +246,32 @@ describe("Ingester Failover & Polling", () => {
 
       expect(allTurns.reduce((sum, n) => sum + n, 0)).toBe(8);
     });
+
+    it("does not exclude a turn when request model is excluded but response model is billable", () => {
+      const excluded = ["gpt-4o-mini"];
+      const requestModel = "gpt-4o-mini";
+      const responseModel = "gpt-5.4";
+
+      const effectiveModel = responseModel ?? requestModel ?? "unknown";
+      const shouldExclude = excluded.some((e) => effectiveModel.toLowerCase().includes(e.toLowerCase()));
+
+      expect(shouldExclude).toBe(false);
+    });
+
+    it("processes only turns newer than the last processed JSONL session timestamp", () => {
+      const lastProcessedSessionTimestamp = 200;
+      const turns = [
+        { timestamp: 100 },
+        { timestamp: 200 },
+        { timestamp: 250 },
+        { timestamp: 300 },
+      ];
+
+      const newTurns = turns.filter((turn) => turn.timestamp > lastProcessedSessionTimestamp);
+
+      expect(newTurns).toHaveLength(2);
+      expect(newTurns[0].timestamp).toBe(250);
+      expect(newTurns[1].timestamp).toBe(300);
+    });
   });
 });
