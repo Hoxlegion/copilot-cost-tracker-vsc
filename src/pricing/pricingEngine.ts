@@ -238,8 +238,8 @@ export class PricingEngine {
     const pricing = this.getModelPricing(modelFamily);
     if (!pricing) {
       // Use fallback pricing if model not found
-      const writeTokensCost = (cacheWriteTokens / 1_000_000) * (pricing?.cacheWrite ?? DEFAULT_FALLBACK_RATE.cacheWrite ?? 0);
-      const readTokensCost = (cacheReadTokens / 1_000_000) * (pricing?.cached ?? DEFAULT_FALLBACK_RATE.cached ?? 0);
+      const writeTokensCost = (cacheWriteTokens / 1_000_000) * (DEFAULT_FALLBACK_RATE.cacheWrite ?? 0);
+      const readTokensCost = (cacheReadTokens / 1_000_000) * DEFAULT_FALLBACK_RATE.cached;
       return writeTokensCost + readTokensCost;
     }
 

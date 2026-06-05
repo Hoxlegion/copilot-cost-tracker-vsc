@@ -282,7 +282,7 @@ export class CostTreeProvider implements vscode.TreeDataProvider<CostTreeItem> {
     }
 
     // ━━ Sessions ━━
-    const sessions = this.database.getSessionSummaries(this.workspaceFilter, 15);
+    const sessions = this.database.getSessionSummaries(this.workspaceFilter, 30);
     if (sessions.length > 0) {
       items.push({
         type: "sessionsGroup",

@@ -168,7 +168,8 @@ export class TracesDbReader {
   }
 
   /**
-   * Query all LLM spans (those with input_tokens > 0) since a given timestamp.
+   * Query all LLM spans with billable token activity since a given timestamp.
+   * Includes input/output/cached token usage to avoid dropping output-only turns.
    * Opens the DB as a read-only in-memory snapshot — no locking, no subprocess.
    */
   async querySpans(sinceMs?: number): Promise<TraceSpan[]> {
@@ -187,8 +188,8 @@ export class TracesDbReader {
 
     try {
       const whereClause = sinceMs
-        ? `WHERE input_tokens > 0 AND start_time_ms > ?`
-        : "WHERE input_tokens > 0";
+        ? `WHERE (input_tokens > 0 OR output_tokens > 0 OR cached_tokens > 0) AND start_time_ms > ?`
+        : "WHERE (input_tokens > 0 OR output_tokens > 0 OR cached_tokens > 0)";
 
       // Note: cache_write_tokens was removed from the spans schema in a recent
       // Copilot update. We default it to 0 and keep the interface field for compatibility.
@@ -224,7 +225,7 @@ export class TracesDbReader {
 
   /**
    * Query surface-level breakdown (which Copilot feature generated the tokens) from the traces DB.
-   * Groups by agent_name and filters to spans with input_tokens > 0.
+   * Groups by agent_name and filters to spans with billable token activity.
    * Returns [] if the traces DB does not exist.
    */
   async getSurfaceBreakdown(sinceMs?: number): Promise<SurfaceBreakdown[]> {
@@ -240,8 +241,8 @@ export class TracesDbReader {
 
     try {
       const whereClause = sinceMs
-        ? `WHERE input_tokens > 0 AND start_time_ms > ${sinceMs}`
-        : "WHERE input_tokens > 0";
+        ? `WHERE (input_tokens > 0 OR output_tokens > 0 OR cached_tokens > 0) AND start_time_ms > ${sinceMs}`
+        : "WHERE (input_tokens > 0 OR output_tokens > 0 OR cached_tokens > 0)";
 
       const result = db.exec(`
         SELECT agent_name,
@@ -286,8 +287,8 @@ export class TracesDbReader {
 
     try {
       const whereClause = sinceMs
-        ? `WHERE chat_session_id IS NOT NULL AND turn_index IS NOT NULL AND start_time_ms >= ${Math.floor(sinceMs)}`
-        : "WHERE chat_session_id IS NOT NULL AND turn_index IS NOT NULL";
+        ? `WHERE chat_session_id IS NOT NULL AND start_time_ms >= ${Math.floor(sinceMs)}`
+        : "WHERE chat_session_id IS NOT NULL";
 
       const result = db.exec(`
         SELECT
@@ -304,7 +305,7 @@ export class TracesDbReader {
           tool_name
         FROM spans
         ${whereClause}
-        ORDER BY start_time_ms DESC
+        ORDER BY chat_session_id ASC, start_time_ms ASC
       `);
 
       if (result.length === 0) {
@@ -327,10 +328,11 @@ export class TracesDbReader {
       };
 
       const grouped = new Map<string, Acc>();
+      const sessionState = new Map<string, { index: number; lastTs: number }>();
+      const TURN_GAP_MS = 20_000;
 
       for (const row of result[0].values) {
         const chatSessionId = (row[0] as string) || "";
-        const turnIndex = Number(row[1] ?? 0);
         const startTimeMs = Number(row[2] ?? 0);
         const endTimeMs = Number(row[3] ?? 0);
         const agentName = (row[4] as string | null) ?? "unknown";
@@ -340,6 +342,33 @@ export class TracesDbReader {
         const outputTokens = Number(row[8] ?? 0);
         const cachedTokens = Number(row[9] ?? 0);
         const toolName = (row[10] as string | null) ?? "";
+
+        const rawTurnIndex = row[1];
+        let turnIndex: number;
+
+        if (rawTurnIndex === null || rawTurnIndex === undefined || rawTurnIndex === "") {
+          const current = sessionState.get(chatSessionId);
+          if (current) {
+            // New turn when there is a noticeable idle gap between spans.
+            if (startTimeMs - current.lastTs > TURN_GAP_MS) {
+              current.index += 1;
+            }
+            current.lastTs = Math.max(current.lastTs, startTimeMs);
+            turnIndex = current.index;
+          } else {
+            sessionState.set(chatSessionId, { index: 0, lastTs: startTimeMs });
+            turnIndex = 0;
+          }
+        } else {
+          turnIndex = Number(rawTurnIndex);
+          const current = sessionState.get(chatSessionId);
+          if (current) {
+            current.index = Math.max(current.index, turnIndex);
+            current.lastTs = Math.max(current.lastTs, startTimeMs);
+          } else {
+            sessionState.set(chatSessionId, { index: turnIndex, lastTs: startTimeMs });
+          }
+        }
 
         const key = `${chatSessionId}::${turnIndex}`;
         const acc = grouped.get(key) ?? {
@@ -398,10 +427,10 @@ export class TracesDbReader {
           outputTokens: acc.outputTokens,
           cachedTokens: acc.cachedTokens,
           cacheHitPct,
-          models: Array.from(acc.models).sort(),
-          agents: Array.from(acc.agents).sort(),
-          tools: Array.from(acc.tools).sort(),
-        } as TurnDiscoveryRow;
+          models: Array.from(acc.models).sort((a, b) => a.localeCompare(b)),
+          agents: Array.from(acc.agents).sort((a, b) => a.localeCompare(b)),
+          tools: Array.from(acc.tools).sort((a, b) => a.localeCompare(b)),
+        };
       });
 
       rows.sort((a, b) => b.lastTimeMs - a.lastTimeMs);

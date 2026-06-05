@@ -15,17 +15,6 @@ interface AlertThresholdConfig {
   agentSprawlMinInputTokens: number;
 }
 
-interface AlertMetricAccumulator {
-  microTurnCount: number;
-  microTurnOutputTotal: number;
-  rawPasteMaxNetInput: number;
-  premiumMisallocationCount: number;
-  premiumMisallocationCreditsTotal: number;
-  massiveContextMaxInput: number;
-  previousSessionId: string | null;
-  previousTimestamp: number;
-}
-
 /**
  * Analytics service provides high-level aggregations and derived metrics
  * from the cost database. Database remains responsible only for CRUD and

@@ -32,6 +32,8 @@ export class TracesIngester implements vscode.Disposable {
   private activeSource: "database" | "jsonl" = "database";
   private consecutiveEmptyDbPolls: number = 0;
   private static readonly FAILOVER_THRESHOLD_POLLS = 12; // ~60s at 5s interval
+  private lastDbFailoverAtMs: number = 0;
+  private static readonly DB_RECOVERY_PROBE_MS = 60_000;
 
   // Adaptive polling (D2)
   private currentIntervalMs: number = 5000;
@@ -70,6 +72,7 @@ export class TracesIngester implements vscode.Disposable {
     if (source === "database") {
       this.activeSource = "database";
       this.consecutiveEmptyDbPolls = 0;
+      this.lastDbFailoverAtMs = 0;
     } else if (source === "jsonl") {
       this.activeSource = "jsonl";
     }
@@ -176,8 +179,20 @@ export class TracesIngester implements vscode.Disposable {
       if (this.activeSource !== "jsonl") {
         this.logger.info("Traces DB not found, falling back to JSONL");
         this.activeSource = "jsonl";
+        this.lastDbFailoverAtMs = Date.now();
       }
       return "jsonl";
+    }
+
+    if (this.activeSource === "jsonl") {
+      const elapsedSinceFailoverMs = Date.now() - this.lastDbFailoverAtMs;
+      if (elapsedSinceFailoverMs < TracesIngester.DB_RECOVERY_PROBE_MS) {
+        return "jsonl";
+      }
+
+      this.logger.info("Probing traces DB for recovery after JSONL failover");
+      this.activeSource = "database";
+      this.consecutiveEmptyDbPolls = 0;
     }
 
     if (this.consecutiveEmptyDbPolls >= TracesIngester.FAILOVER_THRESHOLD_POLLS) {
@@ -186,6 +201,7 @@ export class TracesIngester implements vscode.Disposable {
           `Traces DB has not produced data for ${this.consecutiveEmptyDbPolls} consecutive polls, falling back to JSONL`
         );
         this.activeSource = "jsonl";
+        this.lastDbFailoverAtMs = Date.now();
       }
       return "jsonl";
     }

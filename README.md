@@ -1,16 +1,14 @@
 # Copilot Cost Tracker
 
-[![Version](https://img.shields.io/badge/version-0.2.5-blue.svg)](https://github.com/yourusername/copilot-cost-tracker/releases)
+[![Version](https://img.shields.io/badge/version-0.2.5-blue.svg)](https://github.com/Hoxlegion/copilot-cost-tracker-vsc/releases)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![VS Code](https://img.shields.io/badge/VS%20Code-%5E1.85.0-blue.svg)](https://code.visualstudio.com/)
 
-💰 **Real-time cost tracking for your GitHub Copilot usage, see exactly what you're spending, as you work.**
+💰 **Real-time cost tracking for your GitHub Copilot usage. See exactly what you are spending as you work.**
 
-Get live updates on your AI credit consumption with an always-visible status bar, budget alerts, and dashboards. Requires no API keys.
+Get live updates on AI credit consumption with an always-visible status bar, budget alerts, and dashboards. No API keys required.
 
 > ⚠️ **Requires VS Code settings change** [Setup <30 seconds](#requirements)
-
-
 
 ---
 
@@ -57,19 +55,15 @@ Get live updates on your AI credit consumption with an always-visible status bar
 
 ## Screenshots
 
-### Status Bar for Live cost tracking
+### Status Bar for Live Cost Tracking
 See session delta (+2.3 credits) and period total in real time.
 
 ![Live cost indicator in status bar](media/statusbar.png)
-
------------
 
 ### Cost Overview Tree
 Hierarchical breakdown: budget → period → models → sessions.
 
 ![Hierarchical cost breakdown in sidebar](media/costoverview.png)
-
---------------------------------
 
 ### Dashboard (7-tab analytics)
 Quick overview, Budget tracking, Sessions list, model/token analytics, and curated Insights with discovery views.
@@ -87,7 +81,7 @@ Your VS Code must have these telemetry settings enabled so Copilot Chat writes u
 "github.copilot.chat.otel.dbSpanExporter.enabled": true
 ```
 
-**That's it.** The extension reads data that Copilot Chat already creates no external APIs or authentication needed.
+**That's it.** The extension reads data that Copilot Chat already creates - no external APIs or authentication needed.
 
 *(Optional: enable JSONL fallback logs if the database becomes unavailable)*
 
@@ -96,23 +90,22 @@ Your VS Code must have these telemetry settings enabled so Copilot Chat writes u
 ## Installation
 
 ### From VS Code Marketplace
-Simple:
 1. Open **Extensions** in VS Code (`Ctrl+Shift+X`)
 2. Search: **Copilot Cost Tracker**
 3. Click **Install**
 
 ### From VSIX (Manual)
 ```bash
-code --install-extension copilot-cost-tracker-0.2.0.vsix
+code --install-extension copilot-cost-tracker-0.2.5.vsix
 ```
 
 ### From Source
 ```bash
-git clone https://github.com/yourusername/copilot-cost-tracker.git
+git clone https://github.com/Hoxlegion/copilot-cost-tracker-vsc.git
 cd copilot-cost-tracker
 npm install
 npm run package
-code --install-extension copilot-cost-tracker-0.2.0.vsix
+code --install-extension copilot-cost-tracker-0.2.5.vsix
 ```
 
 ---
@@ -149,7 +142,7 @@ Most users won't need to change anything. These are the most common settings:
 | `currency` | string | `"USD"` | Display currency code |
 | `showStatusBar` | boolean | `true` | Show cost in status bar |
 
-**→ [View all 20+ configuration options](docs/CONFIGURATION.md)** (polling, pricing, diagnostics, etc.)
+See the [Advanced: Pricing & Configuration](#advanced-pricing--configuration) section below for the full settings reference.
 
 ---
 
@@ -213,7 +206,7 @@ Open via **Copilot Cost Tracker: Open Dashboard** command or the graph icon in t
 
 **Cost appears wrong for a model**
 - Add custom rates via `copilotCostTracker.customModelRates` setting
-- Unknown models default to GPT-4o rates; check logs for warnings
+- Unknown models default to GPT-5.4-tier fallback rates; check logs for warnings
 
 **Budget period shows wrong start date**
 - Verify `billingCycleStartDay` matches your GitHub billing cycle (GitHub → Settings → Billing and plans)
@@ -233,10 +226,10 @@ All settings under `copilotCostTracker.*`:
 - **Billing**: `billingCycleStartDay`, `budgetCredits`, `budgetWarningThresholds`
 - **Pricing**: `customModelRates`, `excludedModels`, `pricingUrl`  
 - **Data**: `telemetrySource`, `pollIntervalMin`, `pollIntervalMax`, `initialScanDays`
-- **Display**: `currency`, `exchangeRate`, `exchangeRate`, `showStatusBar`
+- **Display**: `currency`, `exchangeRate`, `showStatusBar`
 - **Debug**: `logLevel`
 
-**→ [View detailed configuration docs](docs/CONFIGURATION.md)**
+Tip: open VS Code Settings and search for `copilotCostTracker.` to browse all available options.
 
 ### Built-in Pricing Rates (June 2026)
 Official rates for OpenAI, Anthropic, Google, GitHub models:
@@ -252,7 +245,7 @@ Define custom rates for unlisted models:
 }
 ```
 
-**→ [View complete pricing table](docs/PRICING.md)**
+For exact built-in rates, see the source table in `src/pricing/defaultPricing.ts`.
 
 ---
 
@@ -266,9 +259,7 @@ This extension is built with:
 
 Data flows from VS Code's internal telemetry → traces database → cost calculation → in-memory DB → UI.
 
-For deep technical details on data flow, modules, persistence, and billing period logic:
-
-**→ [Read ARCHITECTURE.md](.context/ublang.md)**
+For deeper implementation details, inspect the source under `src/` and tests under `test/`.
 
 ---
 
@@ -277,7 +268,7 @@ For deep technical details on data flow, modules, persistence, and billing perio
 ### Quick Start
 
 ```bash
-git clone https://github.com/yourusername/copilot-cost-tracker.git
+git clone https://github.com/Hoxlegion/copilot-cost-tracker-vsc.git
 cd copilot-cost-tracker
 npm install
 npm run watch          # Rebuilds on changes
@@ -308,34 +299,22 @@ src/
   watcher/            # Data polling & ingestion
   views/              # UI: status bar, tree, dashboard
 test/
-  billing.test.ts     # 15 unit tests for billing math
+  billing.test.ts     # Billing period calculation tests
 ```
 
-See [ARCHITECTURE.md](.context/ublang.md) for full module documentation.
-
-### TypeScript & Type Safety
-
-`tsconfig.json` uses `strict: true`. There are 8 pre-existing type errors from `sql.js` (no TypeScript declarations), but these don't affect the build. To fix:
-
-```bash
-# Add declaration file
-echo "declare module 'sql.js';" > src/sql-js.d.ts
-```
+See the `src/` folders above for module boundaries and ownership.
 
 ---
 
 ## Contributing
 
 Pull requests welcome! Please:
-1. Follow the existing code style (Prettier + ESLint config included)
+1. Follow the existing code style and run `npm run lint`
 2. Add tests for new features
 3. Update docs if behavior changes
 4. Reference any GitHub issues in commit messages
 
-For architectural decisions and design notes, see [.context/ublang.md](.context/ublang.md).
-
 ---
-
 ---
 
 ## License

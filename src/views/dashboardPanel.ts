@@ -1,5 +1,9 @@
 import * as vscode from "vscode";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import * as os from "node:os";
 import { CostDatabase, InsightMetrics } from "../database";
+import type { CacheSavingsMetrics } from "../database/costDatabase";
 import { PricingEngine } from "../pricing";
 import { TracesDbReader, SurfaceBreakdown } from "../parser";
 import { DashboardAlert } from "../insights";
@@ -359,8 +363,9 @@ export class DashboardPanel {
     .chart-wrap {
       position: relative;
       width: 100%;
-      height: 260px;
+      height: 320px;
       margin: 12px 0;
+      padding-bottom: 4px;
     }
     .chart-grid {
       display: grid;
@@ -695,6 +700,167 @@ export class DashboardPanel {
       font-family: monospace;
       font-size: 12px;
     }
+
+    /* Visual refresh */
+    :root {
+      --brand-1: #2aa5ff;
+      --brand-2: #11c49b;
+      --brand-3: #ffb347;
+      --brand-4: #ff6f61;
+      --panel-tint: color-mix(in srgb, var(--card-bg) 78%, #103449 22%);
+      --panel-border-strong: color-mix(in srgb, var(--border) 70%, var(--brand-1) 30%);
+    }
+    body {
+      background:
+        radial-gradient(1200px 500px at 10% -10%, color-mix(in srgb, var(--brand-1) 18%, transparent), transparent),
+        radial-gradient(900px 420px at 100% 0%, color-mix(in srgb, var(--brand-2) 14%, transparent), transparent),
+        var(--bg);
+    }
+    .header {
+      padding: 14px 16px;
+      background: linear-gradient(120deg, color-mix(in srgb, var(--card-bg) 70%, #153247 30%), color-mix(in srgb, var(--card-bg) 76%, #19382f 24%));
+      border-bottom: 1px solid var(--panel-border-strong);
+    }
+    .header h1 {
+      font-size: 16px;
+      letter-spacing: 0.2px;
+    }
+    .tabs {
+      gap: 6px;
+      border-bottom: none;
+      padding-top: 8px;
+      padding-bottom: 8px;
+      background: color-mix(in srgb, var(--card-bg) 65%, transparent);
+      position: sticky;
+      top: 0;
+      z-index: 12;
+      backdrop-filter: blur(6px);
+    }
+    .tab {
+      border: 1px solid transparent;
+      border-radius: 999px;
+      padding: 6px 12px;
+    }
+    .tab.active {
+      border-bottom-color: transparent;
+      border-color: color-mix(in srgb, var(--brand-1) 45%, var(--border) 55%);
+      background: color-mix(in srgb, var(--brand-1) 20%, transparent);
+    }
+    .global-filter-bar {
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--panel-border-strong);
+      background: linear-gradient(90deg, color-mix(in srgb, var(--card-bg) 82%, #112f40 18%), color-mix(in srgb, var(--card-bg) 90%, #143428 10%));
+    }
+    .tab-content {
+      padding-top: 18px;
+      animation: fadeIn 0.18s ease;
+    }
+    .stat {
+      background: var(--panel-tint);
+      border: 1px solid var(--panel-border-strong);
+      border-radius: 10px;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.16);
+    }
+    .chart-wrap,
+    .insight-panel,
+    table {
+      border-radius: 8px;
+    }
+    table {
+      border: 1px solid color-mix(in srgb, var(--border) 72%, var(--brand-1) 28%);
+      overflow: hidden;
+      background: color-mix(in srgb, var(--card-bg) 88%, #101d29 12%);
+    }
+    th {
+      background: color-mix(in srgb, var(--card-bg) 70%, #103449 30%);
+      color: color-mix(in srgb, var(--fg) 82%, #9fd9ff 18%);
+    }
+    tr:nth-child(even) {
+      background: color-mix(in srgb, var(--card-bg) 92%, transparent);
+    }
+    .table-filter-row th {
+      background: color-mix(in srgb, var(--card-bg) 86%, #0f2333 14%);
+    }
+    .session-zone {
+      border: 1px solid var(--panel-border-strong);
+      border-radius: 10px;
+      padding: 12px;
+      background: color-mix(in srgb, var(--card-bg) 78%, #0d2737 22%);
+      margin-bottom: 14px;
+    }
+    .section-header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      margin-bottom: 8px;
+      gap: 10px;
+    }
+    .section-title {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.35px;
+      color: var(--fg);
+    }
+    .section-sub {
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .session-focus-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .session-focus-grid > * {
+      min-width: 0;
+      overflow: hidden;
+    }
+    .session-focus-grid .insight-panel {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .session-focus-grid .insight-panel > div.scroll-wrap {
+      overflow-x: auto;
+      flex: 1;
+    }
+    .session-subtabs {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+    .session-subtab {
+      border: 1px solid var(--border);
+      background: color-mix(in srgb, var(--card-bg) 88%, transparent);
+      color: var(--muted);
+      border-radius: 999px;
+      padding: 5px 12px;
+      font-size: 11px;
+      cursor: pointer;
+      transition: all 0.12s ease;
+    }
+    .session-subtab:hover {
+      color: var(--fg);
+      border-color: color-mix(in srgb, var(--brand-1) 40%, var(--border) 60%);
+    }
+    .session-subtab.active {
+      color: #fff;
+      border-color: color-mix(in srgb, var(--brand-1) 65%, var(--border) 35%);
+      background: linear-gradient(90deg, color-mix(in srgb, var(--brand-1) 72%, #0e2230 28%), color-mix(in srgb, var(--brand-2) 56%, #0d2230 44%));
+    }
+    .session-pane {
+      display: none;
+    }
+    .session-pane.active {
+      display: block;
+      animation: fadeIn 0.16s ease;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0.45; transform: translateY(3px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
   </style>
 </head>
 <body>
@@ -715,7 +881,7 @@ export class DashboardPanel {
   <!-- Tabs -->
   <div class="tabs">
     <div class="tab active" data-tab="overview">Overview</div>
-    <div class="tab" data-tab="budget">Budget</div>
+    <div class="tab" data-tab="budget">Spending</div>
     <div class="tab" data-tab="sessions">Sessions</div>
     <div class="tab" data-tab="models">Models</div>
     <div class="tab" data-tab="tokens">Tokens</div>
@@ -942,34 +1108,99 @@ export class DashboardPanel {
 
   <!-- Sessions -->
   <div class="tab-content" id="tab-sessions">
-    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px"><span id="sessionCount" style="font-size:11px;color:var(--muted)"></span></div>
-    <table>
-      <thead>
-        <tr>
-          <th style="width:28px"></th>
-          <th class="sortable" data-sort="ts">Date</th>
-          <th class="sortable" data-sort="model">Model</th>
-          <th class="num sortable" data-sort="turns">Turns</th>
-          <th class="num sortable" data-sort="costUsd">Cost</th>
-          <th class="num sortable" data-sort="credits">Credits</th>
-          <th class="num sortable" data-sort="totalTokens">Tokens</th>
-          <th class="num sortable" data-sort="cachePct">Cache%</th>
-          <th class="num sortable" data-sort="avgLatencyMs">Avg Latency (ms)</th>
-        </tr>
-        <tr class="table-filter-row">
-          <th></th>
-          <th><input id="sessionsFilterDate" placeholder="Filter date"></th>
-          <th><input id="sessionsFilterModel" placeholder="Filter model"></th>
-          <th><input id="sessionsFilterTurns" placeholder="Filter turns"></th>
-          <th><input id="sessionsFilterCost" placeholder="Filter cost"></th>
-          <th><input id="sessionsFilterCredits" placeholder="Filter credits"></th>
-          <th><input id="sessionsFilterTokens" placeholder="Filter tokens"></th>
-          <th><input id="sessionsFilterCachePct" placeholder="Filter cache%"></th>
-          <th><input id="sessionsFilterLatency" placeholder="Filter latency"></th>
-        </tr>
-      </thead>
-      <tbody id="sessionsBody"></tbody>
-    </table>
+    <div class="session-subtabs">
+      <button class="session-subtab active" data-sessions-pane="summary">Summary</button>
+      <button class="session-subtab" data-sessions-pane="table">Table</button>
+      <button class="session-subtab" data-sessions-pane="discovery">Discovery</button>
+    </div>
+
+    <div class="session-pane active" id="sessions-pane-summary">
+      <div class="session-zone">
+        <div class="section-header">
+          <div class="section-title">Session Operations</div>
+          <div class="section-sub" id="sessionCount"></div>
+        </div>
+        <div class="session-focus-grid">
+          <div class="insight-panel" style="margin-top:0">
+            <h4>Workspace Focus (Current Range)</h4>
+            <div class="insight-note">Hier zie je welke workspaces nu het meeste kosten, zodat je optimalisaties gericht kunt plannen.</div>
+            <table style="font-size:12px">
+              <thead><tr><th>Workspace</th><th class="num">Cost</th><th class="num">Credits</th><th class="num">Sessions</th><th class="num">LLM Calls</th></tr></thead>
+              <tbody>${workspaceSummaryView.workspaceRowsHtml}</tbody>
+            </table>
+          </div>
+          <div class="insight-panel" style="margin-top:0">
+            <h4>Recent Session Snapshots</h4>
+            <div class="insight-note">Snelle session snapshots met model, volume, cache-efficiency en kosten in een compact overzicht.</div>
+            <table style="font-size:12px">
+              <thead><tr><th>Last Active</th><th>Workspace</th><th>Session</th><th>Primary Model</th><th class="num">LLM Calls</th><th class="num">Cache Hit</th><th class="num">Cost</th></tr></thead>
+              <tbody>${recentSessionRowsHtml}</tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="session-pane" id="sessions-pane-table">
+      <div class="session-zone">
+        <div class="section-header">
+          <div class="section-title">Session Table</div>
+          <div class="section-sub">Diepgaande details per sessie met uitklapbare model-breakdown</div>
+        </div>
+        <table>
+        <thead>
+          <tr>
+            <th style="width:28px"></th>
+            <th class="sortable" data-sort="ts">Date</th>
+            <th class="sortable" data-sort="model">Model</th>
+            <th class="num sortable" data-sort="turns">Turns</th>
+            <th class="num sortable" data-sort="costUsd">Cost</th>
+            <th class="num sortable" data-sort="credits">Credits</th>
+            <th class="num sortable" data-sort="totalTokens">Tokens</th>
+            <th class="num sortable" data-sort="cachePct">Cache%</th>
+            <th class="num sortable" data-sort="avgLatencyMs">Avg Latency (ms)</th>
+          </tr>
+          <tr class="table-filter-row">
+            <th></th>
+            <th><input id="sessionsFilterDate" placeholder="Filter date"></th>
+            <th><input id="sessionsFilterModel" placeholder="Filter model"></th>
+            <th><input id="sessionsFilterTurns" placeholder="Filter turns"></th>
+            <th><input id="sessionsFilterCost" placeholder="Filter cost"></th>
+            <th><input id="sessionsFilterCredits" placeholder="Filter credits"></th>
+            <th><input id="sessionsFilterTokens" placeholder="Filter tokens"></th>
+            <th><input id="sessionsFilterCachePct" placeholder="Filter cache%"></th>
+            <th><input id="sessionsFilterLatency" placeholder="Filter latency"></th>
+          </tr>
+        </thead>
+        <tbody id="sessionsBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="session-pane" id="sessions-pane-discovery">
+      <div class="session-zone" style="margin-bottom:0">
+        <div class="section-header">
+          <div class="section-title">Turn Discovery</div>
+          <div class="section-sub">Inspecteer per turn LLM/tool-calls en anomalies, direct gekoppeld aan sessions</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+          <button id="discoveryExpandAll" style="font-size:11px;border:1px solid var(--border);border-radius:4px;padding:3px 8px;background:var(--card-bg);color:var(--fg);cursor:pointer">Expand all</button>
+          <button id="discoveryCollapseAll" style="font-size:11px;border:1px solid var(--border);border-radius:4px;padding:3px 8px;background:var(--card-bg);color:var(--fg);cursor:pointer">Collapse all</button>
+          <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)">
+            <input id="discoveryOnlyTools" type="checkbox">
+            Only rows with tools
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)">
+            <input id="discoveryOnlyAnomalies" type="checkbox">
+            Only anomalies
+          </label>
+        </div>
+        <table style="font-size:12px">
+          <thead><tr><th></th><th class="sortable" data-sort="turnIndex">Turn</th><th>Session</th><th class="num sortable" data-sort="llmCalls">LLM</th><th class="num sortable" data-sort="toolCalls">Tools</th><th class="num sortable" data-sort="inputTotal">Input</th><th class="num sortable" data-sort="outputTokens">Output</th><th class="num sortable" data-sort="cacheHitPct">Cache%</th></tr></thead>
+          <tbody id="discoveryBody"></tbody>
+        </table>
+      </div>
+    </div>
   </div>
 
   <!-- Models -->
@@ -1118,42 +1349,6 @@ export class DashboardPanel {
         <tbody>${surfaceCostTableHtml}</tbody>
       </table>
     </div>` : ''}
-    <div class="insight-panel">
-      <h4>Workspace Focus (Current Range)</h4>
-      <div class="insight-note">Where costs are concentrated right now. Use this to decide where to optimize first.</div>
-      <table style="font-size:12px">
-        <thead><tr><th>Workspace</th><th class="num">Cost</th><th class="num">Credits</th><th class="num">Sessions</th><th class="num">LLM Calls</th></tr></thead>
-        <tbody>${workspaceSummaryView.workspaceRowsHtml}</tbody>
-      </table>
-    </div>
-    <div class="insight-panel">
-      <h4>Recent Session Snapshots</h4>
-      <div class="insight-note">Compact turn-level view: latest sessions, active model, call volume and cache efficiency.</div>
-      <table style="font-size:12px">
-        <thead><tr><th>Last Active</th><th>Workspace</th><th>Session</th><th>Primary Model</th><th class="num">LLM Calls</th><th class="num">Cache Hit</th><th class="num">Cost</th></tr></thead>
-        <tbody>${recentSessionRowsHtml}</tbody>
-      </table>
-    </div>
-    <div class="insight-panel">
-      <h4>Discovery: Turn / LLM Calls / Tool Calls</h4>
-      <div class="insight-note">Recent turns grouped by session + turn index. Expand rows to inspect agent, model and tool usage.</div>
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
-        <button id="discoveryExpandAll" style="font-size:11px;border:1px solid var(--border);border-radius:4px;padding:3px 8px;background:var(--card-bg);color:var(--fg);cursor:pointer">Expand all</button>
-        <button id="discoveryCollapseAll" style="font-size:11px;border:1px solid var(--border);border-radius:4px;padding:3px 8px;background:var(--card-bg);color:var(--fg);cursor:pointer">Collapse all</button>
-        <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)">
-          <input id="discoveryOnlyTools" type="checkbox">
-          Only rows with tools
-        </label>
-        <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)">
-          <input id="discoveryOnlyAnomalies" type="checkbox">
-          Only anomalies
-        </label>
-      </div>
-      <table style="font-size:12px">
-        <thead><tr><th></th><th class="sortable" data-sort="turnIndex">Turn</th><th>Session</th><th class="num sortable" data-sort="llmCalls">LLM</th><th class="num sortable" data-sort="toolCalls">Tools</th><th class="num sortable" data-sort="inputTotal">Input</th><th class="num sortable" data-sort="outputTokens">Output</th><th class="num sortable" data-sort="cacheHitPct">Cache%</th></tr></thead>
-        <tbody id="discoveryBody"></tbody>
-      </table>
-    </div>
     ${cacheSavingsView.hasSavings ? `
     <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
       <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:8px">
@@ -1240,9 +1435,26 @@ export class DashboardPanel {
       }
     }
 
+    function switchSessionPane(paneName) {
+      document.querySelectorAll('.session-subtab').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.sessionsPane === paneName);
+      });
+      document.querySelectorAll('.session-pane').forEach(p => p.classList.remove('active'));
+      const pane = document.getElementById('sessions-pane-' + paneName);
+      if (pane) {
+        pane.classList.add('active');
+      }
+    }
+
     document.querySelectorAll('.tab').forEach(tab => {
       tab.addEventListener('click', () => {
         switchToTab(tab.dataset.tab);
+      });
+    });
+
+    document.querySelectorAll('.session-subtab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        switchSessionPane(btn.dataset.sessionsPane || 'summary');
       });
     });
 
@@ -1940,9 +2152,13 @@ export class DashboardPanel {
         return;
       }
 
-      const visibleSessionIds = new Set(baseSessions.map(s => s.sessionId));
       const rows = turnDiscovery
-        .filter(r => visibleSessionIds.has(r.chatSessionId))
+        .filter(r => {
+          const ts = Number(r.lastTimeMs || r.firstTimeMs || 0);
+          return ts > 0
+            && (globalFilter.fromMs === null || ts >= globalFilter.fromMs)
+            && (globalFilter.toMs === null || ts <= globalFilter.toMs);
+        })
         .filter(r => !discoveryState.onlyTools || Number(r.toolCalls || 0) > 0)
         .map(r => ({
           ...r,
@@ -1955,7 +2171,7 @@ export class DashboardPanel {
       body.innerHTML = '';
 
       if (rows.length === 0) {
-        body.innerHTML = '<tr><td colspan="8" style="color:var(--muted)">No discovery rows in this range yet</td></tr>';
+        body.innerHTML = '<tr><td colspan="8" style="color:var(--muted);padding:12px">No turn discovery data in this range. Turn discovery requires the agent-traces.db telemetry source (not JSONL fallback). Check the status bar for the active source.</td></tr>';
         return;
       }
 
@@ -2056,6 +2272,7 @@ export class DashboardPanel {
       }
 
       switchToTab('sessions');
+      switchSessionPane('table');
       rerenderAll();
 
       const row = Array.from(document.querySelectorAll('#sessionsBody tr')).find((el) => el.dataset && el.dataset.sessionId === sessionId);
@@ -2289,7 +2506,7 @@ export class DashboardPanel {
     bindSortHandlers('tab-sessions', sessionsSort, rerenderAll);
     bindSortHandlers('tab-models', modelsSort, rerenderAll);
     bindSortHandlers('tab-tokens', tokensSort, rerenderAll);
-    bindSortHandlers('tab-insights', discoverySort, rerenderAll);
+    bindSortHandlers('sessions-pane-discovery', discoverySort, rerenderAll);
 
     bindFilterInputs(['sessionsFilterDate', 'sessionsFilterModel', 'sessionsFilterTurns', 'sessionsFilterCost', 'sessionsFilterCredits', 'sessionsFilterTokens', 'sessionsFilterCachePct', 'sessionsFilterLatency'], rerenderAll);
     bindFilterInputs(['modelsFilterModel', 'modelsFilterTurns', 'modelsFilterCost', 'modelsFilterPct', 'modelsFilterTokens', 'modelsFilterCachePct', 'modelsFilterAvg', 'modelsFilterTail'], rerenderAll);
@@ -2694,7 +2911,7 @@ export class DashboardPanel {
   }
 
   private buildCacheSavingsView(
-    cacheSavings: import("../database").CacheSavingsMetrics,
+    cacheSavings: CacheSavingsMetrics,
     periodCostUsd: number
   ): {
     hasSavings: boolean;
@@ -2759,6 +2976,7 @@ export class DashboardPanel {
   } {
     const byWorkspace = new Map<string, {
       workspace: string;
+      displayName: string;
       costUsd: number;
       credits: number;
       sessions: number;
@@ -2771,6 +2989,7 @@ export class DashboardPanel {
       const key = s.workspace || "unknown";
       const current = byWorkspace.get(key) ?? {
         workspace: key,
+        displayName: this.resolveWorkspaceName(key),
         costUsd: 0,
         credits: 0,
         sessions: 0,
@@ -2795,7 +3014,7 @@ export class DashboardPanel {
       ? `<tr><td colspan="5" style="color:var(--muted)">No workspace data yet</td></tr>`
       : rows.map((r) =>
         `<tr>
-          <td title="${r.workspace}">${this.shortenWorkspaceName(r.workspace)}</td>
+          <td title="${r.workspace}">${r.displayName}</td>
           <td class="num">$${r.costUsd.toFixed(3)}</td>
           <td class="num">${r.credits.toFixed(1)}</td>
           <td class="num">${r.sessions}</td>
@@ -2804,7 +3023,7 @@ export class DashboardPanel {
       ).join("");
 
     return {
-      topWorkspaceLabel: top ? this.shortenWorkspaceName(top.workspace) : "—",
+      topWorkspaceLabel: top ? top.displayName : "—",
       topWorkspaceCostUsd: top?.costUsd ?? 0,
       topWorkspaceSessions: top?.sessions ?? 0,
       workspaceRowsHtml,
@@ -2840,7 +3059,7 @@ export class DashboardPanel {
 
       return `<tr>
         <td>${timeLabel}</td>
-        <td title="${s.workspace}">${this.shortenWorkspaceName(s.workspace)}</td>
+        <td title="${s.workspace}">${this.resolveWorkspaceName(s.workspace)}</td>
         <td title="${s.sessionId}"><button class="goto-session" data-session-id="${s.sessionId}" style="background:none;border:none;color:var(--accent);cursor:pointer;padding:0">${shortSession}</button></td>
         <td>${s.primaryModel || "unknown"}</td>
         <td class="num">${s.turnCount}</td>
@@ -2873,6 +3092,50 @@ export class DashboardPanel {
     return `${days}d ago`;
   }
 
+  private resolveWorkspaceName(hash: string): string {
+    // Try to resolve VS Code workspace storage hash to a human-readable folder name
+    if (!hash || hash === "unknown") {
+      return hash || "unknown";
+    }
+
+    // If it already looks like a path (contains / or \), use shortenWorkspaceName directly
+    if (hash.includes("/") || hash.includes("\\")) {
+      return this.shortenWorkspaceName(hash);
+    }
+
+    try {
+      const platform = os.platform();
+      let storagePath: string;
+      if (platform === "win32") {
+        storagePath = path.join(os.homedir(), "AppData", "Roaming", "Code", "User", "workspaceStorage", hash, "workspace.json");
+      } else if (platform === "darwin") {
+        storagePath = path.join(os.homedir(), "Library", "Application Support", "Code", "User", "workspaceStorage", hash, "workspace.json");
+      } else {
+        storagePath = path.join(os.homedir(), ".config", "Code", "User", "workspaceStorage", hash, "workspace.json");
+      }
+
+      if (!fs.existsSync(storagePath)) {
+        return hash.slice(0, 12) + "…";
+      }
+
+      const raw = JSON.parse(fs.readFileSync(storagePath, "utf-8")) as Record<string, unknown>;
+      const folder = (raw.folder as string) ?? "";
+      if (!folder) {
+        return hash.slice(0, 12) + "…";
+      }
+
+      // Strip URI scheme (file:///, vscode-vfs://github/, etc.) and normalise slashes
+      const decoded = decodeURIComponent(folder)
+        .replace(/^[a-z][a-z0-9+\-.]*:\/+/i, "") // strip scheme
+        .replaceAll("\\", "/");
+      const parts = decoded.split("/").filter(Boolean);
+      const tail = parts.slice(-2).join("/") || decoded;
+      return tail.length > 34 ? `${tail.slice(0, 31)}…` : tail;
+    } catch {
+      return hash.slice(0, 12) + "…";
+    }
+  }
+
   private shortenWorkspaceName(workspace: string): string {
     if (!workspace) {
       return "unknown";
@@ -2881,7 +3144,7 @@ export class DashboardPanel {
     const normalized = workspace.replaceAll("\\", "/");
     const parts = normalized.split("/").filter(Boolean);
     const tail = parts.slice(-2).join("/") || normalized;
-    return tail.length > 34 ? `${tail.slice(0, 31)}...` : tail;
+    return tail.length > 34 ? `${tail.slice(0, 31)}…` : tail;
   }
 
   private buildEstimateData(insightMetrics: InsightMetrics, monthCostUsd: number): {

@@ -14,7 +14,7 @@ const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
  * Respects the configured log level — messages below threshold are dropped.
  */
 export class Logger implements vscode.Disposable {
-  private _channel: vscode.OutputChannel;
+  private readonly _channel: vscode.OutputChannel;
   private _level: LogLevel;
 
   constructor(level: LogLevel = "error") {

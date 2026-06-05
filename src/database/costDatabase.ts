@@ -1,4 +1,5 @@
 import * as path from "node:path";
+import * as fs from "node:fs";
 import initSqlJs, { Database } from "sql.js";
 import { ParsedTurn } from "../parser/types";
 
@@ -1158,7 +1159,6 @@ export class CostDatabase {
   save(): void {
     if (!this.db) {return;}
 
-    const fs = require("node:fs");
     const dir = path.dirname(this.dbPath);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
