@@ -115,7 +115,7 @@ export class TracesDbReader {
       inputTokens: Number(row.input_tokens ?? 0),
       outputTokens: Number(row.output_tokens ?? 0),
       cachedTokens: Number(row.cached_tokens ?? 0),
-      cacheWriteTokens: Number(row.cache_write_tokens ?? 0),
+      cacheWriteTokens: 0, // removed from spans schema
       reasoningTokens: Number(row.reasoning_tokens ?? 0),
       toolName: row.tool_name as string | null,
       chatSessionId: row.chat_session_id as string | null,
@@ -142,12 +142,12 @@ export class TracesDbReader {
       inputTokens: (row[13] as number) || 0,
       outputTokens: (row[14] as number) || 0,
       cachedTokens: (row[15] as number) || 0,
-      cacheWriteTokens: (row[16] as number) || 0,
-      reasoningTokens: (row[17] as number) || 0,
-      toolName: row[18] as string | null,
-      chatSessionId: row[19] as string | null,
-      turnIndex: row[20] as number | null,
-      ttftMs: row[21] as number | null,
+      cacheWriteTokens: 0, // removed from spans schema
+      reasoningTokens: (row[16] as number) || 0,
+      toolName: row[17] as string | null,
+      chatSessionId: row[18] as string | null,
+      turnIndex: row[19] as number | null,
+      ttftMs: row[20] as number | null,
     };
   }
 
@@ -174,11 +174,13 @@ export class TracesDbReader {
         ? `WHERE input_tokens > 0 AND start_time_ms > ?`
         : "WHERE input_tokens > 0";
 
+      // Note: cache_write_tokens was removed from the spans schema in a recent
+      // Copilot update. We default it to 0 and keep the interface field for compatibility.
       const stmt = db.prepare(
         `SELECT span_id, trace_id, parent_span_id, name, start_time_ms, end_time_ms,
                 status_code, operation_name, provider_name, agent_name, conversation_id,
                 request_model, response_model, input_tokens, output_tokens, cached_tokens,
-                cache_write_tokens, reasoning_tokens, tool_name, chat_session_id, turn_index, ttft_ms
+                reasoning_tokens, tool_name, chat_session_id, turn_index, ttft_ms
          FROM spans ${whereClause}
          ORDER BY start_time_ms ASC`
       );

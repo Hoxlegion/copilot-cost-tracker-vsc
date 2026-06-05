@@ -469,6 +469,25 @@ export class CostDatabase {
   }
 
   /**
+   * Return the last processed timestamp for a session, if known.
+   */
+  getSessionLastTimestamp(sessionId: string): number | null {
+    if (!this.db) { return null; }
+
+    const stmt = this.db.prepare("SELECT last_timestamp FROM sessions WHERE session_id = :sessionId LIMIT 1");
+    stmt.bind({ ":sessionId": sessionId });
+
+    let lastTimestamp: number | null = null;
+    if (stmt.step()) {
+      const row = stmt.getAsObject();
+      lastTimestamp = (row.last_timestamp as number) ?? null;
+    }
+
+    stmt.free();
+    return lastTimestamp;
+  }
+
+  /**
    * Get the maximum timestamp from the turns table.
    * Used as the watermark for restart recovery (D3).
    * Returns 0 if no turns exist.

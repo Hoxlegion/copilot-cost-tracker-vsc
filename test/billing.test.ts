@@ -4,6 +4,7 @@ import {
   getBillingPeriodEnd,
   getBillingPeriodStartMs,
   getBillingPeriodEndMs,
+  assessBudgetPace,
 } from "../src/billing";
 
 describe("getBillingPeriodStart", () => {
@@ -105,5 +106,32 @@ describe("getBillingPeriodStartMs / getBillingPeriodEndMs", () => {
     const now = new Date(2026, 4, 15);
     expect(getBillingPeriodStartMs(1, now)).toBe(getBillingPeriodStart(1, now).getTime());
     expect(getBillingPeriodEndMs(1, now)).toBe(getBillingPeriodEnd(1, now).getTime());
+  });
+});
+
+describe("assessBudgetPace", () => {
+  it("flags too-fast pace when spend is far above expected", () => {
+    const now = new Date(2026, 4, 15).getTime();
+    const start = new Date(2026, 4, 1).getTime();
+    const end = new Date(2026, 5, 1).getTime();
+    const result = assessBudgetPace(start, end, 80, 100, now);
+    expect(result.level).toBe("too-fast");
+  });
+
+  it("stays on-track when spend is below expected late in period", () => {
+    const now = new Date(2026, 4, 28).getTime();
+    const start = new Date(2026, 4, 1).getTime();
+    const end = new Date(2026, 5, 1).getTime();
+    const result = assessBudgetPace(start, end, 80, 100, now);
+    expect(result.level).toBe("on-track");
+  });
+
+  it("returns unknown when budget is not positive", () => {
+    const now = new Date(2026, 4, 15).getTime();
+    const start = new Date(2026, 4, 1).getTime();
+    const end = new Date(2026, 5, 1).getTime();
+    const result = assessBudgetPace(start, end, 10, 0, now);
+    expect(result.level).toBe("unknown");
+    expect(result.shortLabel).toBe("PACE N/A");
   });
 });

@@ -71,6 +71,79 @@ export function getBillingPeriodEndMs(startDay: number, now: Date = new Date()):
   return getBillingPeriodEnd(startDay, now).getTime();
 }
 
+export type BudgetPaceLevel = "on-track" | "fast" | "too-fast" | "unknown";
+
+export interface BudgetPaceAssessment {
+  level: BudgetPaceLevel;
+  shortLabel: string;
+  expectedCreditsNow: number;
+  paceRatio: number;
+  daysElapsed: number;
+  totalDays: number;
+}
+
+/**
+ * Assess how quickly budget is burning compared to period progress.
+ */
+export function assessBudgetPace(
+  periodStartMs: number,
+  periodEndMs: number,
+  periodCredits: number,
+  budgetCredits: number,
+  nowMs: number = Date.now()
+): BudgetPaceAssessment {
+  const dayMs = 24 * 60 * 60 * 1000;
+
+  const totalDays = Math.max(1, (periodEndMs - periodStartMs) / dayMs);
+  const daysElapsed = Math.max(1, (nowMs - periodStartMs) / dayMs);
+  const elapsedRatio = Math.min(1, Math.max(0, daysElapsed / totalDays));
+
+  if (!Number.isFinite(budgetCredits) || budgetCredits <= 0) {
+    return {
+      level: "unknown",
+      shortLabel: "PACE N/A",
+      expectedCreditsNow: 0,
+      paceRatio: 0,
+      daysElapsed,
+      totalDays,
+    };
+  }
+
+  const expectedCreditsNow = budgetCredits * elapsedRatio;
+  const paceRatio = expectedCreditsNow > 0 ? (periodCredits / expectedCreditsNow) : 0;
+
+  if (paceRatio >= 1.25) {
+    return {
+      level: "too-fast",
+      shortLabel: "PACE HIGH",
+      expectedCreditsNow,
+      paceRatio,
+      daysElapsed,
+      totalDays,
+    };
+  }
+
+  if (paceRatio >= 1.1) {
+    return {
+      level: "fast",
+      shortLabel: "PACE FAST",
+      expectedCreditsNow,
+      paceRatio,
+      daysElapsed,
+      totalDays,
+    };
+  }
+
+  return {
+    level: "on-track",
+    shortLabel: "PACE OK",
+    expectedCreditsNow,
+    paceRatio,
+    daysElapsed,
+    totalDays,
+  };
+}
+
 /**
  * Get the number of days in a given month (0-indexed month).
  */

@@ -2,6 +2,123 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "Git: Status",
+      "type": "shell",
+      "command": "git status -sb",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Git: Sync Main (Fetch + Rebase Pull)",
+      "type": "shell",
+      "command": "git fetch origin && git switch main && git pull --rebase origin main",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Git: Create Branch",
+      "type": "shell",
+      "command": "git switch -c ${input:branchName}",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Git: Stage All",
+      "type": "shell",
+      "command": "git add -A",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Git: Commit",
+      "type": "shell",
+      "command": "git commit -m \"${input:commitMessage}\"",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Git: Push Current Branch",
+      "type": "shell",
+      "command": "git push -u origin HEAD",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Git: Export Staged Patch",
+      "type": "shell",
+      "command": "git diff --cached --output ${input:patchFilePath}",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Git: Apply Patch",
+      "type": "shell",
+      "command": "git apply ${input:patchFilePath}",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Git: Apply Patch And Stage",
+      "type": "shell",
+      "command": "git apply --index ${input:patchFilePath}",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Project: Build",
+      "type": "shell",
+      "command": "npm run build",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Project: Test",
+      "type": "shell",
+      "command": "npm test",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Project: Lint",
+      "type": "shell",
+      "command": "npm run lint",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Project: Package VSIX",
+      "type": "shell",
+      "command": "npm run package",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
       "label": "Deploy Local Extension",
       "type": "shell",
       "command": "npm run deploy:local",
@@ -9,6 +126,25 @@
         "cwd": "${workspaceFolder}"
       },
       "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "branchName",
+      "type": "promptString",
+      "description": "Branch name (e.g. feature/onboarding-setup)",
+      "default": "feature/"
+    },
+    {
+      "id": "commitMessage",
+      "type": "promptString",
+      "description": "Commit message"
+    },
+    {
+      "id": "patchFilePath",
+      "type": "promptString",
+      "description": "Patch file path (e.g. patches/my-change.patch)",
+      "default": "patches/change.patch"
     }
   ]
 }
