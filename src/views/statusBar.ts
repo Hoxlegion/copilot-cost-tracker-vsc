@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { CostDatabase } from "../database";
 import { PricingEngine } from "../pricing";
 import { ConfigManager, ExtensionConfig } from "../config";
-import { getBillingPeriodStartMs } from "../billing";
+import { assessBudgetPace, BudgetPaceAssessment, getBillingPeriodEndMs, getBillingPeriodStartMs } from "../billing";
 import { Logger } from "../logger";
 
 export class StatusBarIndicator implements vscode.Disposable {
@@ -109,6 +109,7 @@ export class StatusBarIndicator implements vscode.Disposable {
 
     const cfg = this.configManager.config;
     const periodStartMs = getBillingPeriodStartMs(cfg.billingCycleStartDay);
+    const periodEndMs = getBillingPeriodEndMs(cfg.billingCycleStartDay);
 
     // Session and period totals
     const sessionTotals = this.database.getCostSince(this.activationTimestamp);
@@ -116,13 +117,14 @@ export class StatusBarIndicator implements vscode.Disposable {
     const sessionUsd = sessionTotals.costUsd;
     const periodUsd = periodTotals.costUsd;
     const periodCredits = periodTotals.credits;
+    const pace = assessBudgetPace(periodStartMs, periodEndMs, periodCredits, cfg.budgetCredits);
 
     // Format: session USD | period total USD
-    const text = `$(credit-card) +$${sessionUsd.toFixed(2)} | $${periodUsd.toFixed(2)}`;
+    const text = `$(credit-card) +$${sessionUsd.toFixed(2)} | $${periodUsd.toFixed(2)} | ${pace.shortLabel}`;
     this.statusBarItem.text = text;
 
     // Color coding based on budget thresholds (D8)
-    this.updateColor(periodCredits, cfg);
+    this.updateColor(periodCredits, cfg, pace);
 
     // Check and fire threshold notifications (D8)
     this.checkThresholds(periodCredits, periodStartMs, cfg);
@@ -135,6 +137,7 @@ export class StatusBarIndicator implements vscode.Disposable {
     tooltip.appendMarkdown(`**Copilot Cost Tracker**\n\n`);
     tooltip.appendMarkdown(`Session: **+$${sessionUsd.toFixed(2)}** (${sessionTotals.credits.toFixed(2)} credits)\n\n`);
     tooltip.appendMarkdown(`Period: **$${periodUsd.toFixed(2)}** · ${periodCredits.toFixed(2)} / ${budget} credits (${pct}%)\n\n`);
+    tooltip.appendMarkdown(`Pacing: **${this.getPaceDisplayLabel(pace)}** · expected by now ${pace.expectedCreditsNow.toFixed(1)} credits\n\n`);
     tooltip.appendMarkdown(`*Click for options*`);
     this.statusBarItem.tooltip = tooltip;
   }
@@ -142,7 +145,7 @@ export class StatusBarIndicator implements vscode.Disposable {
   /**
    * Update status bar color based on budget thresholds.
    */
-  private updateColor(periodCredits: number, cfg: ExtensionConfig): void {
+  private updateColor(periodCredits: number, cfg: ExtensionConfig, pace: BudgetPaceAssessment): void {
     const budget = cfg.budgetCredits;
     if (budget <= 0) {
       this.statusBarItem.backgroundColor = undefined;
@@ -156,8 +159,14 @@ export class StatusBarIndicator implements vscode.Disposable {
     const crossedThresholds = thresholds.filter((t) => pct >= t);
 
     if (crossedThresholds.length === 0) {
-      // Under all thresholds — normal (no color)
-      this.statusBarItem.backgroundColor = undefined;
+      if (pace.level === "too-fast") {
+        this.statusBarItem.backgroundColor = new vscode.ThemeColor("statusBarItem.errorBackground");
+      } else if (pace.level === "fast") {
+        this.statusBarItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
+      } else {
+        // Under all thresholds — normal (no color)
+        this.statusBarItem.backgroundColor = undefined;
+      }
     } else {
       const highest = crossedThresholds.at(-1) ?? 0;
       if (highest >= 100) {
@@ -168,6 +177,19 @@ export class StatusBarIndicator implements vscode.Disposable {
         this.statusBarItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
       }
     }
+  }
+
+  private getPaceDisplayLabel(pace: BudgetPaceAssessment): string {
+    if (pace.level === "too-fast") {
+      return "Too fast";
+    }
+    if (pace.level === "fast") {
+      return "Fast";
+    }
+    if (pace.level === "on-track") {
+      return "On track";
+    }
+    return "N/A";
   }
 
   /**
