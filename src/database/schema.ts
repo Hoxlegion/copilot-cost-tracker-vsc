@@ -46,9 +46,9 @@ export function createTables(db: Database): void {
 
 function ensureTurnsSchema(db: Database): void {
   const existingColumns = getTurnsColumnNames(db);
-  addTurnsColumnIfMissing(db, existingColumns, "agent_name", "TEXT NOT NULL DEFAULT 'unknown'");
-  addTurnsColumnIfMissing(db, existingColumns, "cache_write_tokens", "INTEGER NOT NULL DEFAULT 0");
-  addTurnsColumnIfMissing(db, existingColumns, "model_family", "TEXT NOT NULL DEFAULT 'unknown'");
+  addTurnsColumnIfMissing(existingColumns, db, "agent_name", "TEXT NOT NULL DEFAULT 'unknown'");
+  addTurnsColumnIfMissing(existingColumns, db, "cache_write_tokens", "INTEGER NOT NULL DEFAULT 0");
+  addTurnsColumnIfMissing(existingColumns, db, "model_family", "TEXT NOT NULL DEFAULT 'unknown'");
 }
 
 function getTurnsColumnNames(db: Database): Set<string> {
