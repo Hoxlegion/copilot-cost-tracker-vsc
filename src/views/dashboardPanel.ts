@@ -96,6 +96,26 @@ export class DashboardPanel {
         const webviewUri = this.panel.webview.asWebviewUri(
           vscode.Uri.joinPath(this.extensionUri, 'dist', 'webview')
         );
+        
+        // Fix Vite-generated script tag: replace relative path with webview URI,
+        // add nonce, remove type="module" (bundle is IIFE format)
+        const scriptMatch = html.match(/<script[^>]*src="\.\/bundle\.js"[^>]*><\/script>/);
+        console.log('[Dashboard] Found script tag:', scriptMatch ? scriptMatch[0] : 'none');
+        
+        html = html.replace(
+          /<script[^>]*src="\.\/bundle\.js"[^>]*><\/script>/,
+          ''
+        );
+        
+        // Add script tag at the end of body (after #app div exists)
+        html = html.replace(
+          '</body>',
+          `<script nonce="${nonce}" src="${webviewUri}/bundle.js"></script></body>`
+        );
+        
+        console.log('[Dashboard] Final HTML snippet:', html.substring(html.indexOf('<body>'), html.indexOf('</body>') + 20));
+        
+        // Also handle the original template script tag if present
         html = html.replace(/src="\.\//g, `src="${webviewUri}/`);
         html = html.replace(/href="\.\//g, `href="${webviewUri}/`);
         

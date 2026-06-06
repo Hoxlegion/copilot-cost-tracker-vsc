@@ -4,6 +4,7 @@ import { svelte } from '@sveltejs/vite-plugin-svelte';
 export default defineConfig({
   plugins: [svelte()],
   root: 'src/webview',
+  base: './',
   build: {
     outDir: '../../dist/webview',
     emptyOutDir: true,
