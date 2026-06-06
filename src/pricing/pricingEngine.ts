@@ -204,26 +204,7 @@ export class PricingEngine {
       .replaceAll("_", "-");
   }
 
-  /**
-   * Calculate cost for a single model's token usage.
-   */
-  private calculateModelCost(
-    model: string,
-    inputTokens: number,
-    outputTokens: number,
-    cachedTokens: number,
-    cacheWriteTokens: number
-  ): number {
-    const normalized = this.normalizeModelName(model);
-    const pricing = this.getModelPricing(normalized);
 
-    const inputCost = (inputTokens / 1_000_000) * (pricing?.input ?? 0);
-    const outputCost = (outputTokens / 1_000_000) * (pricing?.output ?? 0);
-    const cachedCost = (cachedTokens / 1_000_000) * (pricing?.cached ?? 0);
-    const cacheWriteCost = (cacheWriteTokens / 1_000_000) * (pricing?.cacheWrite ?? 0);
-
-    return inputCost + outputCost + cachedCost + cacheWriteCost;
-  }
 
   /**
    * Calculate the cost of cache tokens (write + read) for a given model.

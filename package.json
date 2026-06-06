@@ -166,6 +166,13 @@
           "maximum": 365,
           "description": "Number of days to scan on first activation. Use 'Scan Full History' command for complete backfill."
         },
+        "copilotCostTracker.retentionDays": {
+          "type": "number",
+          "default": 90,
+          "minimum": 1,
+          "maximum": 3650,
+          "description": "Number of days to retain turn data. Older turns are pruned periodically."
+        },
         "copilotCostTracker.customModelRates": {
           "type": "object",
           "default": {},
@@ -302,6 +309,7 @@
     "lint": "eslint src"
   },
   "devDependencies": {
+    "@eslint/js": "10.0.1",
     "@types/node": "25.9.2",
     "@types/vscode": "^1.85.0",
     "@vscode/vsce": "3.9.2",
@@ -314,7 +322,6 @@
     "vitest": "4.1.8"
   },
   "dependencies": {
-    "@eslint/js": "10.0.1",
     "sql.js": "1.14.1"
   },
   "allowScripts": {
