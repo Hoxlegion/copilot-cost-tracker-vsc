@@ -299,20 +299,31 @@
     "test:watch": "vitest",
     "package": "vsce package --no-dependencies",
     "deploy:local": "npm run package && node ./scripts/install-local-vsix.js",
-    "lint": "eslint src --ext ts"
+    "lint": "eslint src"
   },
   "devDependencies": {
-    "@typescript-eslint/eslint-plugin": "^8.35.1",
-    "@typescript-eslint/parser": "^8.35.1",
-    "@types/node": "^20.0.0",
-    "@types/vscode": "^1.85.0",
-    "@vscode/vsce": "^3.0.0",
-    "esbuild": "^0.28.0",
-    "eslint": "^8.56.0",
-    "typescript": "^5.4.0",
-    "vitest": "^4.1.7"
+    "@types/node": "25.9.2",
+    "@types/vscode": "1.120.0",
+    "@vscode/vsce": "3.9.2",
+    "esbuild": "0.28.0",
+    "eslint": "10.4.1",
+    "glob": "13.0.6",
+    "rimraf": "6.1.3",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.60.1",
+    "vitest": "4.1.8"
   },
   "dependencies": {
-    "sql.js": "^1.10.0"
+    "@eslint/js": "10.0.1",
+    "sql.js": "1.14.1"
+  },
+  "allowScripts": {
+    "@types/node@25.9.2": true,
+    "eslint@10.4.1": true,
+    "glob@13.0.6": true,
+    "rimraf@6.1.3": true,
+    "esbuild@0.28.0": true,
+    "keytar@7.9.0": true,
+    "@vscode/vsce-sign@2.0.9": true
   }
 }
