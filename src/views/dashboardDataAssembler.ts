@@ -49,6 +49,7 @@ export interface DashboardRawData {
   billingPeriodEndMs: number;
   periodCredits: number;
   periodAggregate: { costUsd: number; credits: number; turns: number };
+  budgetCredits: number;
 }
 
 /**
@@ -61,7 +62,7 @@ export class DashboardDataAssembler {
     private readonly reader: TracesDbReader
   ) {}
 
-  async assemble(billingCycleStartDay: number): Promise<DashboardRawData> {
+  async assemble(billingCycleStartDay: number, budgetCredits: number): Promise<DashboardRawData> {
     const periodStartMs = getBillingPeriodStartMs(billingCycleStartDay);
     const periodEndMs = getBillingPeriodEndMs(billingCycleStartDay);
     const sinceMs30d = Date.now() - 30 * 24 * 60 * 60 * 1000;
@@ -142,6 +143,7 @@ export class DashboardDataAssembler {
       billingPeriodEndMs: periodEndMs,
       periodCredits,
       periodAggregate,
+      budgetCredits,
     };
   }
 }

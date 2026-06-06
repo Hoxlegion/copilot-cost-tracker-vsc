@@ -1,12 +1,20 @@
-import * as vscode from "vscode";
-import { CostDatabase } from "../database";
-import { PricingEngine } from "../pricing";
-import { TracesDbReader } from "../parser";
-import { DashboardDataAssembler } from "./dashboardDataAssembler";
-import { renderDashboard } from "./dashboardTemplate";
+import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
+import { CostDatabase } from '../database';
+import { PricingEngine } from '../pricing';
+import { TracesDbReader } from '../parser';
+import { DashboardDataAssembler } from './dashboardDataAssembler';
 
 export class DashboardPanel {
   private static _currentPanel: DashboardPanel | undefined;
+  private readonly panel: vscode.WebviewPanel;
+  private readonly extensionUri: vscode.Uri;
+  private readonly database: CostDatabase;
+  private readonly pricing: PricingEngine;
+  private readonly assembler: DashboardDataAssembler;
+  private disposables: vscode.Disposable[] = [];
+  private htmlLoaded = false;
 
   public static get currentPanel(): DashboardPanel | undefined {
     return this._currentPanel;
@@ -15,13 +23,6 @@ export class DashboardPanel {
   private static set currentPanel(value: DashboardPanel | undefined) {
     this._currentPanel = value;
   }
-
-  private readonly panel: vscode.WebviewPanel;
-  private readonly extensionUri: vscode.Uri;
-  private readonly database: CostDatabase;
-  private readonly pricing: PricingEngine;
-  private readonly assembler: DashboardDataAssembler;
-  private disposables: vscode.Disposable[] = [];
 
   private constructor(
     panel: vscode.WebviewPanel,
@@ -35,7 +36,18 @@ export class DashboardPanel {
     this.database = database;
     this.pricing = pricing;
     this.assembler = new DashboardDataAssembler(database, reader);
+    
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
+    
+    this.panel.webview.onDidReceiveMessage(
+      (message) => {
+        if (message.command === 'refresh') {
+          vscode.commands.executeCommand('copilotCostTracker.refresh');
+        }
+      },
+      null,
+      this.disposables
+    );
   }
 
   public static createOrShow(
@@ -53,15 +65,15 @@ export class DashboardPanel {
     }
 
     const panel = vscode.window.createWebviewPanel(
-      "copilotCostDashboard",
-      "Copilot Cost Dashboard",
+      'copilotCostDashboard',
+      'Copilot Cost Dashboard',
       column,
       {
         enableScripts: true,
         retainContextWhenHidden: true,
         localResourceRoots: [
-          vscode.Uri.joinPath(extensionUri, "media"),
-          vscode.Uri.joinPath(extensionUri, "dist"),
+          vscode.Uri.joinPath(extensionUri, 'media'),
+          vscode.Uri.joinPath(extensionUri, 'dist'),
         ],
       }
     );
@@ -72,23 +84,48 @@ export class DashboardPanel {
 
   public async update(): Promise<void> {
     try {
-      const config = vscode.workspace.getConfiguration("copilotCostTracker");
-      const billingCycleStartDay = config.get<number>("billingCycleStartDay", 1);
-      const budgetCredits = config.get<number>("budgetCredits", 180);
+      if (!this.htmlLoaded) {
+        const webviewPath = path.join(this.extensionUri.fsPath, 'dist', 'webview', 'index.html');
+        let html = fs.readFileSync(webviewPath, 'utf-8');
+        
+        const nonce = this.getNonce();
+        html = html
+          .replace(/\{\{CSP_SOURCE\}\}/g, this.panel.webview.cspSource)
+          .replace(/\{\{NONCE\}\}/g, nonce);
+        
+        const webviewUri = this.panel.webview.asWebviewUri(
+          vscode.Uri.joinPath(this.extensionUri, 'dist', 'webview')
+        );
+        html = html.replace(/src="\.\//g, `src="${webviewUri}/`);
+        html = html.replace(/href="\.\//g, `href="${webviewUri}/`);
+        
+        this.panel.webview.html = html;
+        this.htmlLoaded = true;
+      }
 
-      const rawData = await this.assembler.assemble(billingCycleStartDay);
+      const config = vscode.workspace.getConfiguration('copilotCostTracker');
+      const billingCycleStartDay = config.get<number>('billingCycleStartDay', 1);
+      const budgetCredits = config.get<number>('budgetCredits', 180);
 
-      this.panel.webview.html = renderDashboard({
-        rawData,
-        database: this.database,
-        pricing: this.pricing,
-        cspSource: this.panel.webview.cspSource,
-        budgetCredits,
+      const rawData = await this.assembler.assemble(billingCycleStartDay, budgetCredits);
+      
+      this.panel.webview.postMessage({
+        type: 'dashboardData',
+        data: rawData,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      this.panel.webview.html = `<!DOCTYPE html><html><body style="font-family: var(--vscode-font-family); padding: 16px; color: var(--vscode-editor-foreground); background: var(--vscode-editor-background);"><h3>Dashboard failed to render</h3><p>${message.replaceAll("<", "&lt;").replaceAll(">", "&gt;")}</p><p>Open Developer Tools or reload the window after updating the extension.</p></body></html>`;
+      console.error('Dashboard update failed:', message);
     }
+  }
+
+  private getNonce(): string {
+    let text = '';
+    const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    for (let i = 0; i < 32; i++) {
+      text += possible.charAt(Math.floor(Math.random() * possible.length));
+    }
+    return text;
   }
 
   private dispose(): void {
