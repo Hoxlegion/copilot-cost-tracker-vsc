@@ -2,9 +2,9 @@ import * as vscode from "vscode";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import { CostDatabase, InsightMetrics } from "../database";
-import type { CacheSavingsMetrics } from "../database/costDatabase";
+import { CostDatabase, InsightMetrics, CacheSavingsMetrics } from "../database";
 import { PricingEngine } from "../pricing";
+import type { UnknownModelDiagnostics } from "../pricing";
 import { TracesDbReader, SurfaceBreakdown } from "../parser";
 import { DashboardAlert } from "../insights";
 import { DashboardDataAssembler, DashboardRawData } from "./dashboardDataAssembler";
@@ -3289,7 +3289,7 @@ export class DashboardPanel {
     return JSON.stringify(days);
   }
 
-  private getUnknownModelBannerHtml(diagnostics: ReturnType<PricingEngine["getUnknownModelDiagnostics"]>): string {
+  private getUnknownModelBannerHtml(diagnostics: UnknownModelDiagnostics): string {
     if (diagnostics.excludedTurnCount > 0) {
       const modelList = diagnostics.excludedModels.slice(0, 5).join(", ");
       const moreCount = Math.max(0, diagnostics.excludedModels.length - 5);

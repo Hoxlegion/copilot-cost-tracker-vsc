@@ -3,17 +3,7 @@
  * Separates analytical and aggregation logic from storage persistence.
  */
 
-import { CostDatabase, InsightMetrics, AlertMetrics } from "./costDatabase";
-
-interface AlertThresholdConfig {
-  microTurnGapMs: number;
-  microTurnMinCount: number;
-  microTurnMaxOutputTokens: number;
-  rawPasteMinInputTokens: number;
-  premiumMisallocationMinCredits: number;
-  premiumMisallocationMaxOutputTokens: number;
-  agentSprawlMinInputTokens: number;
-}
+import { CostDatabase, InsightMetrics, AlertMetrics, AlertThresholdConfig } from "./costDatabase";
 
 /**
  * Analytics service provides high-level aggregations and derived metrics

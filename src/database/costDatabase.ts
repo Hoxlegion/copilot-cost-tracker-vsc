@@ -128,7 +128,7 @@ export interface AlertMetrics {
   massiveContextMaxInput: number;
 }
 
-interface AlertThresholdConfig {
+export interface AlertThresholdConfig {
   microTurnGapMs: number;
   microTurnMinCount: number;
   microTurnMaxOutputTokens: number;
