@@ -3,7 +3,8 @@
  * Separates analytical and aggregation logic from storage persistence.
  */
 
-import { CostDatabase, InsightMetrics, AlertMetrics, AlertThresholdConfig } from "./costDatabase";
+import { CostDatabase } from "./costDatabase";
+import type { InsightMetrics, AlertMetrics, AlertThresholdConfig } from "./types";
 
 /**
  * Analytics service provides high-level aggregations and derived metrics
