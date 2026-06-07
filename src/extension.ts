@@ -4,12 +4,9 @@ import { TracesDbReader, LogParser } from "./parser";
 import { PricingEngine } from "./pricing";
 import { CostDatabase, setWasmPath } from "./database";
 import { TracesIngester } from "./watcher";
-import { CostTreeProvider, DashboardPanel, StatusBarIndicator } from "./views";
+import { StatusBarIndicator } from "./views";
 import { ConfigManager } from "./config";
 import { Logger } from "./logger";
-import { PromptCostIntelligenceProvider } from "./promptCostIntelligence";
-import { registerCommands } from "./commands";
-import { setupTimers } from "./timers";
 
 let database: CostDatabase | undefined;
 
@@ -44,23 +41,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const ingester = new TracesIngester(reader, logParser, pricing, database, configManager, logger);
   ingester.setTelemetrySource(configManager.config.telemetrySource);
 
-  // UI components
-  const treeProvider = new CostTreeProvider(database, pricing);
   const statusBar = new StatusBarIndicator(database, pricing, configManager, logger);
-  const promptIntelligence = new PromptCostIntelligenceProvider(configManager, logger);
-
-  // Register TreeView, CodeLens, and Hover
-  const treeView = vscode.window.createTreeView("copilotCostTracker.overview", {
-    treeDataProvider: treeProvider,
-    showCollapseAll: true,
-  });
-
-  const promptCodeLens = vscode.languages.registerCodeLensProvider(
-    [{ scheme: "file" }, { scheme: "untitled" }], promptIntelligence
-  );
-  const promptHover = vscode.languages.registerHoverProvider(
-    [{ scheme: "file" }, { scheme: "untitled" }], promptIntelligence
-  );
 
   // Debounced UI refresh
   let refreshTimer: NodeJS.Timeout | undefined;
@@ -68,11 +49,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const debouncedRefresh = () => {
     if (refreshTimer) { clearTimeout(refreshTimer); }
     refreshTimer = setTimeout(() => {
-      treeProvider.refresh();
       statusBar.update();
-      if (DashboardPanel.currentPanel) {
-        void DashboardPanel.currentPanel.update();
-      }
     }, refreshDebounceMs);
   };
 
@@ -82,21 +59,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   configManager.onDidChange((cfg) => {
     refreshDebounceMs = cfg.refreshDebounceMs;
     statusBar.updateVisibility();
-    treeProvider.refresh();
     ingester.setTelemetrySource(cfg.telemetrySource);
     ingester.updatePollingBounds(cfg.pollIntervalMin, cfg.pollIntervalMax);
   });
 
-  // Commands
-  registerCommands(context, {
-    database, pricing, ingester, reader, treeProvider, statusBar,
-    extensionUri: context.extensionUri,
-  });
+  context.subscriptions.push(
+    vscode.commands.registerCommand("copilotCostTracker.refresh", async () => {
+      await pricing.refreshPricing();
+      const count = await ingester.fullIngest();
+      statusBar.update();
+      vscode.window.showInformationMessage(`Copilot Cost Footer: Refreshed. ${count} new turns processed.`);
+    })
+  );
 
   // Initial ingest + start polling
   const initialScanSinceMs = Date.now() - configManager.config.initialScanDays * 24 * 60 * 60 * 1000;
   await ingester.ingest(initialScanSinceMs);
-  treeProvider.refresh();
   statusBar.update();
   ingester.startPolling(configManager.config.pollIntervalMin, configManager.config.pollIntervalMax);
 
@@ -106,15 +84,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     logger.info(`Pruned ${pruned} old turns based on retentionDays=${configManager.config.retentionDays}`);
   }
 
-  // Periodic timers
-  setupTimers(context, database, pricing, configManager, logger);
-
   logger.info("Activation complete");
 
   // Disposables
   context.subscriptions.push(
-    configManager, logger, promptIntelligence, treeView,
-    promptCodeLens, promptHover, statusBar, ingester,
+    configManager, logger, statusBar, ingester,
   );
 }
 

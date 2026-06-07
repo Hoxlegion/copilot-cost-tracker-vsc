@@ -1,8 +1,8 @@
 {
-  "name": "copilot-cost-tracker",
-  "displayName": "Copilot Cost Tracker",
-  "description": "Track and visualize your GitHub Copilot usage costs.",
-  "version": "0.2.5",
+  "name": "copilot-cost-footer",
+  "displayName": "Copilot Cost Footer",
+  "description": "Minimal GitHub Copilot cost tracking: live footer indicator.",
+  "version": "0.1.0",
   "publisher": "Hoxlegion",
   "license": "MIT",
   "repository": {
@@ -13,19 +13,17 @@
     "vscode": "^1.85.0"
   },
   "categories": [
-    "Visualization",
     "Other"
   ],
   "keywords": [
     "copilot",
     "cost",
     "tracking",
-    "ai-credits",
+    "footer",
+    "status-bar",
     "billing",
     "budget",
-    "monitoring",
-    "github",
-    "usage-analytics"
+    "github"
   ],
   "icon": "media/icon.png",
   "activationEvents": [
@@ -33,83 +31,21 @@
   ],
   "main": "./dist/extension.js",
   "contributes": {
-    "viewsContainers": {
-      "activitybar": [
-        {
-          "id": "copilot-cost-tracker",
-          "title": "Copilot Cost Tracker",
-          "icon": "media/icon.svg"
-        }
-      ]
-    },
-    "views": {
-      "copilot-cost-tracker": [
-        {
-          "id": "copilotCostTracker.overview",
-          "name": "Cost Overview",
-          "icon": "media/icon.svg"
-        }
-      ]
-    },
     "commands": [
       {
         "command": "copilotCostTracker.refresh",
-        "title": "Refresh Cost Data",
-        "category": "Copilot Cost Tracker",
+        "title": "Refresh Cost Footer Data",
+        "category": "Copilot Cost Footer",
         "icon": "$(refresh)"
-      },
-      {
-        "command": "copilotCostTracker.openDashboard",
-        "title": "Open Dashboard",
-        "category": "Copilot Cost Tracker",
-        "icon": "$(graph)"
-      },
-      {
-        "command": "copilotCostTracker.scanAll",
-        "title": "Scan All Workspaces",
-        "category": "Copilot Cost Tracker",
-        "icon": "$(search)"
-      },
-      {
-        "command": "copilotCostTracker.scanFullHistory",
-        "title": "Scan Full History",
-        "category": "Copilot Cost Tracker",
-        "icon": "$(history)"
       }
     ],
-    "menus": {
-      "view/title": [
-        {
-          "command": "copilotCostTracker.refresh",
-          "when": "view == copilotCostTracker.overview",
-          "group": "navigation"
-        },
-        {
-          "command": "copilotCostTracker.openDashboard",
-          "when": "view == copilotCostTracker.overview",
-          "group": "navigation"
-        }
-      ]
-    },
     "configuration": {
-      "title": "Copilot Cost Tracker",
+      "title": "Copilot Cost Footer",
       "properties": {
-        "copilotCostTracker.plan": {
-          "type": "string",
-          "default": "enterprise",
-          "enum": [
-            "pro",
-            "pro_plus",
-            "max",
-            "business",
-            "enterprise"
-          ],
-          "description": "Your GitHub Copilot plan type."
-        },
         "copilotCostTracker.budgetCredits": {
           "type": "number",
           "default": 180,
-          "description": "Total credit budget for the billing period. Used for threshold alerting."
+          "description": "Total credit budget for the billing period. Used for footer warnings and pacing."
         },
         "copilotCostTracker.budgetWarningThresholds": {
           "type": "array",
@@ -144,7 +80,7 @@
         },
         "copilotCostTracker.refreshDebounceMs": {
           "type": "number",
-          "default": 2000,
+          "default": 100,
           "minimum": 100,
           "maximum": 5000,
           "description": "Debounce delay (ms) for UI refresh. Lower = snappier, higher = less CPU."
@@ -164,7 +100,7 @@
           "default": 30,
           "minimum": 1,
           "maximum": 365,
-          "description": "Number of days to scan on first activation. Use 'Scan Full History' command for complete backfill."
+          "description": "Number of days to scan on first activation. Increase this if you want a larger initial history window."
         },
         "copilotCostTracker.retentionDays": {
           "type": "number",
@@ -217,31 +153,10 @@
           ],
           "description": "Models to exclude from cost tracking (e.g., code completion models). Uses substring matching."
         },
-        "copilotCostTracker.enabledFileExtensions": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "default": [
-            ".prompt",
-            ".md"
-          ],
-          "description": "File extensions that enable inline prompt token and cost preview."
-        },
-        "copilotCostTracker.currency": {
-          "type": "string",
-          "default": "USD",
-          "description": "Display currency (e.g., USD, EUR, GBP)."
-        },
-        "copilotCostTracker.exchangeRate": {
-          "type": "number",
-          "default": 1,
-          "description": "Exchange rate: 1 USD = X local currency."
-        },
         "copilotCostTracker.showStatusBar": {
           "type": "boolean",
           "default": true,
-          "description": "Show live cost indicator in the status bar."
+          "description": "Show the live cost footer in the status bar."
         },
         "copilotCostTracker.pricingUrl": {
           "type": "string",
@@ -251,57 +166,14 @@
         "copilotCostTracker.excludeUnknownModelsFromTotals": {
           "type": "boolean",
           "default": false,
-          "description": "When enabled, turns for models that are missing built-in and custom pricing are excluded from totals (cost=0) and flagged in the dashboard."
-        },
-        "copilotCostTracker.microTurnGapSeconds": {
-          "type": "number",
-          "default": 120,
-          "minimum": 10,
-          "description": "Maximum seconds between consecutive turns in the same session to be counted as a 'micro-turn' ping-pong pattern."
-        },
-        "copilotCostTracker.microTurnMinCount": {
-          "type": "number",
-          "default": 5,
-          "minimum": 2,
-          "description": "Minimum number of consecutive rapid turns required to trigger the Micro-Turn Bloat alert."
-        },
-        "copilotCostTracker.microTurnMaxOutputTokens": {
-          "type": "number",
-          "default": 200,
-          "minimum": 50,
-          "description": "Maximum average output tokens per turn for a rapid sequence to be classified as micro-turn bloat."
-        },
-        "copilotCostTracker.rawPasteMinInputTokens": {
-          "type": "number",
-          "default": 15000,
-          "minimum": 1000,
-          "description": "Minimum net (uncached) input tokens in a single turn to trigger the Raw Paste alert."
-        },
-        "copilotCostTracker.premiumMisallocationMinCredits": {
-          "type": "number",
-          "default": 2,
-          "minimum": 0.1,
-          "description": "Minimum credits consumed in a single turn (combined with low output) to trigger the Premium Model Misallocation alert."
-        },
-        "copilotCostTracker.premiumMisallocationMaxOutputTokens": {
-          "type": "number",
-          "default": 100,
-          "minimum": 10,
-          "description": "Maximum output tokens in a turn for it to be considered a 'trivial task' for the Premium Model Misallocation alert."
-        },
-        "copilotCostTracker.agentSprawlMinInputTokens": {
-          "type": "number",
-          "default": 80000,
-          "minimum": 10000,
-          "description": "Minimum input tokens in a single turn to trigger the Massive Context Turn alert."
+          "description": "When enabled, turns for models that are missing built-in and custom pricing are excluded from totals instead of counting as zero-cost turns."
         }
       }
     }
   },
   "scripts": {
     "vscode:prepublish": "npm run build",
-    "build:webview": "vite build",
-    "build": "npm run build:webview && esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap && node scripts/copy-assets.js",
+    "build": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap && node scripts/copy-assets.js",
     "watch": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap --watch",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -311,20 +183,13 @@
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
-    "@sveltejs/vite-plugin-svelte": "7.1.2",
-    "@tsconfig/svelte": "5.0.8",
     "@types/node": "25.9.2",
     "@types/vscode": "^1.85.0",
     "@vscode/vsce": "3.9.2",
-    "chart.js": "4.5.1",
     "esbuild": "0.28.0",
     "eslint": "10.4.1",
-    "glob": "13.0.6",
-    "rimraf": "6.1.3",
-    "svelte": "5.56.2",
     "typescript": "6.0.3",
     "typescript-eslint": "8.60.1",
-    "vite": "8.0.16",
     "vitest": "4.1.8"
   },
   "dependencies": {

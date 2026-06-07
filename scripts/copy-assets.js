@@ -1,4 +1,4 @@
-const { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } = require("node:fs");
+const { copyFileSync, existsSync, mkdirSync, rmSync } = require("node:fs");
 const { join } = require("node:path");
 
 const distDir = join(__dirname, "..", "dist");
@@ -13,11 +13,5 @@ copyFileSync(
 
 const webviewDir = join(distDir, "webview");
 if (existsSync(webviewDir)) {
-  const files = readdirSync(webviewDir);
-  for (const file of files) {
-    const src = join(webviewDir, file);
-    if (statSync(src).isFile()) {
-      console.log(`Webview asset: ${file}`);
-    }
-  }
+  rmSync(webviewDir, { recursive: true, force: true });
 }

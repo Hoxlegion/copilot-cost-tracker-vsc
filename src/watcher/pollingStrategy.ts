@@ -38,14 +38,6 @@ export class PollingScheduler {
     this.currentIntervalMs = Math.min(Math.max(this.currentIntervalMs, minMs), maxMs);
   }
 
-  reschedule(intervalMs: number, onPoll: () => Promise<number>): void {
-    if (this.pollTimer) {
-      clearTimeout(this.pollTimer);
-    }
-    this.currentIntervalMs = intervalMs;
-    this.scheduleNext(onPoll);
-  }
-
   private scheduleNext(onPoll: () => Promise<number>): void {
     if (this.isDisposed) return;
     this.pollTimer = setTimeout(async () => {

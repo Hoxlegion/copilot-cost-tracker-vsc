@@ -164,24 +164,6 @@ export class PricingEngine {
     return costUsd * 100;
   }
 
-  /**
-   * Convert USD to local currency using configured exchange rate
-   */
-  convertToLocalCurrency(costUsd: number): number {
-    const rate = this.configManager?.config.exchangeRate
-      ?? vscode.workspace.getConfiguration("copilotCostTracker").get<number>("exchangeRate", 1);
-    return costUsd * rate;
-  }
-
-  getLocalCurrencySymbol(): string {
-    return this.configManager?.config.currency
-      ?? vscode.workspace.getConfiguration("copilotCostTracker").get<string>("currency", "USD");
-  }
-
-  getAllModels(): string[] {
-    return Object.keys(this.pricing.models);
-  }
-
   getUnknownModelDiagnostics(): UnknownModelDiagnostics {
     return {
       fallbackModelCount: this.unknownFallbackModels.size,
@@ -202,33 +184,5 @@ export class PricingEngine {
       .toLowerCase()
       .replace(/\s+/g, "-")
       .replaceAll("_", "-");
-  }
-
-
-
-  /**
-   * Calculate the cost of cache tokens (write + read) for a given model.
-   * Used to compute cache savings metrics.
-   * Returns cost in USD.
-   */
-  calculateCacheSavingsCost(
-    modelFamily: string,
-    cacheWriteTokens: number,
-    cacheReadTokens: number
-  ): number {
-    const pricing = this.getModelPricing(modelFamily);
-    if (!pricing) {
-      // Use fallback pricing if model not found
-      const writeTokensCost = (cacheWriteTokens / 1_000_000) * (DEFAULT_FALLBACK_RATE.cacheWrite ?? 0);
-      const readTokensCost = (cacheReadTokens / 1_000_000) * DEFAULT_FALLBACK_RATE.cached;
-      return writeTokensCost + readTokensCost;
-    }
-
-    // Cache write cost (if available) + cache read cost (cached rate)
-    const writeTokensCost = pricing.cacheWrite
-      ? (cacheWriteTokens / 1_000_000) * pricing.cacheWrite
-      : 0;
-    const readTokensCost = (cacheReadTokens / 1_000_000) * pricing.cached;
-    return writeTokensCost + readTokensCost;
   }
 }

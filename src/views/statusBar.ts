@@ -75,10 +75,8 @@ export class StatusBarIndicator implements vscode.Disposable {
 
     items.push(
       { label: "", kind: vscode.QuickPickItemKind.Separator },
-      { label: "$(dashboard) Open Dashboard", description: "Full cost breakdown" },
       { label: "$(refresh) Refresh Data", description: "Scan for new turns" },
-      { label: "$(gear) Settings", description: "Configure tracker" },
-      { label: "$(list-tree) Show TreeView", description: "Focus sidebar panel" }
+      { label: "$(gear) Settings", description: "Configure footer tracking" }
     );
 
     const picked = await vscode.window.showQuickPick(items, {
@@ -89,14 +87,10 @@ export class StatusBarIndicator implements vscode.Disposable {
 
     if (!picked) {return;}
 
-    if (picked.label.includes("Open Dashboard")) {
-      vscode.commands.executeCommand("copilotCostTracker.openDashboard");
-    } else if (picked.label.includes("Refresh Data")) {
+    if (picked.label.includes("Refresh Data")) {
       vscode.commands.executeCommand("copilotCostTracker.refresh");
     } else if (picked.label.includes("Settings")) {
       vscode.commands.executeCommand("workbench.action.openSettings", "copilotCostTracker");
-    } else if (picked.label.includes("Show TreeView")) {
-      vscode.commands.executeCommand("copilotCostTracker.overview.focus");
     }
   }
 

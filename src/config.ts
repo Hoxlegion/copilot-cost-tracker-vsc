@@ -45,14 +45,8 @@ export interface ExtensionConfig {
 
   // Filtering
   excludedModels: string[];
-  enabledFileExtensions: string[];
-
-  // Plan
-  plan: string;
 
   // Display
-  currency: string;
-  exchangeRate: number;
   showStatusBar: boolean;
 
   // Logging
@@ -154,25 +148,6 @@ function readConfig(): ExtensionConfig {
       )
     )
     : ["gpt-4o-mini"];
-
-  const rawEnabledExtensions = cfg.get<string[]>("enabledFileExtensions") ?? [".prompt", ".md"];
-  const enabledFileExtensions = Array.isArray(rawEnabledExtensions)
-    ? Array.from(
-      new Set(
-        rawEnabledExtensions
-          .slice(0, 100)
-          .filter((e) => typeof e === "string" && e.trim().length > 0)
-          .map((e) => e.startsWith(".") ? e.trim() : `.${e.trim()}`)
-          .map((e) => e.toLowerCase())
-          .filter((e) => /^\.[a-z0-9_-]{1,20}$/.test(e))
-      )
-    )
-    : [".prompt", ".md"];
-
-  const plan = cfg.get<string>("plan") ?? "pro";
-
-  const currency = cfg.get<string>("currency") ?? "USD";
-  const exchangeRate = Math.max(cfg.get<number>("exchangeRate") ?? 1, 0.0001);
   const showStatusBar = cfg.get<boolean>("showStatusBar") ?? true;
 
   const rawLogLevel = cfg.get<string>("logLevel") ?? "error";
@@ -194,10 +169,6 @@ function readConfig(): ExtensionConfig {
     pricingUrl,
     excludeUnknownModelsFromTotals,
     excludedModels,
-    enabledFileExtensions,
-    plan,
-    currency,
-    exchangeRate,
     showStatusBar,
     logLevel,
   };

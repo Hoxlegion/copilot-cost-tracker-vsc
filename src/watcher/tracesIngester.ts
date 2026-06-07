@@ -61,10 +61,6 @@ export class TracesIngester implements vscode.Disposable {
     this.logger.debug(`Telemetry source set to: ${source}`);
   }
 
-  getActiveSource(): "database" | "jsonl" {
-    return this.activeSource;
-  }
-
   startPolling(minMs?: number, maxMs?: number): void {
     if (minMs !== undefined || maxMs !== undefined) {
       this.scheduler.updateBounds(minMs ?? 5000, maxMs ?? 60000);
