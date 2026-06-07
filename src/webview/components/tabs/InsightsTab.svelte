@@ -10,10 +10,113 @@
   $: data = $dashboardData;
   $: alerts = data?.alerts ?? [];
   $: playbook = data?.playbook ?? [];
-  $: insightMetrics = data?.insightMetrics;
-  $: agentBreakdown = data?.agentBreakdown ?? [];
-  $: cacheSavings = data?.cacheSavings;
-  $: periodAggregate = data?.periodAggregate ?? { costUsd: 0, credits: 0, turns: 0 };
+  $: allSessions = data?.allSessions ?? [];
+  $: dailyAgentBreakdown = data?.dailyAgentBreakdown ?? [];
+  
+  $: filteredSessions = allSessions.filter(s => {
+    if ($filterState.fromMs !== null && s.startTimestamp < $filterState.fromMs) return false;
+    if ($filterState.toMs !== null && s.startTimestamp > $filterState.toMs) return false;
+    return true;
+  });
+  
+  $: filteredInsightMetrics = (() => {
+    const totalInput = filteredSessions.reduce((sum, s) => sum + s.totalInputTokens, 0);
+    const totalCached = filteredSessions.reduce((sum, s) => sum + s.totalCachedTokens, 0);
+    const totalOutput = filteredSessions.reduce((sum, s) => sum + s.totalOutputTokens, 0);
+    const totalTurns = filteredSessions.reduce((sum, s) => sum + s.turnCount, 0);
+    const errorTurns = filteredSessions.filter(s => s.status === 'error').length;
+    
+    const billableInput = totalInput + totalCached;
+    const cacheHitPct = billableInput > 0 ? (totalCached / billableInput) * 100 : 0;
+    
+    return {
+      totalInputTokens: totalInput,
+      totalCachedTokens: totalCached,
+      totalOutputTokens: totalOutput,
+      totalTurns,
+      errorTurns,
+      cacheHitPct,
+      ioRatioDays: [],
+    };
+  })();
+  
+  $: filteredAgentBreakdown = (() => {
+    const agentMap = new Map<string, {
+      agentName: string;
+      totalCostUsd: number;
+      totalCredits: number;
+      turnCount: number;
+    }>();
+    
+    dailyAgentBreakdown.forEach(day => {
+      const dayTs = new Date(day.period + 'T00:00:00').getTime();
+      const dayEndTs = dayTs + 86400000 - 1;
+      
+      if ($filterState.fromMs !== null && dayEndTs < $filterState.fromMs) return;
+      if ($filterState.toMs !== null && dayTs > $filterState.toMs) return;
+      
+      const current = agentMap.get(day.agentName) ?? {
+        agentName: day.agentName,
+        totalCostUsd: 0,
+        totalCredits: 0,
+        turnCount: 0,
+      };
+      current.totalCostUsd += day.totalCostUsd;
+      current.totalCredits += day.totalCredits;
+      current.turnCount += day.turnCount;
+      agentMap.set(day.agentName, current);
+    });
+    
+    const agents = Array.from(agentMap.values());
+    const totalCost = agents.reduce((sum, a) => sum + a.totalCostUsd, 0);
+    
+    return agents.map(a => ({
+      ...a,
+      percentage: totalCost > 0 ? (a.totalCostUsd / totalCost) * 100 : 0,
+    })).sort((a, b) => b.totalCostUsd - a.totalCostUsd);
+  })();
+  
+  $: filteredCacheSavings = (() => {
+    const modelMap = new Map<string, {
+      modelFamily: string;
+      cacheWriteTokens: number;
+      cacheReadTokens: number;
+      savingsCostUsd: number;
+      savingsCredits: number;
+    }>();
+    
+    filteredSessions.forEach(s => {
+      s.modelBreakdown?.forEach(m => {
+        const current = modelMap.get(m.model) ?? {
+          modelFamily: m.model,
+          cacheWriteTokens: 0,
+          cacheReadTokens: 0,
+          savingsCostUsd: 0,
+          savingsCredits: 0,
+        };
+        current.cacheReadTokens += m.totalCachedTokens;
+        modelMap.set(m.model, current);
+      });
+    });
+    
+    const models = Array.from(modelMap.values());
+    const totalSavingsCostUsd = models.reduce((sum, m) => sum + m.savingsCostUsd, 0);
+    
+    return models.map(m => ({
+      ...m,
+      percentage: totalSavingsCostUsd > 0 ? (m.savingsCostUsd / totalSavingsCostUsd) * 100 : 0,
+    })).sort((a, b) => b.savingsCostUsd - a.savingsCostUsd);
+  })();
+  
+  $: filteredPeriodAggregate = (() => {
+    const costUsd = filteredSessions.reduce((sum, s) => sum + s.totalCostUsd, 0);
+    const credits = filteredSessions.reduce((sum, s) => sum + s.totalCredits, 0);
+    const turns = filteredSessions.reduce((sum, s) => sum + s.turnCount, 0);
+    return { costUsd, credits, turns };
+  })();
+  
+  $: insightMetrics = filteredInsightMetrics;
+  $: agentBreakdown = filteredAgentBreakdown;
   
   $: totalBillableInput = (insightMetrics?.totalInputTokens ?? 0) + (insightMetrics?.totalCachedTokens ?? 0);
   $: avgInputPerTurn = insightMetrics && insightMetrics.totalTurns > 0
@@ -86,16 +189,16 @@
     turns: s.turns,
   }));
   
-  $: cacheSavingsValue = cacheSavings?.totalSavingsCostUsd ?? 0;
-  $: cacheSavingsCredits = cacheSavings?.totalSavingsCredits ?? 0;
+  $: cacheSavingsValue = filteredCacheSavings.reduce((sum, m) => sum + m.savingsCostUsd, 0);
+  $: cacheSavingsCredits = filteredCacheSavings.reduce((sum, m) => sum + m.savingsCredits, 0);
   $: cacheSavingsPct = (() => {
-    if (!cacheSavings || periodAggregate.costUsd === 0) return 0;
-    return (cacheSavingsValue / (periodAggregate.costUsd + cacheSavingsValue)) * 100;
+    if (filteredPeriodAggregate.costUsd === 0) return 0;
+    return (cacheSavingsValue / (filteredPeriodAggregate.costUsd + cacheSavingsValue)) * 100;
   })();
   
-  $: cacheSavingsTopModels = cacheSavings?.byModel
-    ?.filter(m => m.savingsCostUsd > 0)
-    ?.slice(0, 6) ?? [];
+  $: cacheSavingsTopModels = filteredCacheSavings
+    .filter(m => m.savingsCostUsd > 0)
+    .slice(0, 6);
   
   const cacheColumns = [
     { key: 'model', label: 'Model', type: 'string' as const },

@@ -7,6 +7,7 @@ import { CostDatabase, InsightMetrics, CacheSavingsMetrics } from "../database";
 import { TracesDbReader, SurfaceBreakdown, TurnDiscoveryRow } from "../parser";
 import { getBillingPeriodEndMs, getBillingPeriodStartMs } from "../billing";
 import { getAlerts, buildPlaybook, DashboardAlert, PlaybookRow } from "../insights";
+import { resolveWorkspaceName } from "./helpers/workspaceResolver";
 
 export interface DashboardRawData {
   insightMetrics: InsightMetrics;
@@ -111,6 +112,7 @@ export class DashboardDataAssembler {
 
     const allSessionsWithBreakdown = allSessions.map((session) => ({
       ...session,
+      workspace: resolveWorkspaceName(session.workspace),
       modelBreakdown: (sessionModelMap.get(session.sessionId) ?? []).map((row) => ({
         model: row.model,
         turnCount: row.turnCount,

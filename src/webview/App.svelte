@@ -26,13 +26,34 @@
   </header>
   
   <nav class="tabs">
-    <button class:active={activeTab === 'overview'} on:click={() => activeTab = 'overview'}>Overview</button>
-    <button class:active={activeTab === 'budget'} on:click={() => activeTab = 'budget'}>Spending</button>
-    <button class:active={activeTab === 'sessions'} on:click={() => activeTab = 'sessions'}>Sessions</button>
-    <button class:active={activeTab === 'models'} on:click={() => activeTab = 'models'}>Models</button>
-    <button class:active={activeTab === 'tokens'} on:click={() => activeTab = 'tokens'}>Tokens</button>
-    <button class:active={activeTab === 'insights'} on:click={() => activeTab = 'insights'}>Insights</button>
-    <button class:active={activeTab === 'estimates'} on:click={() => activeTab = 'estimates'}>Estimates ⚠</button>
+    <button class:active={activeTab === 'overview'} on:click={() => activeTab = 'overview'} data-tab="overview">
+      <span class="tab-icon">📊</span>
+      <span class="tab-label">Overview</span>
+    </button>
+    <button class:active={activeTab === 'budget'} on:click={() => activeTab = 'budget'} data-tab="budget">
+      <span class="tab-icon">💰</span>
+      <span class="tab-label">Spending</span>
+    </button>
+    <button class:active={activeTab === 'sessions'} on:click={() => activeTab = 'sessions'} data-tab="sessions">
+      <span class="tab-icon">💬</span>
+      <span class="tab-label">Sessions</span>
+    </button>
+    <button class:active={activeTab === 'models'} on:click={() => activeTab = 'models'} data-tab="models">
+      <span class="tab-icon">🤖</span>
+      <span class="tab-label">Models</span>
+    </button>
+    <button class:active={activeTab === 'tokens'} on:click={() => activeTab = 'tokens'} data-tab="tokens">
+      <span class="tab-icon">🔤</span>
+      <span class="tab-label">Tokens</span>
+    </button>
+    <button class:active={activeTab === 'insights'} on:click={() => activeTab = 'insights'} data-tab="insights">
+      <span class="tab-icon">💡</span>
+      <span class="tab-label">Insights</span>
+    </button>
+    <button class:active={activeTab === 'estimates'} on:click={() => activeTab = 'estimates'} data-tab="estimates">
+      <span class="tab-icon">⚠️</span>
+      <span class="tab-label">Estimates</span>
+    </button>
   </nav>
   
   {#if data}
@@ -75,52 +96,110 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 10px 16px;
-    border-bottom: 1px solid var(--vscode-panel-border);
+    padding: 12px 16px;
+    border-bottom: 2px solid var(--vscode-panel-border);
+    background: linear-gradient(to right, var(--vscode-editor-background), var(--vscode-editorWidget-background));
   }
   
   .header h1 {
-    font-size: 14px;
-    font-weight: 600;
+    font-size: 16px;
+    font-weight: 700;
+    margin: 0;
+    background: linear-gradient(135deg, #4fc3f7, #81c784);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
   }
   
   .stats {
     display: flex;
-    gap: 16px;
+    gap: 20px;
     font-size: 12px;
     color: var(--vscode-descriptionForeground);
   }
   
+  .stats span {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  
   .stats .val {
-    font-weight: 600;
+    font-weight: 700;
     color: var(--vscode-editor-foreground);
+    font-size: 13px;
   }
   
   .tabs {
     display: flex;
-    border-bottom: 1px solid var(--vscode-panel-border);
+    border-bottom: 2px solid var(--vscode-panel-border);
     padding: 0 16px;
+    background: var(--vscode-editor-background);
+    gap: 4px;
   }
   
   .tabs button {
-    padding: 8px 14px;
+    padding: 10px 16px;
     cursor: pointer;
     border: none;
-    border-bottom: 2px solid transparent;
+    border-bottom: 3px solid transparent;
     font-size: 12px;
     color: var(--vscode-descriptionForeground);
     background: none;
-    transition: all 0.15s;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    position: relative;
   }
   
   .tabs button:hover {
     color: var(--vscode-editor-foreground);
+    background: var(--vscode-list-hoverBackground);
+    border-radius: 4px 4px 0 0;
   }
   
   .tabs button.active {
     color: var(--vscode-editor-foreground);
-    border-bottom-color: var(--vscode-progressBar-background);
     font-weight: 600;
+    background: var(--vscode-editor-background);
+  }
+  
+  .tabs button[data-tab="overview"].active {
+    border-bottom-color: #4fc3f7;
+  }
+  
+  .tabs button[data-tab="budget"].active {
+    border-bottom-color: #81c784;
+  }
+  
+  .tabs button[data-tab="sessions"].active {
+    border-bottom-color: #ba68c8;
+  }
+  
+  .tabs button[data-tab="models"].active {
+    border-bottom-color: #ffb74d;
+  }
+  
+  .tabs button[data-tab="tokens"].active {
+    border-bottom-color: #4db6ac;
+  }
+  
+  .tabs button[data-tab="insights"].active {
+    border-bottom-color: #fff176;
+  }
+  
+  .tabs button[data-tab="estimates"].active {
+    border-bottom-color: #e57373;
+  }
+  
+  .tab-icon {
+    font-size: 14px;
+    line-height: 1;
+  }
+  
+  .tab-label {
+    font-size: 12px;
   }
   
   .tab-content {

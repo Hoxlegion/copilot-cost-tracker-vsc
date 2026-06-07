@@ -1,8 +1,10 @@
 <script lang="ts">
   import { dashboardData } from '../../stores/dashboard';
+  import { filterState } from '../../stores/filter';
   import ChartWrapper from '../shared/ChartWrapper.svelte';
   
   $: agentBreakdown = $dashboardData?.agentBreakdown ?? [];
+  $: dailyAgentBreakdown = $dashboardData?.dailyAgentBreakdown ?? [];
   
   const AGENT_LABEL_MAP: Record<string, string> = {
     'GitHub Copilot Chat': 'Sidebar Chat',
@@ -13,12 +15,44 @@
     'title': 'Title Generation',
   };
   
-  $: filteredAgents = agentBreakdown
-    .filter(a => a.totalCostUsd > 0)
-    .slice(0, 8);
+  $: filteredAgentBreakdown = (() => {
+    const agentMap = new Map<string, {
+      agentName: string;
+      totalCostUsd: number;
+      totalCredits: number;
+      turnCount: number;
+    }>();
+    
+    dailyAgentBreakdown.forEach(day => {
+      const dayTs = new Date(day.period + 'T00:00:00').getTime();
+      const dayEndTs = dayTs + 86400000 - 1;
+      
+      if ($filterState.fromMs !== null && dayEndTs < $filterState.fromMs) return;
+      if ($filterState.toMs !== null && dayTs > $filterState.toMs) return;
+      
+      const current = agentMap.get(day.agentName) ?? {
+        agentName: day.agentName,
+        totalCostUsd: 0,
+        totalCredits: 0,
+        turnCount: 0,
+      };
+      current.totalCostUsd += day.totalCostUsd;
+      current.totalCredits += day.totalCredits;
+      current.turnCount += day.turnCount;
+      agentMap.set(day.agentName, current);
+    });
+    
+    const agents = Array.from(agentMap.values());
+    const totalCost = agents.reduce((sum, a) => sum + a.totalCostUsd, 0);
+    
+    return agents.map(a => ({
+      ...a,
+      percentage: totalCost > 0 ? (a.totalCostUsd / totalCost) * 100 : 0,
+    })).sort((a, b) => b.totalCostUsd - a.totalCostUsd).slice(0, 8);
+  })();
   
-  $: labels = filteredAgents.map(a => AGENT_LABEL_MAP[a.agentName] ?? a.agentName ?? 'Other');
-  $: costData = filteredAgents.map(a => a.totalCostUsd);
+  $: labels = filteredAgentBreakdown.map(a => AGENT_LABEL_MAP[a.agentName] ?? a.agentName ?? 'Other');
+  $: costData = filteredAgentBreakdown.map(a => a.totalCostUsd);
   $: colors = ['#4fc3f7', '#81c784', '#ffb74d', '#e57373', '#ba68c8', '#4db6ac', '#fff176', '#90a4ae'];
   
   $: chartData = {
@@ -54,7 +88,7 @@
     },
   };
   
-  $: hasData = filteredAgents.length > 0;
+  $: hasData = filteredAgentBreakdown.length > 0;
 </script>
 
 {#if hasData}
