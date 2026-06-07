@@ -50,6 +50,7 @@ export interface DashboardRawData {
   periodCredits: number;
   periodAggregate: { costUsd: number; credits: number; turns: number };
   budgetCredits: number;
+  lastUpdatedMs: number;
 }
 
 /**
@@ -124,6 +125,10 @@ export class DashboardDataAssembler {
     const alerts = getAlerts(this.database);
     const playbook = buildPlaybook(alerts);
 
+    const lastUpdatedMs = allSessions.length > 0
+      ? Math.max(...allSessions.map(s => s.lastTimestamp))
+      : Date.now();
+
     return {
       insightMetrics,
       alerts,
@@ -144,6 +149,7 @@ export class DashboardDataAssembler {
       periodCredits,
       periodAggregate,
       budgetCredits,
+      lastUpdatedMs,
     };
   }
 }

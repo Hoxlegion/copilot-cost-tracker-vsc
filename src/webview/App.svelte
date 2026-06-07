@@ -1,7 +1,13 @@
 <script lang="ts">
   import { dashboardData } from './stores/dashboard';
-  import EstimatesTab from './components/tabs/EstimatesTab.svelte';
+  import GlobalFilter from './components/shared/GlobalFilter.svelte';
+  import OverviewTab from './components/tabs/OverviewTab.svelte';
   import BudgetTab from './components/tabs/BudgetTab.svelte';
+  import SessionsTab from './components/tabs/SessionsTab.svelte';
+  import ModelsTab from './components/tabs/ModelsTab.svelte';
+  import TokensTab from './components/tabs/TokensTab.svelte';
+  import InsightsTab from './components/tabs/InsightsTab.svelte';
+  import EstimatesTab from './components/tabs/EstimatesTab.svelte';
   
   let activeTab = 'overview';
   
@@ -29,21 +35,25 @@
     <button class:active={activeTab === 'estimates'} on:click={() => activeTab = 'estimates'}>Estimates ⚠</button>
   </nav>
   
+  {#if data}
+    <GlobalFilter />
+  {/if}
+  
   <main class="tab-content">
     {#if !data}
       <div class="loading">Loading dashboard data...</div>
     {:else if activeTab === 'overview'}
-      <div>Overview tab (coming soon)</div>
+      <OverviewTab />
     {:else if activeTab === 'budget'}
       <BudgetTab />
     {:else if activeTab === 'sessions'}
-      <div>Sessions tab (coming soon)</div>
+      <SessionsTab />
     {:else if activeTab === 'models'}
-      <div>Models tab (coming soon)</div>
+      <ModelsTab />
     {:else if activeTab === 'tokens'}
-      <div>Tokens tab (coming soon)</div>
+      <TokensTab />
     {:else if activeTab === 'insights'}
-      <div>Insights tab (coming soon)</div>
+      <InsightsTab />
     {:else if activeTab === 'estimates'}
       <EstimatesTab />
     {/if}

@@ -4,11 +4,14 @@
   export let columns: Array<{ key: string; label: string; type?: 'string' | 'number' }>;
   export let rows: Record<string, unknown>[];
   export let sortable = true;
+  export let expandable = false;
+  export let rowId: (row: Record<string, unknown>) => string = (row) => String(row.id ?? '');
   
   const dispatch = createEventDispatcher();
   
   let sortKey = '';
   let sortDir: 'asc' | 'desc' = 'desc';
+  let expandedRows = new Set<string>();
   
   function handleSort(key: string) {
     if (!sortable) return;
@@ -19,6 +22,15 @@
       sortDir = 'desc';
     }
     dispatch('sort', { key: sortKey, dir: sortDir });
+  }
+  
+  function toggleRow(id: string) {
+    if (expandedRows.has(id)) {
+      expandedRows.delete(id);
+    } else {
+      expandedRows.add(id);
+    }
+    expandedRows = expandedRows;
   }
   
   $: sortedRows = (() => {
@@ -42,6 +54,9 @@
 <table>
   <thead>
     <tr>
+      {#if expandable}
+        <th class="expand-col"></th>
+      {/if}
       {#each columns as col}
         <th 
           class:sortable={sortable}
@@ -58,13 +73,29 @@
   </thead>
   <tbody>
     {#each sortedRows as row}
-      <tr>
+      {@const id = rowId(row)}
+      {@const isExpanded = expandedRows.has(id)}
+      <tr class:expanded={isExpanded}>
+        {#if expandable}
+          <td class="expand-col">
+            <button class="expand-button" on:click={() => toggleRow(id)}>
+              {isExpanded ? '▼' : '▶'}
+            </button>
+          </td>
+        {/if}
         {#each columns as col}
           <td class:num={col.type === 'number'}>
             {row[col.key]}
           </td>
         {/each}
       </tr>
+      {#if expandable && isExpanded}
+        <tr class="expand-row">
+          <td colspan={columns.length + 1}>
+            <slot name="expand" {row} />
+          </td>
+        </tr>
+      {/if}
     {/each}
   </tbody>
 </table>
@@ -103,5 +134,34 @@
   .sort-indicator {
     margin-left: 4px;
     font-size: 10px;
+  }
+  
+  .expand-col {
+    width: 30px;
+    padding: 4px;
+  }
+  
+  .expand-button {
+    background: none;
+    border: none;
+    color: var(--vscode-foreground);
+    cursor: pointer;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 2px;
+  }
+  
+  .expand-button:hover {
+    background: var(--vscode-list-hoverBackground);
+  }
+  
+  tr.expanded {
+    background: var(--vscode-list-activeSelectionBackground);
+  }
+  
+  .expand-row td {
+    padding: 12px 16px;
+    background: var(--vscode-editor-background);
+    border-bottom: 2px solid var(--vscode-panel-border);
   }
 </style>

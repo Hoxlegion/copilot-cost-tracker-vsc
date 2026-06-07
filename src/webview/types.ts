@@ -45,6 +45,7 @@ export interface DashboardRawData {
   periodCredits: number;
   periodAggregate: { costUsd: number; credits: number; turns: number };
   budgetCredits: number;
+  lastUpdatedMs: number;
 }
 
 export interface InsightMetrics {
