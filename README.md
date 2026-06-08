@@ -1,6 +1,6 @@
 # Copilot Cost Tracker
 
-[![Version](https://img.shields.io/badge/version-0.2.5-blue.svg)](https://github.com/Hoxlegion/copilot-cost-tracker-vsc/releases)
+[![Version](https://img.shields.io/badge/version-0.3.0-blue.svg)](https://github.com/Hoxlegion/copilot-cost-tracker-vsc/releases)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![VS Code](https://img.shields.io/badge/VS%20Code-%5E1.85.0-blue.svg)](https://code.visualstudio.com/)
 
@@ -98,7 +98,7 @@ Your VS Code must have these telemetry settings enabled so Copilot Chat writes u
 
 ### From VSIX (Manual)
 ```bash
-code --install-extension copilot-cost-tracker-0.2.5.vsix
+code --install-extension copilot-cost-tracker-0.3.0.vsix
 ```
 
 ### From Source
@@ -107,7 +107,7 @@ git clone https://github.com/Hoxlegion/copilot-cost-tracker-vsc.git
 cd copilot-cost-tracker
 npm install
 npm run package
-code --install-extension copilot-cost-tracker-0.2.5.vsix
+code --install-extension copilot-cost-tracker-0.3.0.vsix
 ```
 
 ---

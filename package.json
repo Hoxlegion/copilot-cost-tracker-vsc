@@ -2,7 +2,7 @@
   "name": "copilot-cost-tracker",
   "displayName": "Copilot Cost Tracker",
   "description": "Track and visualize your GitHub Copilot usage costs.",
-  "version": "0.2.5",
+  "version": "0.3.0",
   "publisher": "Hoxlegion",
   "license": "MIT",
   "repository": {
@@ -227,16 +227,6 @@
             ".md"
           ],
           "description": "File extensions that enable inline prompt token and cost preview."
-        },
-        "copilotCostTracker.currency": {
-          "type": "string",
-          "default": "USD",
-          "description": "Display currency (e.g., USD, EUR, GBP)."
-        },
-        "copilotCostTracker.exchangeRate": {
-          "type": "number",
-          "default": 1,
-          "description": "Exchange rate: 1 USD = X local currency."
         },
         "copilotCostTracker.showStatusBar": {
           "type": "boolean",
