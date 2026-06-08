@@ -296,9 +296,9 @@
   })();
   
   const surfaceColumns = [
-    { key: 'surface', label: 'Surface', type: 'string' as const },
-    { key: 'pct', label: '%', type: 'number' as const },
-    { key: 'cost', label: 'Cost', type: 'number' as const },
+    { key: 'surface', label: 'Surface', type: 'string' as const, primary: true },
+    { key: 'pct', label: '%', type: 'number' as const, muted: true },
+    { key: 'cost', label: 'Cost', type: 'number' as const, highlight: true },
     { key: 'credits', label: 'Credits', type: 'number' as const },
     { key: 'turns', label: 'Turns', type: 'number' as const },
   ];
@@ -323,9 +323,9 @@
     .slice(0, 6);
   
   const cacheColumns = [
-    { key: 'model', label: 'Model', type: 'string' as const },
-    { key: 'pct', label: '%', type: 'number' as const },
-    { key: 'saved', label: 'Saved', type: 'number' as const },
+    { key: 'model', label: 'Model', type: 'string' as const, primary: true },
+    { key: 'pct', label: '%', type: 'percentage' as const },
+    { key: 'saved', label: 'Saved', type: 'number' as const, highlight: true },
   ];
   
   $: cacheRows = cacheSavingsTopModels.map(m => ({

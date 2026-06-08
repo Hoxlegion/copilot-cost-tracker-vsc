@@ -64,6 +64,10 @@
     font-weight: 700;
     margin-top: 2px;
     color: var(--vscode-editor-foreground);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
   }
   
   .stat-sub {

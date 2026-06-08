@@ -170,10 +170,11 @@
 
 <style>
   .daily-chart {
-    background: var(--vscode-editor-background);
-    border: 1px solid var(--vscode-panel-border);
-    border-radius: 4px;
+    background: color-mix(in srgb, var(--vscode-editorWidget-background) 78%, #103449 22%);
+    border: 1px solid color-mix(in srgb, var(--vscode-panel-border) 70%, #2aa5ff 30%);
+    border-radius: 10px;
     padding: 16px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.16);
   }
   
   .chart-header {
@@ -200,9 +201,10 @@
     background: var(--vscode-button-secondaryBackground);
     color: var(--vscode-button-secondaryForeground);
     border: 1px solid var(--vscode-button-border);
-    border-radius: 2px;
+    border-radius: 4px;
     cursor: pointer;
     font-size: 12px;
+    transition: all 0.15s ease;
   }
   
   .mode-toggle button:hover {

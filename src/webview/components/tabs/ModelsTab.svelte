@@ -91,15 +91,15 @@
   })();
   
   const modelColumns = [
-    { key: 'model', label: 'Model', type: 'string' as const },
+    { key: 'model', label: 'Model', type: 'string' as const, primary: true },
     { key: 'turns', label: 'Turns', type: 'number' as const },
-    { key: 'cost', label: 'Cost (USD)', type: 'number' as const },
-    { key: 'avgCost', label: 'Avg Cost/Turn', type: 'number' as const },
-    { key: 'pct', label: '%', type: 'number' as const },
-    { key: 'tokens', label: 'Tokens', type: 'number' as const },
-    { key: 'cachePct', label: 'Cache%', type: 'number' as const },
-    { key: 'avgMs', label: 'Avg (ms)', type: 'number' as const },
-    { key: 'tailMs', label: 'Tail (ms)', type: 'number' as const },
+    { key: 'cost', label: 'Cost (USD)', type: 'number' as const, highlight: true },
+    { key: 'avgCost', label: 'Avg Cost/Turn', type: 'number' as const, muted: true },
+    { key: 'pct', label: '%', type: 'number' as const, muted: true },
+    { key: 'tokens', label: 'Tokens', type: 'number' as const, muted: true },
+    { key: 'cachePct', label: 'Cache Hit', type: 'percentage' as const },
+    { key: 'avgMs', label: 'Avg (ms)', type: 'number' as const, muted: true },
+    { key: 'tailMs', label: 'Tail (ms)', type: 'number' as const, muted: true },
   ];
   
   $: modelRows = filteredModelBreakdown.map(m => {
@@ -138,11 +138,11 @@
   });
   
   const agentColumns = [
-    { key: 'agent', label: 'Agent', type: 'string' as const },
+    { key: 'agent', label: 'Agent', type: 'string' as const, primary: true },
     { key: 'turns', label: 'Turns', type: 'number' as const },
     { key: 'credits', label: 'Credits', type: 'number' as const },
-    { key: 'cost', label: 'Cost (USD)', type: 'number' as const },
-    { key: 'pct', label: '%', type: 'number' as const },
+    { key: 'cost', label: 'Cost (USD)', type: 'number' as const, highlight: true },
+    { key: 'pct', label: '%', type: 'number' as const, muted: true },
   ];
   
   const AGENT_LABEL_MAP: Record<string, string> = {

@@ -100,39 +100,41 @@
   </div>
   
   <div class="heatmap-container">
-    <div class="heatmap-months">
-      {#each monthLabels as { label, weekIndex }}
-        <span style="left: {weekIndex * 15}px">{label}</span>
-      {/each}
-    </div>
-    
-    <div class="heatmap-grid">
-      <div class="day-labels">
-        <span>Mon</span>
-        <span></span>
-        <span>Wed</span>
-        <span></span>
-        <span>Fri</span>
-        <span></span>
-        <span></span>
+    <div class="heatmap-scroll">
+      <div class="heatmap-months">
+        {#each monthLabels as { label, weekIndex }}
+          <span style="left: calc({weekIndex} * var(--cell-size) + {weekIndex} * var(--cell-gap) + 30px)">{label}</span>
+        {/each}
       </div>
       
-      <div class="weeks">
-        {#each weeks as week}
-          <div class="week">
-            {#each week as day}
-              {@const value = heatmapMode === 'cost' ? day.cost : day.turns}
-              <div 
-                class="cell"
-                role="img"
-                aria-label="{day.date}: {heatmapMode === 'cost' ? `$${value.toFixed(2)}` : `${value} turns`}"
-                style="background: {getColorIntensity(value)}"
-                on:mouseenter={() => handleCellHover(day.date, value)}
-                on:mouseleave={handleCellLeave}
-              ></div>
-            {/each}
-          </div>
-        {/each}
+      <div class="heatmap-grid">
+        <div class="day-labels">
+          <span>Mon</span>
+          <span></span>
+          <span>Wed</span>
+          <span></span>
+          <span>Fri</span>
+          <span></span>
+          <span></span>
+        </div>
+        
+        <div class="weeks">
+          {#each weeks as week}
+            <div class="week">
+              {#each week as day}
+                {@const value = heatmapMode === 'cost' ? day.cost : day.turns}
+                <div 
+                  class="cell"
+                  role="img"
+                  aria-label="{day.date}: {heatmapMode === 'cost' ? `$${value.toFixed(2)}` : `${value} turns`}"
+                  style="background: {getColorIntensity(value)}"
+                  on:mouseenter={() => handleCellHover(day.date, value)}
+                  on:mouseleave={handleCellLeave}
+                ></div>
+              {/each}
+            </div>
+          {/each}
+        </div>
       </div>
     </div>
     
@@ -156,10 +158,11 @@
 
 <style>
   .heatmap {
-    background: var(--vscode-editor-background);
-    border: 1px solid var(--vscode-panel-border);
-    border-radius: 4px;
+    background: color-mix(in srgb, var(--vscode-editorWidget-background) 78%, #103449 22%);
+    border: 1px solid color-mix(in srgb, var(--vscode-panel-border) 70%, #2aa5ff 30%);
+    border-radius: 10px;
     padding: 16px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.16);
   }
   
   .heatmap-header {
@@ -186,9 +189,10 @@
     background: var(--vscode-button-secondaryBackground);
     color: var(--vscode-button-secondaryForeground);
     border: 1px solid var(--vscode-button-border);
-    border-radius: 2px;
+    border-radius: 4px;
     cursor: pointer;
     font-size: 12px;
+    transition: all 0.15s ease;
   }
   
   .mode-toggle button:hover {
@@ -202,15 +206,37 @@
   
   .heatmap-container {
     position: relative;
+    --cell-size: 11px;
+    --cell-gap: 2px;
+  }
+  
+  .heatmap-scroll {
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 4px;
+  }
+  
+  .heatmap-scroll::-webkit-scrollbar {
+    height: 6px;
+  }
+  
+  .heatmap-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  .heatmap-scroll::-webkit-scrollbar-thumb {
+    background: var(--vscode-scrollbarSlider-background);
+    border-radius: 3px;
   }
   
   .heatmap-months {
     position: relative;
-    height: 20px;
+    height: 18px;
     margin-bottom: 4px;
     margin-left: 30px;
     font-size: 10px;
     color: var(--vscode-descriptionForeground);
+    min-width: calc(52 * (var(--cell-size) + var(--cell-gap)));
   }
   
   .heatmap-months span {
@@ -220,44 +246,47 @@
   .heatmap-grid {
     display: flex;
     gap: 4px;
+    min-width: calc(52 * (var(--cell-size) + var(--cell-gap)));
   }
   
   .day-labels {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--cell-gap);
     width: 26px;
+    flex-shrink: 0;
     font-size: 10px;
     color: var(--vscode-descriptionForeground);
   }
   
   .day-labels span {
-    height: 13px;
-    line-height: 13px;
+    height: var(--cell-size);
+    line-height: var(--cell-size);
   }
   
   .weeks {
     display: flex;
-    gap: 2px;
+    gap: var(--cell-gap);
     flex: 1;
   }
   
   .week {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--cell-gap);
   }
   
   .cell {
-    width: 13px;
-    height: 13px;
+    width: var(--cell-size);
+    height: var(--cell-size);
     border-radius: 2px;
     cursor: pointer;
-    transition: opacity 0.2s;
+    transition: opacity 0.15s ease, transform 0.15s ease;
   }
   
   .cell:hover {
-    opacity: 0.7;
+    opacity: 0.8;
+    transform: scale(1.2);
   }
   
   .heatmap-legend {
@@ -270,8 +299,8 @@
   }
   
   .legend-cell {
-    width: 13px;
-    height: 13px;
+    width: var(--cell-size);
+    height: var(--cell-size);
     border-radius: 2px;
   }
   
@@ -280,12 +309,13 @@
     bottom: -30px;
     left: 50%;
     transform: translateX(-50%);
-    background: var(--vscode-editor-background);
-    border: 1px solid var(--vscode-panel-border);
+    background: rgba(30, 30, 30, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.1);
     padding: 4px 8px;
-    border-radius: 2px;
+    border-radius: 4px;
     font-size: 11px;
     white-space: nowrap;
     z-index: 10;
+    pointer-events: none;
   }
 </style>

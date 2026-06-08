@@ -52,14 +52,14 @@
     .slice(0, 6);
   
   const sessionColumns = [
-    { key: 'date', label: 'Date', type: 'string' as const },
-    { key: 'model', label: 'Model', type: 'string' as const },
+    { key: 'date', label: 'Date', type: 'string' as const, primary: true },
+    { key: 'model', label: 'Model', type: 'string' as const, muted: true },
     { key: 'turns', label: 'Turns', type: 'number' as const },
-    { key: 'cost', label: 'Cost', type: 'number' as const },
+    { key: 'cost', label: 'Cost', type: 'number' as const, highlight: true },
     { key: 'credits', label: 'Credits', type: 'number' as const },
-    { key: 'tokens', label: 'Tokens', type: 'number' as const },
-    { key: 'cachePct', label: 'Cache%', type: 'number' as const },
-    { key: 'avgLatency', label: 'Avg Latency (ms)', type: 'number' as const },
+    { key: 'tokens', label: 'Tokens', type: 'number' as const, muted: true },
+    { key: 'cachePct', label: 'Cache Hit', type: 'percentage' as const },
+    { key: 'avgLatency', label: 'Avg Latency', type: 'number' as const, muted: true },
   ];
   
   $: sessionRows = filteredSessions.map(s => {
@@ -99,14 +99,14 @@
     .slice(0, 120);
   
   const discoveryColumns = [
-    { key: 'lastActive', label: 'Last Active', type: 'string' as const },
+    { key: 'lastActive', label: 'Last Active', type: 'string' as const, primary: true },
     { key: 'turn', label: 'Turn', type: 'number' as const },
-    { key: 'session', label: 'Session', type: 'string' as const },
+    { key: 'session', label: 'Session', type: 'string' as const, muted: true },
     { key: 'llmCalls', label: 'LLM', type: 'number' as const },
     { key: 'toolCalls', label: 'Tools', type: 'number' as const },
-    { key: 'input', label: 'Input', type: 'number' as const },
-    { key: 'output', label: 'Output', type: 'number' as const },
-    { key: 'cachePct', label: 'Cache%', type: 'number' as const },
+    { key: 'input', label: 'Input', type: 'number' as const, muted: true },
+    { key: 'output', label: 'Output', type: 'number' as const, muted: true },
+    { key: 'cachePct', label: 'Cache Hit', type: 'percentage' as const },
   ];
   
   $: discoveryRows = filteredDiscovery.map(r => {
