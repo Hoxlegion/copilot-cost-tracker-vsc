@@ -115,13 +115,11 @@ export class TracesIngester implements vscode.Disposable {
     }
 
     if (this.consecutiveEmptyDbPolls >= TracesIngester.FAILOVER_THRESHOLD_POLLS) {
-      if (this.activeSource !== "jsonl") {
-        this.logger.warn(
-          `Traces DB has not produced data for ${this.consecutiveEmptyDbPolls} consecutive polls, falling back to JSONL`
-        );
-        this.activeSource = "jsonl";
-        this.lastDbFailoverAtMs = Date.now();
-      }
+      this.logger.warn(
+        `Traces DB has not produced data for ${this.consecutiveEmptyDbPolls} consecutive polls, falling back to JSONL`
+      );
+      this.activeSource = "jsonl";
+      this.lastDbFailoverAtMs = Date.now();
       return "jsonl";
     }
 
