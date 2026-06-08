@@ -12,6 +12,27 @@ import { registerCommands } from "./commands";
 import { setupTimers } from "./timers";
 
 let database: CostDatabase | undefined;
+const COPILOT_DB_SPAN_EXPORTER_KEY = "github.copilot.chat.otel.dbSpanExporter.enabled";
+
+async function ensureCopilotDbSpanExporterEnabled(logger: Logger): Promise<void> {
+  const config = vscode.workspace.getConfiguration();
+  const isEnabled = config.get<boolean>(COPILOT_DB_SPAN_EXPORTER_KEY, false);
+
+  if (isEnabled) {
+    return;
+  }
+
+  try {
+    await config.update(COPILOT_DB_SPAN_EXPORTER_KEY, true, vscode.ConfigurationTarget.Global);
+    logger.info(`Auto-enabled setting: ${COPILOT_DB_SPAN_EXPORTER_KEY}`);
+  } catch (error) {
+    logger.warn(`Failed to auto-enable setting: ${COPILOT_DB_SPAN_EXPORTER_KEY}`, error);
+    void vscode.window.showWarningMessage(
+      "Copilot Cost Tracker could not auto-enable Copilot DB telemetry export. "
+      + `Please set ${COPILOT_DB_SPAN_EXPORTER_KEY} to true in your settings.`
+    );
+  }
+}
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   // Foundation
@@ -24,6 +45,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
 
   logger.info("Activating Copilot Cost Tracker");
+  await ensureCopilotDbSpanExporterEnabled(logger);
 
   // WASM path for sql.js
   const wasmPath = path.join(context.extensionPath, "dist", "sql-wasm.wasm");

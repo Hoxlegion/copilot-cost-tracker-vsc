@@ -77,11 +77,14 @@ Includes global date range filters, sorting, and detailed breakdowns.
 
 ## Requirements
 
-Your VS Code must have these telemetry settings enabled so Copilot Chat writes usage data that this extension reads:
+Copilot Chat must have this telemetry setting enabled so usage data is written for this extension to read:
 
 ```jsonc
 "github.copilot.chat.otel.dbSpanExporter.enabled": true
 ```
+
+The extension now attempts to enable this automatically on activation.
+If VS Code policy/settings scope blocks automatic updates, set it manually.
 
 **That's it.** The extension reads data that Copilot Chat already creates - no external APIs or authentication needed.
 
@@ -116,13 +119,13 @@ code --install-extension copilot-cost-tracker-0.3.1.vsix
 
 **3 steps:**
 
-1. **Add VS Code setting** (required)  
-   Open VS Code Settings, search `copilot.chat.otel.dbSpanExporter`, set to `true`.  
-   Or add to `settings.json`:
+1. **Verify telemetry setting** (usually automatic)  
+  On activation, the extension attempts to set this to `true` automatically.  
+  If needed, set it manually in `settings.json`:
    ```jsonc
    "github.copilot.chat.otel.dbSpanExporter.enabled": true
    ```
-   Then restart VS Code.
+  Then restart VS Code if you still don't see data.
 
 2. **Open the extension**  
    Click the **Copilot Cost Tracker** icon in the Activity Bar (left sidebar).
