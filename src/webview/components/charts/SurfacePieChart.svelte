@@ -2,6 +2,7 @@
   import { dashboardData } from '../../stores/dashboard';
   import { filterState } from '../../stores/filter';
   import ChartWrapper from '../shared/ChartWrapper.svelte';
+  import { tooltipConfig } from '../../utils/chartStyles';
   
   $: agentBreakdown = $dashboardData?.agentBreakdown ?? [];
   $: dailyAgentBreakdown = $dashboardData?.dailyAgentBreakdown ?? [];
@@ -60,9 +61,10 @@
     datasets: [{
       label: 'Cost (USD)',
       data: costData,
-      backgroundColor: colors.slice(0, labels.length),
-      borderColor: colors.slice(0, labels.length),
-      borderWidth: 1,
+      backgroundColor: colors.slice(0, labels.length).map(c => c + 'cc'),
+      borderColor: 'rgba(0, 0, 0, 0.3)',
+      borderWidth: 2,
+      hoverOffset: 8,
     }]
   };
   
@@ -73,8 +75,16 @@
       legend: {
         display: true,
         position: 'right' as const,
+        labels: {
+          color: 'rgba(255, 255, 255, 0.7)',
+          font: { size: 11 },
+          usePointStyle: true,
+          pointStyle: 'circle',
+          padding: 12,
+        },
       },
       tooltip: {
+        ...tooltipConfig,
         callbacks: {
           label: (context: any) => {
             const label = context.label || '';

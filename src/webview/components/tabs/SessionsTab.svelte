@@ -52,14 +52,14 @@
     .slice(0, 6);
   
   const sessionColumns = [
-    { key: 'date', label: 'Date', type: 'string' as const },
-    { key: 'model', label: 'Model', type: 'string' as const },
+    { key: 'date', label: 'Date', type: 'string' as const, primary: true },
+    { key: 'model', label: 'Model', type: 'string' as const, muted: true },
     { key: 'turns', label: 'Turns', type: 'number' as const },
-    { key: 'cost', label: 'Cost', type: 'number' as const },
+    { key: 'cost', label: 'Cost', type: 'number' as const, highlight: true },
     { key: 'credits', label: 'Credits', type: 'number' as const },
-    { key: 'tokens', label: 'Tokens', type: 'number' as const },
-    { key: 'cachePct', label: 'Cache%', type: 'number' as const },
-    { key: 'avgLatency', label: 'Avg Latency (ms)', type: 'number' as const },
+    { key: 'tokens', label: 'Tokens', type: 'number' as const, muted: true },
+    { key: 'cachePct', label: 'Cache Hit', type: 'percentage' as const },
+    { key: 'avgLatency', label: 'Avg Latency', type: 'number' as const, muted: true },
   ];
   
   $: sessionRows = filteredSessions.map(s => {
@@ -99,14 +99,14 @@
     .slice(0, 120);
   
   const discoveryColumns = [
-    { key: 'lastActive', label: 'Last Active', type: 'string' as const },
+    { key: 'lastActive', label: 'Last Active', type: 'string' as const, primary: true },
     { key: 'turn', label: 'Turn', type: 'number' as const },
-    { key: 'session', label: 'Session', type: 'string' as const },
+    { key: 'session', label: 'Session', type: 'string' as const, muted: true },
     { key: 'llmCalls', label: 'LLM', type: 'number' as const },
     { key: 'toolCalls', label: 'Tools', type: 'number' as const },
-    { key: 'input', label: 'Input', type: 'number' as const },
-    { key: 'output', label: 'Output', type: 'number' as const },
-    { key: 'cachePct', label: 'Cache%', type: 'number' as const },
+    { key: 'input', label: 'Input', type: 'number' as const, muted: true },
+    { key: 'output', label: 'Output', type: 'number' as const, muted: true },
+    { key: 'cachePct', label: 'Cache Hit', type: 'percentage' as const },
   ];
   
   $: discoveryRows = filteredDiscovery.map(r => {
@@ -309,6 +309,7 @@
         columns={discoveryColumns}
         rows={discoveryRows}
         expandable={true}
+        expandAll={discoveryExpandAll}
         rowId={(row) => row.id}
       >
         <div slot="expand" let:row>
@@ -318,10 +319,43 @@
                 <span>Last active: {new Date(row._raw.lastTimeMs).toLocaleTimeString()}</span>
                 <span>Session: {row._raw.chatSessionId}</span>
               </div>
-              <div class="discovery-info">
-                <div><strong>Models:</strong> {row._raw.models.join(', ') || 'unknown'}</div>
-                <div><strong>Agents:</strong> {row._raw.agents.join(', ') || 'unknown'}</div>
-                <div><strong>Tools:</strong> {row._raw.tools.join(', ') || 'none'}</div>
+              <div class="discovery-cards">
+                <div class="card-group">
+                  <span class="card-label">Models</span>
+                  <div class="card-row">
+                    {#if row._raw.models.length > 0}
+                      {#each row._raw.models as model}
+                        <span class="card model-card">{model}</span>
+                      {/each}
+                    {:else}
+                      <span class="card-empty">unknown</span>
+                    {/if}
+                  </div>
+                </div>
+                <div class="card-group">
+                  <span class="card-label">Agents</span>
+                  <div class="card-row">
+                    {#if row._raw.agents.length > 0}
+                      {#each row._raw.agents as agent}
+                        <span class="card agent-card">{agent}</span>
+                      {/each}
+                    {:else}
+                      <span class="card-empty">unknown</span>
+                    {/if}
+                  </div>
+                </div>
+                <div class="card-group">
+                  <span class="card-label">Tools</span>
+                  <div class="card-row">
+                    {#if row._raw.tools.length > 0}
+                      {#each row._raw.tools as tool}
+                        <span class="card tool-card">{tool}</span>
+                      {/each}
+                    {:else}
+                      <span class="card-empty">none</span>
+                    {/if}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -520,12 +554,65 @@
     color: var(--vscode-descriptionForeground);
   }
   
-  .discovery-info {
-    font-size: 12px;
+  .discovery-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  
+  .card-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  
+  .card-label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--vscode-descriptionForeground);
+  }
+  
+  .card-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-items: center;
+  }
+  
+  .card {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
     line-height: 1.6;
   }
   
-  .discovery-info strong {
-    font-weight: 600;
+  .model-card {
+    background: rgba(79, 195, 247, 0.12);
+    color: #4fc3f7;
+    border: 1px solid rgba(79, 195, 247, 0.25);
+  }
+  
+  .agent-card {
+    background: rgba(129, 199, 132, 0.12);
+    color: #81c784;
+    border: 1px solid rgba(129, 199, 132, 0.25);
+  }
+  
+  .tool-card {
+    background: rgba(255, 183, 77, 0.12);
+    color: #ffb74d;
+    border: 1px solid rgba(255, 183, 77, 0.25);
+  }
+  
+  .card-empty {
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground);
+    opacity: 0.7;
+    font-style: italic;
   }
 </style>

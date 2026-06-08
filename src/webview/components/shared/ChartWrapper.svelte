@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { Chart, registerables } from 'chart.js';
+  import { Chart, registerables, type Plugin } from 'chart.js';
+  import { createGradient } from '../../utils/chartStyles';
   
   Chart.register(...registerables);
   
@@ -8,9 +9,27 @@
   export let data: any;
   export let options: any = {};
   export let canvasId: string;
+  export let gradientColors: Array<{ color: string; startAlpha?: number; endAlpha?: number }> = [];
   
   let chart: Chart | null = null;
   let canvas: HTMLCanvasElement;
+  
+  const gradientPlugin: Plugin = {
+    id: 'gradientFill',
+    beforeDraw: (chart) => {
+      if (gradientColors.length === 0) return;
+      const ctx = chart.ctx;
+      const chartArea = chart.chartArea;
+      if (!chartArea) return;
+      
+      chart.data.datasets.forEach((dataset, i) => {
+        if (gradientColors[i]) {
+          const { color, startAlpha = 0.4, endAlpha = 0 } = gradientColors[i];
+          dataset.backgroundColor = createGradient(ctx, chartArea, color, startAlpha, endAlpha);
+        }
+      });
+    }
+  };
   
   onMount(() => {
     const ctx = canvas.getContext('2d');
@@ -19,6 +38,7 @@
         type,
         data,
         options,
+        plugins: gradientColors.length > 0 ? [gradientPlugin] : [],
       });
     }
   });

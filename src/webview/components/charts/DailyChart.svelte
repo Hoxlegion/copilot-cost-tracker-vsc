@@ -2,6 +2,7 @@
   import { dashboardData } from '../../stores/dashboard';
   import { filterState } from '../../stores/filter';
   import ChartWrapper from '../shared/ChartWrapper.svelte';
+  import { tooltipConfig, baseScaleConfig } from '../../utils/chartStyles';
   
   let chartMode: 'cost' | 'tokens' = 'cost';
   
@@ -32,18 +33,22 @@
         data: costData,
         borderColor: '#4fc3f7',
         backgroundColor: 'rgba(79, 195, 247, 0.1)',
+        fill: true,
         yAxisID: 'y',
-        tension: 0.3,
+        tension: 0.4,
         pointRadius: 2,
+        pointHoverRadius: 5,
       },
       {
         label: 'Credits',
         data: creditsData,
         borderColor: '#81c784',
         backgroundColor: 'rgba(129, 199, 132, 0.1)',
+        fill: true,
         yAxisID: 'y1',
-        tension: 0.3,
+        tension: 0.4,
         pointRadius: 2,
+        pointHoverRadius: 5,
       }
     ]
   } : {
@@ -54,12 +59,18 @@
         data: turnsData,
         borderColor: '#ffb74d',
         backgroundColor: 'rgba(255, 183, 77, 0.1)',
+        fill: true,
         yAxisID: 'y',
-        tension: 0.3,
+        tension: 0.4,
         pointRadius: 2,
+        pointHoverRadius: 5,
       }
     ]
   };
+  
+  $: gradientColors = chartMode === 'cost' 
+    ? [{ color: '#4fc3f7', startAlpha: 0.3, endAlpha: 0 }, { color: '#81c784', startAlpha: 0.2, endAlpha: 0 }]
+    : [{ color: '#ffb74d', startAlpha: 0.3, endAlpha: 0 }];
   
   $: chartOptions = {
     responsive: true,
@@ -76,7 +87,11 @@
         title: {
           display: true,
           text: 'Cost (USD)',
+          color: baseScaleConfig.ticks.color,
+          font: { size: baseScaleConfig.ticks.font.size },
         },
+        grid: baseScaleConfig.grid,
+        ticks: baseScaleConfig.ticks,
       },
       y1: {
         type: 'linear' as const,
@@ -85,10 +100,13 @@
         title: {
           display: true,
           text: 'Credits',
+          color: baseScaleConfig.ticks.color,
+          font: { size: baseScaleConfig.ticks.font.size },
         },
         grid: {
           drawOnChartArea: false,
         },
+        ticks: baseScaleConfig.ticks,
       },
     } : {
       y: {
@@ -98,14 +116,25 @@
         title: {
           display: true,
           text: 'Turns',
+          color: baseScaleConfig.ticks.color,
+          font: { size: baseScaleConfig.ticks.font.size },
         },
+        grid: baseScaleConfig.grid,
+        ticks: baseScaleConfig.ticks,
       },
     },
     plugins: {
       legend: {
         display: true,
         position: 'top' as const,
+        labels: {
+          color: 'rgba(255, 255, 255, 0.7)',
+          font: { size: 11 },
+          usePointStyle: true,
+          pointStyle: 'circle',
+        },
       },
+      tooltip: tooltipConfig,
     },
   };
 </script>
@@ -134,16 +163,18 @@
       data={chartData}
       options={chartOptions}
       canvasId="dailyChart"
+      gradientColors={gradientColors}
     />
   </div>
 </div>
 
 <style>
   .daily-chart {
-    background: var(--vscode-editor-background);
-    border: 1px solid var(--vscode-panel-border);
-    border-radius: 4px;
+    background: color-mix(in srgb, var(--vscode-editorWidget-background) 78%, #103449 22%);
+    border: 1px solid color-mix(in srgb, var(--vscode-panel-border) 70%, #2aa5ff 30%);
+    border-radius: 10px;
     padding: 16px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.16);
   }
   
   .chart-header {
@@ -170,9 +201,10 @@
     background: var(--vscode-button-secondaryBackground);
     color: var(--vscode-button-secondaryForeground);
     border: 1px solid var(--vscode-button-border);
-    border-radius: 2px;
+    border-radius: 4px;
     cursor: pointer;
     font-size: 12px;
+    transition: all 0.15s ease;
   }
   
   .mode-toggle button:hover {

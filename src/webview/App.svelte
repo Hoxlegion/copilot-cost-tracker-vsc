@@ -7,6 +7,7 @@
   import TokensTab from './components/tabs/TokensTab.svelte';
   import InsightsTab from './components/tabs/InsightsTab.svelte';
   import EstimatesTab from './components/tabs/EstimatesTab.svelte';
+  import { BarChart3, MessageSquare, Bot, Type, Lightbulb, AlertTriangle } from '@lucide/svelte';
   
   let activeTab = 'overview';
   
@@ -26,27 +27,27 @@
   
   <nav class="tabs">
     <button class:active={activeTab === 'overview'} on:click={() => activeTab = 'overview'} data-tab="overview">
-      <span class="tab-icon">📊</span>
+      <BarChart3 size={16} />
       <span class="tab-label">Overview</span>
     </button>
     <button class:active={activeTab === 'sessions'} on:click={() => activeTab = 'sessions'} data-tab="sessions">
-      <span class="tab-icon">💬</span>
+      <MessageSquare size={16} />
       <span class="tab-label">Sessions</span>
     </button>
     <button class:active={activeTab === 'models'} on:click={() => activeTab = 'models'} data-tab="models">
-      <span class="tab-icon">🤖</span>
+      <Bot size={16} />
       <span class="tab-label">Models</span>
     </button>
     <button class:active={activeTab === 'tokens'} on:click={() => activeTab = 'tokens'} data-tab="tokens">
-      <span class="tab-icon">🔤</span>
+      <Type size={16} />
       <span class="tab-label">Tokens</span>
     </button>
     <button class:active={activeTab === 'insights'} on:click={() => activeTab = 'insights'} data-tab="insights">
-      <span class="tab-icon">💡</span>
+      <Lightbulb size={16} />
       <span class="tab-label">Insights</span>
     </button>
     <button class:active={activeTab === 'estimates'} on:click={() => activeTab = 'estimates'} data-tab="estimates">
-      <span class="tab-icon">⚠️</span>
+      <AlertTriangle size={16} />
       <span class="tab-label">Estimates</span>
     </button>
   </nav>
@@ -182,9 +183,14 @@
     border-bottom-color: #e57373;
   }
   
-  .tab-icon {
-    font-size: 14px;
-    line-height: 1;
+  .tabs button :global(svg) {
+    width: 16px;
+    height: 16px;
+    opacity: 0.7;
+  }
+  
+  .tabs button.active :global(svg) {
+    opacity: 1;
   }
   
   .tab-label {

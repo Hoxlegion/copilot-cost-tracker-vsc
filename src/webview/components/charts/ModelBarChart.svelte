@@ -2,6 +2,7 @@
   import { dashboardData } from '../../stores/dashboard';
   import { filterState } from '../../stores/filter';
   import ChartWrapper from '../shared/ChartWrapper.svelte';
+  import { tooltipConfig, baseScaleConfig } from '../../utils/chartStyles';
   
   $: allSessions = $dashboardData?.allSessions ?? [];
   
@@ -40,9 +41,10 @@
     datasets: [{
       label: 'Cost (USD)',
       data: costData,
-      backgroundColor: colors.slice(0, labels.length),
+      backgroundColor: colors.slice(0, labels.length).map(c => c + 'cc'),
       borderColor: colors.slice(0, labels.length),
       borderWidth: 1,
+      borderRadius: 4,
     }]
   };
   
@@ -54,6 +56,7 @@
       legend: {
         display: false,
       },
+      tooltip: tooltipConfig,
     },
     scales: {
       x: {
@@ -61,6 +64,17 @@
         title: {
           display: true,
           text: 'Cost (USD)',
+          color: baseScaleConfig.ticks.color,
+          font: { size: baseScaleConfig.ticks.font.size },
+        },
+        grid: baseScaleConfig.grid,
+        ticks: baseScaleConfig.ticks,
+      },
+      y: {
+        grid: { display: false },
+        ticks: {
+          ...baseScaleConfig.ticks,
+          font: { size: 11 },
         },
       },
     },
