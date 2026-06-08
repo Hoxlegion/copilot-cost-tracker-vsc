@@ -78,7 +78,7 @@
       date,
       model: s.primaryModel,
       turns: s.turnCount,
-      cost: s.totalCostUsd.toFixed(3),
+      cost: s.totalCostUsd.toFixed(2),
       credits: s.totalCredits.toFixed(1),
       tokens: totalTokens.toLocaleString(),
       cachePct: cachePct.toFixed(1),
@@ -172,7 +172,7 @@
               {#each workspaceSummary as ws}
                 <tr>
                   <td title={ws.workspace}>{ws.workspace}</td>
-                  <td class="num">${ws.costUsd.toFixed(3)}</td>
+                  <td class="num">${ws.costUsd.toFixed(2)}</td>
                   <td class="num">{ws.credits.toFixed(1)}</td>
                   <td class="num">{ws.sessions}</td>
                   <td class="num">{ws.turns}</td>
@@ -213,7 +213,7 @@
                   <td>{s.primaryModel}</td>
                   <td class="num">{s.turnCount}</td>
                   <td class="num">{cacheHitPct.toFixed(1)}%</td>
-                  <td class="num">${s.totalCostUsd.toFixed(3)}</td>
+                  <td class="num">${s.totalCostUsd.toFixed(2)}</td>
                 </tr>
               {/each}
             </tbody>
@@ -259,7 +259,7 @@
                     <tr>
                       <td>{model.model}</td>
                       <td class="num">{model.turnCount}</td>
-                      <td class="num">${model.totalCostUsd.toFixed(3)}</td>
+                      <td class="num">${model.totalCostUsd.toFixed(2)}</td>
                       <td class="num">{model.totalCredits.toFixed(1)}</td>
                       <td class="num">{formatCompactNumber(modelTotalTokens)}</td>
                       <td class="num">{modelCachePct.toFixed(1)}%</td>

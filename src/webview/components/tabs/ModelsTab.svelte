@@ -125,12 +125,12 @@
     return {
       model: m.model,
       turns: m.turnCount,
-      cost: m.totalCostUsd.toFixed(3),
+      cost: m.totalCostUsd.toFixed(2),
       pct: m.percentage.toFixed(1),
       tokens: totalTokens.toLocaleString(),
       cachePct: cachePct.toFixed(1),
       avgMs: avgMs > 0 ? avgMs : '-',
-      tailMs: tailMs > 0 ? tailMs : '-',
+      tailMs: tailMs > 0 ? Math.round(tailMs) : '-',
     };
   });
   
@@ -155,7 +155,7 @@
     agent: AGENT_LABEL_MAP[a.agentName] ?? a.agentName ?? 'Other',
     turns: a.turnCount,
     credits: a.totalCredits.toFixed(1),
-    cost: a.totalCostUsd.toFixed(3),
+    cost: a.totalCostUsd.toFixed(2),
     pct: a.percentage.toFixed(1),
   }));
 </script>

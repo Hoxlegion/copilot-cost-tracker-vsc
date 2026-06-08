@@ -14,7 +14,6 @@
   $: periodCredits = data?.periodCredits ?? 0;
   $: monthTotal = data?.monthTotal ?? { costUsd: 0, credits: 0, turns: 0 };
   $: allSessions = data?.allSessions ?? [];
-  $: cacheSavings = data?.cacheSavings;
   
   $: filteredSessions = allSessions.filter(s => {
     if ($filterState.fromMs !== null && s.startTimestamp < $filterState.fromMs) return false;
@@ -58,10 +57,19 @@
     ? `${(avgResponseMs / 1000).toFixed(1)}s`
     : `${Math.round(avgResponseMs)}ms`;
   
-  $: cacheSavingsValue = cacheSavings?.totalSavingsCostUsd ?? 0;
-  $: cacheSavingsCredits = cacheSavings?.totalSavingsCredits ?? 0;
+  $: cacheSavingsValue = (() => {
+    const totalCachedTokens = filteredSessions.reduce((sum, s) => sum + s.totalCachedTokens, 0);
+    const totalInputTokens = filteredSessions.reduce((sum, s) => sum + s.totalInputTokens, 0);
+    const billableInput = totalInputTokens + totalCachedTokens;
+    if (billableInput === 0) return 0;
+    const cacheHitPct = totalCachedTokens / billableInput;
+    const avgInputCostPerToken = rangeCost / Math.max(1, billableInput);
+    return totalCachedTokens * avgInputCostPerToken * 0.9;
+  })();
+  
+  $: cacheSavingsCredits = cacheSavingsValue * 100;
   $: cacheSavingsPct = (() => {
-    if (!cacheSavings || rangeCost === 0) return 0;
+    if (rangeCost === 0) return 0;
     return (cacheSavingsValue / (rangeCost + cacheSavingsValue)) * 100;
   })();
 </script>
@@ -120,9 +128,9 @@
     />
     
     <StatCard 
-      label="Cache Savings (Period)"
-      value={cacheSavingsValue > 0 ? `$${cacheSavingsValue.toFixed(3)}` : '—'}
-      sub={cacheSavingsValue > 0 ? `${cacheSavingsCredits.toFixed(1)} cr · ${cacheSavingsPct.toFixed(1)}% of spend` : 'No cache data this period'}
+      label="Cache Savings (Range)"
+      value={cacheSavingsValue > 0 ? `$${cacheSavingsValue.toFixed(2)}` : '—'}
+      sub={cacheSavingsValue > 0 ? `${cacheSavingsCredits.toFixed(1)} cr · ${cacheSavingsPct.toFixed(1)}% of spend` : 'No cache data this range'}
       valueColor={cacheSavingsValue > 0 ? '#81c784' : ''}
     />
   </div>

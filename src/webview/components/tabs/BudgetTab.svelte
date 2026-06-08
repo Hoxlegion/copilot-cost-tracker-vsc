@@ -71,13 +71,6 @@
   $: forecastVisible = filteredPeriodAggregate.turns >= 50 || filteredPeriodCredits >= 0.5;
   $: forecastOverage = projectedPeriodCredits - budgetCredits;
   
-  $: tokenDensity = (() => {
-    const totalTokens = filteredPeriodAggregate.costUsd > 0 
-      ? (filteredPeriodAggregate.costUsd * 1000000)
-      : 0;
-    return filteredPeriodCredits > 0 ? (totalTokens / filteredPeriodCredits) : 0;
-  })();
-  
   const modelColumns = [
     { key: 'model', label: 'Model', type: 'string' as const },
     { key: 'turnCount', label: 'Turns', type: 'number' as const },
@@ -112,8 +105,9 @@
     
     <StatCard 
       label="Remaining Credits"
-      value={Math.max(0, budgetCredits - filteredPeriodCredits).toFixed(0)}
+      value={(budgetCredits - filteredPeriodCredits).toFixed(0)}
       sub="of {budgetCredits} total"
+      valueColor={(budgetCredits - filteredPeriodCredits) < 0 ? 'var(--vscode-errorForeground)' : ''}
     />
     
     <StatCard label="Forecast (Period End)">
@@ -135,12 +129,6 @@
         <div class="stat-sub">(>= 50 turns or >= 0.50 credits)</div>
       {/if}
     </StatCard>
-    
-    <StatCard 
-      label="Token Density (Range)"
-      value={tokenDensity > 0 ? Math.round(tokenDensity).toLocaleString() : '0'}
-      sub={filteredPeriodCredits > 0 ? 'tokens per credit in range' : 'no credits in range'}
-    />
   </div>
   
   <h3 class="section-title">Model Breakdown (Current Range)</h3>

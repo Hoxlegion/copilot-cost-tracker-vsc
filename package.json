@@ -108,7 +108,7 @@
         },
         "copilotCostTracker.budgetCredits": {
           "type": "number",
-          "default": 180,
+          "default": 40000,
           "description": "Total credit budget for the billing period. Used for threshold alerting."
         },
         "copilotCostTracker.budgetWarningThresholds": {

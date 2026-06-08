@@ -8,8 +8,6 @@
   import SurfacePieChart from '../charts/SurfacePieChart.svelte';
   
   $: data = $dashboardData;
-  $: alerts = data?.alerts ?? [];
-  $: playbook = data?.playbook ?? [];
   $: allSessions = data?.allSessions ?? [];
   $: dailyAgentBreakdown = data?.dailyAgentBreakdown ?? [];
   
@@ -38,6 +36,130 @@
       cacheHitPct,
       ioRatioDays: [],
     };
+  })();
+  
+  $: filteredPlaybook = (() => {
+    const totalInput = filteredInsightMetrics.totalInputTokens;
+    const totalCached = filteredInsightMetrics.totalCachedTokens;
+    const totalOutput = filteredInsightMetrics.totalOutputTokens;
+    const totalTurns = filteredInsightMetrics.totalTurns;
+    const billableInput = totalInput + totalCached;
+    const cacheHitPct = filteredInsightMetrics.cacheHitPct;
+    
+    const avgOutputPerTurn = totalTurns > 0 ? totalOutput / totalTurns : 0;
+    const maxSessionInput = filteredSessions.reduce((max, s) => 
+      Math.max(max, s.totalInputTokens + s.totalCachedTokens), 0);
+    const avgInputPerTurn = totalTurns > 0 ? (billableInput / totalTurns) / 1000 : 0;
+    
+    const isVerbose = avgOutputPerTurn > 600 && totalTurns >= 5;
+    const isBloated = maxSessionInput > 40000;
+    const isLeaking = cacheHitPct < 40 && billableInput > 5000;
+    const isPingPong = avgInputPerTurn > 20 && totalTurns >= 5;
+    const isPasteSpike = maxSessionInput > 80000;
+    const isOverServed = false;
+    const isSprawling = maxSessionInput > 80000;
+    
+    function statusRow(
+      strategy: string, isAlert: boolean, 
+      greenLabel: string, warnLabel: string,
+      metricDesc: string, impact: string
+    ) {
+      return {
+        strategy,
+        statusEmoji: isAlert ? '🔴' : '🟢',
+        statusLabel: isAlert ? warnLabel : greenLabel,
+        metricDesc,
+        impact,
+      };
+    }
+    
+    return [
+      statusRow('Output Brevity', isVerbose, 'Concise', 'Verbose',
+        isVerbose ? `Avg ${Math.round(avgOutputPerTurn).toLocaleString()} output tokens/turn` : 'Avg output tokens within normal range',
+        'Up to 65% reduction in output costs'),
+      statusRow('Context Hygiene', isBloated, 'Clean', 'Bloated',
+        isBloated ? `Session hit ${(maxSessionInput / 1000).toFixed(1)}K tokens` : 'Session sizes are healthy',
+        'Prevents exponential input scaling'),
+      statusRow('Cache Efficiency', isLeaking, 'Optimal', 'Leaking',
+        isLeaking ? `Cache hit rate ${cacheHitPct.toFixed(1)}% — below 40%` : `Cache hit rate ${cacheHitPct.toFixed(1)}%`,
+        '10x cheaper reads vs. full cache writes'),
+      statusRow('Prompt Batching', isPingPong, 'Batching well', 'High input/turn',
+        isPingPong ? `${avgInputPerTurn.toFixed(1)}K avg input/turn` : 'No excessive input per turn',
+        'Reduces context resend overhead per turn'),
+      statusRow('Context Referencing', isPasteSpike, 'No spikes', 'Large context',
+        isPasteSpike ? `${(maxSessionInput / 1000).toFixed(1)}K peak session input` : 'No large context spikes',
+        'Cache hits cost ~10x less than raw input'),
+      statusRow('Model Routing', isOverServed, 'Well routed', 'Over-served',
+        'No premium model misallocation detected',
+        'Lighter models use 5–20x fewer credits'),
+      statusRow('Agent Scoping', isSprawling, 'Scoped', 'Sprawling',
+        isSprawling ? `${(maxSessionInput / 1000).toFixed(1)}K peak input in one session` : 'No massive context sessions',
+        'Constraining scope eliminates wasted scans'),
+    ];
+  })();
+  
+  $: filteredAlerts = (() => {
+    const alertList: Array<{id: string; severity: 'info' | 'warning' | 'critical'; title: string; message: string; tip: string; metric: {label: string; value: string}}> = [];
+    const totalInput = filteredInsightMetrics.totalInputTokens;
+    const totalCached = filteredInsightMetrics.totalCachedTokens;
+    const totalOutput = filteredInsightMetrics.totalOutputTokens;
+    const totalTurns = filteredInsightMetrics.totalTurns;
+    const billableInput = totalInput + totalCached;
+    const cacheHitPct = filteredInsightMetrics.cacheHitPct;
+    
+    const avgOutputPerTurn = totalTurns > 0 ? totalOutput / totalTurns : 0;
+    const maxSessionInput = filteredSessions.reduce((max, s) => 
+      Math.max(max, s.totalInputTokens + s.totalCachedTokens), 0);
+    
+    if (avgOutputPerTurn > 600 && totalTurns >= 5) {
+      alertList.push({
+        id: 'high_verbosity', severity: 'warning',
+        title: 'High Output Verbosity',
+        message: `Averaging ${Math.round(avgOutputPerTurn).toLocaleString()} output tokens per turn. A large share is conversational framing rather than code.`,
+        tip: 'Try appending "Skip explanations, code only" to your prompts to cut output tokens by up to 65%.',
+        metric: { label: 'Avg output / turn', value: `${Math.round(avgOutputPerTurn).toLocaleString()} tokens` },
+      });
+    }
+    
+    if (maxSessionInput > 40000) {
+      const label = maxSessionInput >= 1000000 
+        ? `${(maxSessionInput / 1000000).toFixed(1)}M tokens`
+        : maxSessionInput >= 1000 
+          ? `${(maxSessionInput / 1000).toFixed(1)}K tokens`
+          : `${maxSessionInput} tokens`;
+      alertList.push({
+        id: 'context_bloat', severity: 'warning',
+        title: 'Stale Context Accumulation',
+        message: `A session has accumulated ${label} of input. Each subsequent turn pays to re-send this growing context.`,
+        tip: 'Run /compact or start a fresh chat to clear dead context.',
+        metric: { label: 'Peak session input', value: label },
+      });
+    }
+    
+    if (cacheHitPct < 40 && billableInput > 5000) {
+      alertList.push({
+        id: 'cache_decay', severity: 'info',
+        title: 'Low Cache Hit Rate',
+        message: `Cache hit rate is ${cacheHitPct.toFixed(1)}%. Low cache reuse means you're paying full price for repeated context.`,
+        tip: 'Keep related tasks in one session and reuse files across prompts to improve cache hit rate.',
+        metric: { label: 'Cache hit rate', value: `${cacheHitPct.toFixed(1)}%` },
+      });
+    }
+    
+    if (maxSessionInput > 80000) {
+      const label = maxSessionInput >= 1000000 
+        ? `${(maxSessionInput / 1000000).toFixed(1)}M tokens`
+        : `${(maxSessionInput / 1000).toFixed(1)}K tokens`;
+      alertList.push({
+        id: 'massive_context_turn', severity: 'critical',
+        title: 'Massive Context Session',
+        message: `A session has ${label} of total input tokens. This typically happens when an agent scans a large portion of your workspace.`,
+        tip: 'Constrain your agent\'s scope with explicit boundaries in your prompt.',
+        metric: { label: 'Peak total input', value: label },
+      });
+    }
+    
+    return alertList;
   })();
   
   $: filteredAgentBreakdown = (() => {
@@ -184,7 +306,7 @@
   $: surfaceRows = surfaceCostView.map(s => ({
     surface: s.surface,
     pct: s.pct.toFixed(1),
-    cost: `$${s.cost.toFixed(3)}`,
+    cost: `$${s.cost.toFixed(2)}`,
     credits: s.credits.toFixed(1),
     turns: s.turns,
   }));
@@ -209,7 +331,7 @@
   $: cacheRows = cacheSavingsTopModels.map(m => ({
     model: m.modelFamily,
     pct: m.percentage.toFixed(0),
-    saved: `$${m.savingsCostUsd.toFixed(3)}`,
+    saved: `$${m.savingsCostUsd.toFixed(2)}`,
   }));
   
   $: rangeAlerts = (() => {
@@ -237,11 +359,11 @@
 
 <div class="insights-tab">
   <div class="playbook-section">
-    <h3>Token Savings Playbook — Today</h3>
+    <h3>Token Savings Playbook — Current Range</h3>
     
-    {#if alerts.length > 0}
+    {#if filteredAlerts.length > 0}
       <div class="alert-cards">
-        {#each alerts as alert}
+        {#each filteredAlerts as alert}
           <div class="alert-card alert-{alert.severity}">
             <div class="alert-header">
               <strong>{alert.title}</strong>
@@ -270,7 +392,7 @@
         </tr>
       </thead>
       <tbody>
-        {#each playbook as row}
+        {#each filteredPlaybook as row}
           <tr>
             <td><strong>{row.strategy}</strong></td>
             <td>{row.statusEmoji} {row.statusLabel}</td>
@@ -350,7 +472,7 @@
       <div class="cache-savings">
         <div class="cache-header">
           <h4>Cache Savings (Period)</h4>
-          <span class="cache-total">${cacheSavingsValue.toFixed(3)}</span>
+          <span class="cache-total">${cacheSavingsValue.toFixed(2)}</span>
           <span class="cache-sub">{cacheSavingsCredits.toFixed(1)} cr · {cacheSavingsPct.toFixed(1)}% of period spend</span>
         </div>
         <DataTable 
