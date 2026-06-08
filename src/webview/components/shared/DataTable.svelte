@@ -13,12 +13,21 @@
   export let sortable = true;
   export let expandable = false;
   export let rowId: (row: Record<string, unknown>) => string = (row) => String(row.id ?? '');
+  export let expandAll: boolean | undefined = undefined;
   
   const dispatch = createEventDispatcher();
   
   let sortKey = '';
   let sortDir: 'asc' | 'desc' = 'desc';
   let expandedRows = new Set<string>();
+  
+  $: if (expandAll !== undefined) {
+    if (expandAll) {
+      expandedRows = new Set(rows.map(r => rowId(r)));
+    } else {
+      expandedRows = new Set();
+    }
+  }
   
   function handleSort(key: string) {
     if (!sortable) return;
