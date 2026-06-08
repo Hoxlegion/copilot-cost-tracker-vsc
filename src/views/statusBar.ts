@@ -138,7 +138,7 @@ export class StatusBarIndicator implements vscode.Disposable {
     const ctxSegment = ctxWeight && ctxWeight.tokens > 0
       ? ` | $(brain) ${(ctxWeight.tokens / 1000).toFixed(0)}K`
       : "";
-    const text = `$(credit-card) +$${sessionUsd.toFixed(2)} | $${periodUsd.toFixed(2)} | ${pace.shortLabel}${ctxSegment}`;
+    const text = `$(credit-card) +$${sessionUsd.toFixed(2)} | $${periodUsd.toFixed(2)}${ctxSegment}`;
     this.statusBarItem.text = text;
 
     // Color coding based on budget thresholds (D8)
