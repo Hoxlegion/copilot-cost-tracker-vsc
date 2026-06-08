@@ -99,6 +99,7 @@
     .slice(0, 120);
   
   const discoveryColumns = [
+    { key: 'lastActive', label: 'Last Active', type: 'string' as const },
     { key: 'turn', label: 'Turn', type: 'number' as const },
     { key: 'session', label: 'Session', type: 'string' as const },
     { key: 'llmCalls', label: 'LLM', type: 'number' as const },
@@ -108,19 +109,29 @@
     { key: 'cachePct', label: 'Cache%', type: 'number' as const },
   ];
   
-  $: discoveryRows = filteredDiscovery.map(r => ({
-    id: `${r.chatSessionId}::${r.turnIndex}`,
-    turn: r.turnIndex + 1,
-    session: r.chatSessionId.length > 12 
-      ? `${r.chatSessionId.slice(0, 6)}…${r.chatSessionId.slice(-4)}`
-      : r.chatSessionId,
-    llmCalls: r.llmCalls,
-    toolCalls: r.toolCalls,
-    input: (r.inputTokens + r.cachedTokens).toLocaleString(),
-    output: r.outputTokens.toLocaleString(),
-    cachePct: r.cacheHitPct.toFixed(1),
-    _raw: r,
-  }));
+  $: discoveryRows = filteredDiscovery.map(r => {
+    const lastActive = new Date(r.lastTimeMs).toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    
+    return {
+      id: `${r.chatSessionId}::${r.turnIndex}`,
+      lastActive,
+      turn: r.turnIndex + 1,
+      session: r.chatSessionId.length > 12 
+        ? `${r.chatSessionId.slice(0, 6)}…${r.chatSessionId.slice(-4)}`
+        : r.chatSessionId,
+      llmCalls: r.llmCalls,
+      toolCalls: r.toolCalls,
+      input: (r.inputTokens + r.cachedTokens).toLocaleString(),
+      output: r.outputTokens.toLocaleString(),
+      cachePct: r.cacheHitPct.toFixed(1),
+      _raw: r,
+    };
+  });
   
   function formatCompactNumber(value: number): string {
     if (!Number.isFinite(value)) return '0';

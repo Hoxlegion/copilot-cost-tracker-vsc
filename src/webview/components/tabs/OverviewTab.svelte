@@ -14,6 +14,8 @@
   $: periodCredits = data?.periodCredits ?? 0;
   $: monthTotal = data?.monthTotal ?? { costUsd: 0, credits: 0, turns: 0 };
   $: allSessions = data?.allSessions ?? [];
+  $: billingPeriodStartMs = data?.billingPeriodStartMs ?? 0;
+  $: billingPeriodEndMs = data?.billingPeriodEndMs ?? 0;
   
   $: filteredSessions = allSessions.filter(s => {
     if ($filterState.fromMs !== null && s.startTimestamp < $filterState.fromMs) return false;
@@ -72,6 +74,15 @@
     if (rangeCost === 0) return 0;
     return (cacheSavingsValue / (rangeCost + cacheSavingsValue)) * 100;
   })();
+  
+  $: daysRemaining = Math.max(0, Math.ceil((billingPeriodEndMs - Date.now()) / (24 * 60 * 60 * 1000)));
+  $: msInDay = 24 * 60 * 60 * 1000;
+  $: totalDaysInPeriod = Math.max(1, Math.ceil((billingPeriodEndMs - billingPeriodStartMs) / msInDay));
+  $: daysSincePeriodStart = Math.max(1, Math.ceil((Date.now() - billingPeriodStartMs) / msInDay));
+  $: burnRate = daysSincePeriodStart > 0 ? periodCredits / daysSincePeriodStart : 0;
+  $: projectedPeriodCredits = burnRate * totalDaysInPeriod;
+  $: forecastVisible = rangeTurns >= 50 || periodCredits >= 0.5;
+  $: forecastOverage = projectedPeriodCredits - budgetCredits;
 </script>
 
 <div class="overview-tab">
@@ -88,20 +99,52 @@
       sub="${rangeCost.toFixed(2)} · {rangeTurns} turns"
     />
     
-    <StatCard 
-      label="Range Turns"
-      value={rangeTurns}
-      sub="${rangeCost.toFixed(2)} · {rangeCredits.toFixed(0)} cr"
-    />
+    {#if budgetCredits > 0}
+      <StatCard 
+        label="Budget Used (Period)"
+        value="{usagePct.toFixed(1)}%"
+        sub="{periodCredits.toFixed(0)} / {budgetCredits} cr"
+        valueColor={usageColor}
+      >
+        <BudgetBar percentage={usagePct} color={usageColor} />
+      </StatCard>
+    {:else}
+      <StatCard 
+        label="Budget Used (Period)"
+        value="No budget set"
+        sub="{periodCredits.toFixed(0)} cr used"
+      />
+    {/if}
     
     <StatCard 
-      label="Budget Used (Period)"
-      value="{usagePct.toFixed(1)}%"
-      sub="{periodCredits.toFixed(0)} / {budgetCredits} cr"
-      valueColor={usageColor}
-    >
-      <BudgetBar percentage={usagePct} color={usageColor} />
-    </StatCard>
+      label="Days Remaining"
+      value={daysRemaining}
+      sub={budgetCredits > 0 ? `~${((budgetCredits - periodCredits) / Math.max(1, daysRemaining)).toFixed(1)} cr/day budget` : 'of billing period'}
+    />
+    
+    {#if forecastVisible}
+      <StatCard label="Forecast (Period End)">
+        <div class="stat-value">{projectedPeriodCredits.toFixed(1)} cr</div>
+        <div class="stat-sub">Burn rate: {burnRate.toFixed(2)} cr/day</div>
+        {#if budgetCredits > 0}
+          {#if forecastOverage > 0}
+            <div class="stat-sub" style="color: var(--vscode-errorForeground)">
+              +{forecastOverage.toFixed(1)} cr over budget
+            </div>
+          {:else}
+            <div class="stat-sub">
+              {Math.abs(forecastOverage).toFixed(1)} cr under budget
+            </div>
+          {/if}
+        {/if}
+      </StatCard>
+    {:else}
+      <StatCard label="Forecast (Period End)">
+        <div class="stat-value">-</div>
+        <div class="stat-sub">Forecast available once more usage data is collected</div>
+        <div class="stat-sub">(>= 50 turns or >= 0.50 credits)</div>
+      </StatCard>
+    {/if}
     
     <StatCard 
       label="Chat Sessions"
@@ -113,12 +156,6 @@
       label="Top Workspace (Range)"
       value={topWorkspace.label}
       sub="${topWorkspace.costUsd.toFixed(2)} · {topWorkspace.sessions} sessions"
-    />
-    
-    <StatCard 
-      label="LLM Calls"
-      value={rangeTurns}
-      sub="turns in range"
     />
     
     <StatCard 

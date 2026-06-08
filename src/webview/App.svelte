@@ -2,7 +2,6 @@
   import { dashboardData } from './stores/dashboard';
   import GlobalFilter from './components/shared/GlobalFilter.svelte';
   import OverviewTab from './components/tabs/OverviewTab.svelte';
-  import BudgetTab from './components/tabs/BudgetTab.svelte';
   import SessionsTab from './components/tabs/SessionsTab.svelte';
   import ModelsTab from './components/tabs/ModelsTab.svelte';
   import TokensTab from './components/tabs/TokensTab.svelte';
@@ -29,10 +28,6 @@
     <button class:active={activeTab === 'overview'} on:click={() => activeTab = 'overview'} data-tab="overview">
       <span class="tab-icon">📊</span>
       <span class="tab-label">Overview</span>
-    </button>
-    <button class:active={activeTab === 'budget'} on:click={() => activeTab = 'budget'} data-tab="budget">
-      <span class="tab-icon">💰</span>
-      <span class="tab-label">Spending</span>
     </button>
     <button class:active={activeTab === 'sessions'} on:click={() => activeTab = 'sessions'} data-tab="sessions">
       <span class="tab-icon">💬</span>
@@ -65,8 +60,6 @@
       <div class="loading">Loading dashboard data...</div>
     {:else if activeTab === 'overview'}
       <OverviewTab />
-    {:else if activeTab === 'budget'}
-      <BudgetTab />
     {:else if activeTab === 'sessions'}
       <SessionsTab />
     {:else if activeTab === 'models'}
@@ -167,10 +160,6 @@
   
   .tabs button[data-tab="overview"].active {
     border-bottom-color: #4fc3f7;
-  }
-  
-  .tabs button[data-tab="budget"].active {
-    border-bottom-color: #81c784;
   }
   
   .tabs button[data-tab="sessions"].active {

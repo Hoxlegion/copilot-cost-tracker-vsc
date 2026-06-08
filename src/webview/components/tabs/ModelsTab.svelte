@@ -94,6 +94,7 @@
     { key: 'model', label: 'Model', type: 'string' as const },
     { key: 'turns', label: 'Turns', type: 'number' as const },
     { key: 'cost', label: 'Cost (USD)', type: 'number' as const },
+    { key: 'avgCost', label: 'Avg Cost/Turn', type: 'number' as const },
     { key: 'pct', label: '%', type: 'number' as const },
     { key: 'tokens', label: 'Tokens', type: 'number' as const },
     { key: 'cachePct', label: 'Cache%', type: 'number' as const },
@@ -105,6 +106,7 @@
     const totalTokens = m.totalInputTokens + m.totalOutputTokens + m.totalCachedTokens;
     const cacheBase = m.totalInputTokens + m.totalCachedTokens;
     const cachePct = cacheBase > 0 ? (m.totalCachedTokens / cacheBase) * 100 : 0;
+    const avgCost = m.turnCount > 0 ? m.totalCostUsd / m.turnCount : 0;
     
     const sessionDurations = filteredSessions
       .filter(s => s.primaryModel === m.model)
@@ -126,6 +128,7 @@
       model: m.model,
       turns: m.turnCount,
       cost: m.totalCostUsd.toFixed(2),
+      avgCost: `$${avgCost.toFixed(4)}`,
       pct: m.percentage.toFixed(1),
       tokens: totalTokens.toLocaleString(),
       cachePct: cachePct.toFixed(1),

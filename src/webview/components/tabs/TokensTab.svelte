@@ -2,7 +2,6 @@
   import { dashboardData } from '../../stores/dashboard';
   import { filterState } from '../../stores/filter';
   import StatCard from '../shared/StatCard.svelte';
-  import DataTable from '../shared/DataTable.svelte';
   
   $: data = $dashboardData;
   $: allSessions = data?.allSessions ?? [];
@@ -59,27 +58,6 @@
     return top;
   }, null as typeof filteredModelBreakdown[0] | null);
   
-  const tokenColumns = [
-    { key: 'model', label: 'Model', type: 'string' as const },
-    { key: 'turns', label: 'Turns', type: 'number' as const },
-    { key: 'totalCost', label: 'Total Cost', type: 'number' as const },
-    { key: 'avgCost', label: 'Avg/Turn', type: 'number' as const },
-    { key: 'avgCredits', label: 'Credits/Turn', type: 'number' as const },
-  ];
-  
-  $: tokenRows = filteredModelBreakdown.map(m => {
-    const avgCost = m.turnCount > 0 ? m.totalCostUsd / m.turnCount : 0;
-    const avgCredits = m.turnCount > 0 ? m.totalCredits / m.turnCount : 0;
-    
-    return {
-      model: m.model,
-      turns: m.turnCount,
-      totalCost: `$${m.totalCostUsd.toFixed(2)}`,
-      avgCost: `$${avgCost.toFixed(4)}`,
-      avgCredits: avgCredits.toFixed(2),
-    };
-  });
-  
   function formatCompactNumber(value: number): string {
     if (!Number.isFinite(value)) return '0';
     if (Math.abs(value) >= 1000000) return (value / 1000000).toFixed(1) + 'M';
@@ -120,14 +98,6 @@
       sub={topModel ? `$${topModel.totalCostUsd.toFixed(2)} (${topModel.percentage.toFixed(1)}%)` : '$0.00 (0.0%)'}
     />
   </div>
-  
-  <div class="table-section">
-    <h3>Cost per Model per Turn</h3>
-    <DataTable 
-      columns={tokenColumns}
-      rows={tokenRows}
-    />
-  </div>
 </div>
 
 <style>
@@ -140,12 +110,5 @@
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
     gap: 10px;
     margin-bottom: 24px;
-  }
-  
-  .table-section h3 {
-    margin: 0 0 12px 0;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--vscode-foreground);
   }
 </style>
