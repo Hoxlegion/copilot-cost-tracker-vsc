@@ -48,7 +48,10 @@ Get live updates on AI credit consumption with an always-visible status bar, bud
 | Multi-model prices | Built-in rates for all June 2026 GA models from OpenAI, Anthropic, Google, GitHub |
 | Custom model rates | Define credits-per-1M-tokens for models not in the built-in table |
 | Model exclusion | Filter out models you don't want tracked (default: `gpt-4o-mini` code completions) |
-| Adaptive polling | Interval doubles when idle (up to `pollIntervalMax`), resets immediately on new data |
+| Context weight notifications | Warnings at 20K, 40K, 80K tokens when active sessions accumulate heavy context |
+| Context awareness alerts | Identifies patterns: micro-turn bloat, raw paste, premium model misallocation, agent sprawl |
+| File watcher strategy | Event-driven updates with 2s debounce for near-instant status bar refresh (sub-second after data arrival) |
+| Response latency metrics | Tracks model response times and displays avg latency per model and session |
 | DB + JSONL failover | Reads `agent-traces.db` directly; falls back to JSONL debug logs automatically |
 | Watermark recovery | On restart, resumes from the last processed timestamp — no duplicate counting |
 | Periodic persistence | In-memory SQLite flushed to disk every 60 seconds |
@@ -146,6 +149,12 @@ Most users won't need to change anything. These are the most common settings:
 | `budgetWarningThresholds` | array | `[75, 90, 100]` | % thresholds for VS Code notifications |
 | `currency` | string | `"USD"` | Display currency code |
 | `showStatusBar` | boolean | `true` | Show cost in status bar |
+| `contextWeightNotifications` | boolean | `true` | Show warnings for heavy context (20K, 40K, 80K tokens) |
+| `microTurnGapSeconds` | number | `120` | Max seconds between turns for micro-turn pattern detection |
+| `microTurnMinCount` | number | `5` | Consecutive rapid turns to trigger Micro-Turn Bloat alert |
+| `rawPasteMinInputTokens` | number | `15000` | Min uncached tokens in a turn to trigger Raw Paste alert |
+| `premiumMisallocationMinCredits` | number | `2` | Min credits for Premium Model Misallocation alert |
+| `agentSprawlMinInputTokens` | number | `80000` | Min input tokens to trigger Massive Context Turn alert |
 
 See the [Advanced: Pricing & Configuration](#advanced-pricing--configuration) section below for the full settings reference.
 
@@ -185,7 +194,7 @@ Hierarchical sidebar view:
 6-tab webview with Chart.js visualizations and global date range filtering:
 - **Overview**: Range cost/credits, budget usage (with "No budget set" handling), days remaining, forecast, cache savings, top workspace, avg response time
 - **Sessions**: Summary, table, and discovery views with expandable per-model breakdowns and turn-level analytics
-- **Models**: Cost breakdown by model with avg cost/turn, token usage, cache %, and latency metrics
+- **Models**: Cost breakdown by model with avg cost/turn, avg response time (latency), token usage, and cache %
 - **Tokens**: Input/output/cached token statistics and cache hit rates
 - **Insights**: Token savings playbook, action-type spend breakdown, range-specific alerts
 - **Estimates**: Time/cost heuristics (speculative)
@@ -263,7 +272,8 @@ This extension is built with:
 - **VS Code API**: Settings, status bar, webview, Output Channel
 - **Svelte**: Reactive dashboard webview with component-based architecture
 - **Chart.js**: Dashboard visualizations
-- **Adaptive polling**: Responsive during use, silent when idle
+- **File watcher strategy**: Event-driven file monitoring with debouncing for responsive UI updates
+- **Context tracking**: Real-time session context weight monitoring with granular alerts
 
 Data flows from VS Code's internal telemetry → traces database → cost calculation → in-memory DB → UI.
 

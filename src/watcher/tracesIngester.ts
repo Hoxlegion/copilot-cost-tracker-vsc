@@ -13,6 +13,7 @@ export class TracesIngester implements vscode.Disposable {
   private readonly database: CostDatabase;
   private readonly configManager: ConfigManager;
   private readonly logger: Logger;
+  private readonly workspaceId: string;
   private readonly onDataChanged: vscode.EventEmitter<void>;
   private watcher: FileWatcherStrategy | undefined;
   private isDisposed: boolean = false;
@@ -33,7 +34,8 @@ export class TracesIngester implements vscode.Disposable {
     pricing: PricingEngine,
     database: CostDatabase,
     configManager: ConfigManager,
-    logger: Logger
+    logger: Logger,
+    workspaceId: string = "unknown"
   ) {
     this.reader = reader;
     this.logParser = logParser;
@@ -41,6 +43,7 @@ export class TracesIngester implements vscode.Disposable {
     this.database = database;
     this.configManager = configManager;
     this.logger = logger;
+    this.workspaceId = workspaceId;
     this.onDataChanged = new vscode.EventEmitter<void>();
     this.onDidDataChange = this.onDataChanged.event;
 
@@ -205,7 +208,7 @@ export class TracesIngester implements vscode.Disposable {
         },
         costUsd,
         credits,
-        span.chatSessionId ?? "unknown"
+        this.workspaceId
       );
 
       newCount++;

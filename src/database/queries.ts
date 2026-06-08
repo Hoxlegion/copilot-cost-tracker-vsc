@@ -587,6 +587,7 @@ export function getSessionContextDistribution(db: Database, sinceMs: number): Se
     FROM turns t1
     WHERE timestamp >= :since
     GROUP BY session_id
+    HAVING COUNT(*) >= 2
     ORDER BY current_context_weight DESC
   `);
   stmt.bind({ ":since": safeSince });

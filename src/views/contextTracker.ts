@@ -103,15 +103,15 @@ export class ContextTracker implements vscode.Disposable {
         const pages = tokensToPages(info.currentContextWeight);
 
         let message: string;
-        if (threshold === 20_000) {
+        if (threshold === 50_000) {
           message = `Copilot Cost Tracker: Your active chat session is carrying ${pages} of context (~${(info.currentContextWeight / 1000).toFixed(0)}K tokens). Each new message resends all of it. Consider starting a fresh chat.`;
-        } else if (threshold === 40_000) {
+        } else if (threshold === 100_000) {
           message = `Copilot Cost Tracker: Your chat session context has reached ${pages} (~${(info.currentContextWeight / 1000).toFixed(0)}K tokens). Response quality may degrade and costs increase. Start a new chat for best results.`;
         } else {
           message = `Copilot Cost Tracker: Your chat session context is ${pages} (~${(info.currentContextWeight / 1000).toFixed(0)}K tokens). This is extremely heavy. Starting a fresh chat will significantly improve speed and reduce costs.`;
         }
 
-        if (threshold >= 80_000) {
+        if (threshold >= 200_000) {
           vscode.window.showErrorMessage(message);
         } else {
           vscode.window.showWarningMessage(message);

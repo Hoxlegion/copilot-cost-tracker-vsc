@@ -62,8 +62,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   database = new CostDatabase(storagePath);
   await database.initialize();
 
+  // Derive workspace storage hash from storageUri (e.g. .../workspaceStorage/{hash}/extension-name/)
+  // This gives resolveWorkspaceName a proper hash it can look up in workspace.json
+  const workspaceStorageHash = context.storageUri
+    ? path.basename(path.dirname(context.storageUri.fsPath))
+    : "unknown";
+
   // Ingestion pipeline
-  const ingester = new TracesIngester(reader, logParser, pricing, database, configManager, logger);
+  const ingester = new TracesIngester(reader, logParser, pricing, database, configManager, logger, workspaceStorageHash);
   ingester.setTelemetrySource(configManager.config.telemetrySource);
 
   // UI components
