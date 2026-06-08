@@ -13,4 +13,5 @@ test/**
 scripts/**
 media/*.png
 !media/icon.png
+dist/webview/**/*.map
 

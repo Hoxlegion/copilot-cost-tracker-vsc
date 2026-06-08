@@ -83,3 +83,53 @@ export interface ModelsJsonEntry {
   id?: string;
   name?: string;
 }
+
+export interface TraceSpan {
+  spanId: string;
+  traceId: string;
+  parentSpanId: string | null;
+  name: string;
+  startTimeMs: number;
+  endTimeMs: number;
+  statusCode: number;
+  operationName: string | null;
+  providerName: string | null;
+  agentName: string | null;
+  conversationId: string | null;
+  requestModel: string | null;
+  responseModel: string | null;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  cacheWriteTokens: number;
+  reasoningTokens: number;
+  toolName: string | null;
+  chatSessionId: string | null;
+  turnIndex: number | null;
+  ttftMs: number | null;
+}
+
+export interface SurfaceBreakdown {
+  label: string;
+  agentName: string | null;
+  spanCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+}
+
+export interface TurnDiscoveryRow {
+  chatSessionId: string;
+  turnIndex: number;
+  firstTimeMs: number;
+  lastTimeMs: number;
+  llmCalls: number;
+  toolCalls: number;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  cacheHitPct: number;
+  models: string[];
+  agents: string[];
+  tools: string[];
+}

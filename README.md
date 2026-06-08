@@ -38,12 +38,14 @@ Get live updates on AI credit consumption with an always-visible status bar, bud
 | Live status bar | Session delta (`+2.3 cr`) and period total (`42.5 cr`) updated as you work |
 | Budget threshold alerts | One-time VS Code notifications at configurable % thresholds (default: 75%, 90%, 100%) |
 | Cost tree view | Hierarchical sidebar: budget → today/week/month → models → sessions |
-| Dashboard webview | 7-tab Chart.js dashboard: Overview, Budget health, Sessions, Models, Tokens, Insights, Estimates |
+| Dashboard webview | 6-tab Chart.js dashboard: Overview, Sessions, Models, Tokens, Insights, Estimates |
+| Global date filtering | Filter all dashboard tabs by custom date range (Today, 7d, 30d, This Period, or custom) |
+| Reactive dashboard | All tabs update instantly when filter changes, no page reload needed |
 | Workspace focus insights | Top workspace card + workspace leaderboard for current range |
 | Discovery turn analytics | Turn-level discovery with LLM calls, tool calls, cache %, expand/collapse, and filters |
-| Cache savings visibility | Period-level savings card with model breakdown |
+| Cache savings visibility | Range-level savings card with model breakdown |
 | Billing period tracking | Correct period boundaries for any `billingCycleStartDay`, including short months |
-| Multi-model pricing | Built-in rates for all June 2026 GA models from OpenAI, Anthropic, Google, GitHub |
+| Multi-model prices | Built-in rates for all June 2026 GA models from OpenAI, Anthropic, Google, GitHub |
 | Custom model rates | Define credits-per-1M-tokens for models not in the built-in table |
 | Model exclusion | Filter out models you don't want tracked (default: `gpt-4o-mini` code completions) |
 | Adaptive polling | Interval doubles when idle (up to `pollIntervalMax`), resets immediately on new data |
@@ -65,11 +67,11 @@ Hierarchical breakdown: budget → period → models → sessions.
 
 ![Hierarchical cost breakdown in sidebar](media/costoverview.png)
 
-### Dashboard (7-tab analytics)
-Quick overview, Budget tracking, Sessions list, model/token analytics, and curated Insights with discovery views.
-![7-tab Chart.js dashboard](media/MainDashboard.png)
+### Dashboard (6-tab analytics)
+Quick overview, Sessions list, model/token analytics, and curated Insights with discovery views.
+![6-tab Chart.js dashboard](media/MainDashboard.png)
 
-Includes filters, sorting, and detailed breakdowns.
+Includes global date range filters, sorting, and detailed breakdowns.
 
 ---
 
@@ -136,7 +138,7 @@ Most users won't need to change anything. These are the most common settings:
 
 | Setting | Type | Default | What it does |
 |---------|------|---------|-------------|
-| `budgetCredits` | number | `180` | Your monthly AI credit budget (used for alerts & progress bar) |
+| `budgetCredits` | number | `180` | Your monthly AI credit budget (used for alerts & progress bar). Set to `0` to disable budget tracking. |
 | `billingCycleStartDay` | number | `1` | Day of month your billing resets (1–31) |
 | `budgetWarningThresholds` | array | `[75, 90, 100]` | % thresholds for VS Code notifications |
 | `currency` | string | `"USD"` | Display currency code |
@@ -177,20 +179,22 @@ Hierarchical sidebar view:
 - Models and sessions with turn counts
 
 ### Dashboard
-7-tab webview with Chart.js visualizations:
-- **Overview**: Daily spend, budget context, cache savings, top workspace
-- **Budget**: Period progress, allowance/day
-- **Sessions**: Table of all sessions with cost
-- **Models**: Cost breakdown by model
-- **Tokens**: Input/output/cached token charts
-- **Insights**: Workspace focus, action-type spend breakdown, turn discovery (LLM/tool call view)
+6-tab webview with Chart.js visualizations and global date range filtering:
+- **Overview**: Range cost/credits, budget usage (with "No budget set" handling), days remaining, forecast, cache savings, top workspace, avg response time
+- **Sessions**: Summary, table, and discovery views with expandable per-model breakdowns and turn-level analytics
+- **Models**: Cost breakdown by model with avg cost/turn, token usage, cache %, and latency metrics
+- **Tokens**: Input/output/cached token statistics and cache hit rates
+- **Insights**: Token savings playbook, action-type spend breakdown, range-specific alerts
 - **Estimates**: Time/cost heuristics (speculative)
 
-Discovery in Insights includes:
+All tabs respond to the global date range filter for focused analysis.
+
+Discovery in Sessions includes:
 - `Expand all` / `Collapse all`
 - `Only rows with tools` filter
 - `Only anomalies` filter (cache hit < 40% or turn used tools)
-- Click-through from discovery/session snapshots to the Sessions tab
+- Last Active timestamp for each turn
+- Click-through from discovery/session snapshots to the Sessions table
 
 Open via **Copilot Cost Tracker: Open Dashboard** command or the graph icon in the tree view.
 
@@ -254,6 +258,7 @@ For exact built-in rates, see the source table in `src/pricing/defaultPricing.ts
 This extension is built with:
 - **sql.js**: In-memory SQLite database (zero external runtime dependencies)
 - **VS Code API**: Settings, status bar, webview, Output Channel
+- **Svelte**: Reactive dashboard webview with component-based architecture
 - **Chart.js**: Dashboard visualizations
 - **Adaptive polling**: Responsive during use, silent when idle
 
@@ -298,6 +303,15 @@ src/
   pricing/            # Cost calculation engine
   watcher/            # Data polling & ingestion
   views/              # UI: status bar, tree, dashboard
+    helpers/          # View helper functions
+    tabs/             # Legacy HTML tab templates
+  webview/            # Svelte dashboard application
+    components/
+      charts/         # Chart.js wrappers (Daily, Heatmap, Model charts)
+      shared/         # Reusable components (StatCard, BudgetBar, DataTable, GlobalFilter)
+      tabs/           # Tab components (Overview, Sessions, Models, Tokens, Insights, Estimates)
+    stores/           # Svelte stores (dashboard data, filter state)
+    types.ts          # TypeScript interfaces
 test/
   billing.test.ts     # Billing period calculation tests
 ```

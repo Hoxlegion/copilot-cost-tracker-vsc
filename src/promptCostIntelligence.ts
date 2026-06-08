@@ -84,7 +84,7 @@ export class PromptCostIntelligenceProvider implements vscode.CodeLensProvider, 
     const preview = this.previewByUri.get(document.uri.toString());
     if (!preview?.version || preview.version !== document.version) {
       this.scheduleRecompute(document);
-      return new vscode.Hover(new vscode.MarkdownString("Prompt preview wordt berekend..."));
+      return new vscode.Hover(new vscode.MarkdownString("Calculating prompt preview..."));
     }
 
     const md = new vscode.MarkdownString(undefined, true);

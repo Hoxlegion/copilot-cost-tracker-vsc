@@ -33,7 +33,7 @@ function runCode(args, { allowNonZero = false } = {}) {
 
 // Prevent VS Code CLI "restart before reinstall" by clearing old install state first.
 runCode(["--uninstall-extension", extensionId], { allowNonZero: true });
-const installResult = runCode(["--install-extension", vsixPath, "--force"], {
+const installResult = runCode(["--install-extension", `"${vsixPath}"`, "--force"], {
   allowNonZero: true,
 });
 

@@ -7,6 +7,7 @@ import { CostDatabase, InsightMetrics, CacheSavingsMetrics } from "../database";
 import { TracesDbReader, SurfaceBreakdown, TurnDiscoveryRow } from "../parser";
 import { getBillingPeriodEndMs, getBillingPeriodStartMs } from "../billing";
 import { getAlerts, buildPlaybook, DashboardAlert, PlaybookRow } from "../insights";
+import { resolveWorkspaceName } from "./helpers/workspaceResolver";
 
 export interface DashboardRawData {
   insightMetrics: InsightMetrics;
@@ -49,6 +50,8 @@ export interface DashboardRawData {
   billingPeriodEndMs: number;
   periodCredits: number;
   periodAggregate: { costUsd: number; credits: number; turns: number };
+  budgetCredits: number;
+  lastUpdatedMs: number;
 }
 
 /**
@@ -61,7 +64,7 @@ export class DashboardDataAssembler {
     private readonly reader: TracesDbReader
   ) {}
 
-  async assemble(billingCycleStartDay: number): Promise<DashboardRawData> {
+  async assemble(billingCycleStartDay: number, budgetCredits: number): Promise<DashboardRawData> {
     const periodStartMs = getBillingPeriodStartMs(billingCycleStartDay);
     const periodEndMs = getBillingPeriodEndMs(billingCycleStartDay);
     const sinceMs30d = Date.now() - 30 * 24 * 60 * 60 * 1000;
@@ -109,6 +112,7 @@ export class DashboardDataAssembler {
 
     const allSessionsWithBreakdown = allSessions.map((session) => ({
       ...session,
+      workspace: resolveWorkspaceName(session.workspace),
       modelBreakdown: (sessionModelMap.get(session.sessionId) ?? []).map((row) => ({
         model: row.model,
         turnCount: row.turnCount,
@@ -122,6 +126,10 @@ export class DashboardDataAssembler {
 
     const alerts = getAlerts(this.database);
     const playbook = buildPlaybook(alerts);
+
+    const lastUpdatedMs = allSessions.length > 0
+      ? Math.max(...allSessions.map(s => s.lastTimestamp))
+      : Date.now();
 
     return {
       insightMetrics,
@@ -142,6 +150,8 @@ export class DashboardDataAssembler {
       billingPeriodEndMs: periodEndMs,
       periodCredits,
       periodAggregate,
+      budgetCredits,
+      lastUpdatedMs,
     };
   }
 }
