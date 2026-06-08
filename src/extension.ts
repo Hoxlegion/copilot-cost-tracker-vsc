@@ -86,31 +86,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     [{ scheme: "file" }, { scheme: "untitled" }], promptIntelligence
   );
 
-  // Debounced UI refresh
-  let refreshTimer: NodeJS.Timeout | undefined;
-  let refreshDebounceMs = configManager.config.refreshDebounceMs;
-  const debouncedRefresh = () => {
-    if (refreshTimer) { clearTimeout(refreshTimer); }
-    refreshTimer = setTimeout(() => {
-      treeProvider.refresh();
-      contextTracker.update();
-      statusBar.update();
-      if (DashboardPanel.currentPanel) {
-        void DashboardPanel.currentPanel.update();
-      }
-    }, refreshDebounceMs);
+  // Event wiring
+  const refreshAll = () => {
+    treeProvider.refresh();
+    contextTracker.update();
+    statusBar.update();
+    if (DashboardPanel.currentPanel) {
+      void DashboardPanel.currentPanel.update();
+    }
   };
 
-  // Event wiring
-  ingester.onDidDataChange(() => debouncedRefresh());
+  ingester.onDidDataChange(() => refreshAll());
 
   configManager.onDidChange((cfg) => {
-    refreshDebounceMs = cfg.refreshDebounceMs;
     contextTracker.setNotificationsEnabled(cfg.contextWeightNotifications);
     statusBar.updateVisibility();
     treeProvider.refresh();
     ingester.setTelemetrySource(cfg.telemetrySource);
-    ingester.updatePollingBounds(cfg.pollIntervalMin, cfg.pollIntervalMax);
+    ingester.updateWatchOptions(cfg.refreshDebounceMs, cfg.pollIntervalMax);
   });
 
   // Commands
@@ -119,13 +112,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     extensionUri: context.extensionUri,
   });
 
-  // Initial ingest + start polling
+  // Initial ingest + start file watcher
   const initialScanSinceMs = Date.now() - configManager.config.initialScanDays * 24 * 60 * 60 * 1000;
   await ingester.ingest(initialScanSinceMs);
   treeProvider.refresh();
   contextTracker.update();
   statusBar.update();
-  ingester.startPolling(configManager.config.pollIntervalMin, configManager.config.pollIntervalMax);
+  const tracesDbPath = reader.exists() ? reader.path : null;
+  ingester.startWatching(tracesDbPath, configManager.config.refreshDebounceMs, configManager.config.pollIntervalMax);
 
   // Startup prune
   const pruned = database.pruneOldTurns(configManager.config.retentionDays);

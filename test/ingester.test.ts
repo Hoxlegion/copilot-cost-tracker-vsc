@@ -54,59 +54,84 @@ describe("Ingester Failover & Polling", () => {
     });
   });
 
-  describe("Adaptive Polling", () => {
-    it("resets interval to minimum when data is found", () => {
-      const minInterval = 5000;
-      const maxInterval = 60000;
-      let currentInterval = maxInterval; // Simulate backed-off interval from empty polls
+  describe("File Watcher Strategy", () => {
+    it("debounces rapid successive file change events into one ingestion", async () => {
+      const debounceMs = 300;
+      let ingestionCount = 0;
+      let debounceTimer: NodeJS.Timeout | undefined;
 
-      // Data found
-      const newCount = 5;
-      if (newCount > 0) {
-        currentInterval = minInterval; // Reset to minimum
-      }
+      const triggerDebounced = () => {
+        if (debounceTimer) { clearTimeout(debounceTimer); }
+        debounceTimer = setTimeout(() => {
+          ingestionCount++;
+        }, debounceMs);
+      };
 
-      expect(currentInterval).toBe(minInterval);
+      triggerDebounced();
+      triggerDebounced();
+      triggerDebounced();
+      triggerDebounced();
+      triggerDebounced();
+
+      await new Promise((resolve) => setTimeout(resolve, debounceMs + 50));
+      expect(ingestionCount).toBe(1);
     });
 
-    it("doubles interval when no data is found", () => {
-      const minInterval = 5000;
-      const maxInterval = 60000;
-      let currentInterval = minInterval;
+    it("fallback poll triggers ingestion when no file events arrive", async () => {
+      const fallbackIntervalMs = 100;
+      let ingestionCount = 0;
 
-      // Simulate multiple empty polls
-      for (let i = 0; i < 5; i++) {
-        currentInterval = Math.min(currentInterval * 2, maxInterval);
-      }
+      const fallbackTimer = setInterval(() => {
+        ingestionCount++;
+      }, fallbackIntervalMs);
 
-      expect(currentInterval).toBe(maxInterval);
+      await new Promise((resolve) => setTimeout(resolve, fallbackIntervalMs * 3 + 50));
+      clearInterval(fallbackTimer);
+      expect(ingestionCount).toBeGreaterThanOrEqual(3);
     });
 
-    it("respects maximum polling interval", () => {
-      const minInterval = 5000;
-      const maxInterval = 60000;
-      let currentInterval = minInterval;
+    it("concurrent ingestion guard prevents overlapping runs", async () => {
+      let isRunning = false;
+      let completedCount = 0;
 
-      // Keep doubling
-      for (let i = 0; i < 10; i++) {
-        currentInterval = Math.min(currentInterval * 2, maxInterval);
-      }
+      const runCallback = async (): Promise<void> => {
+        if (isRunning) return;
+        isRunning = true;
+        try {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          completedCount++;
+        } finally {
+          isRunning = false;
+        }
+      };
 
-      expect(currentInterval).toBeLessThanOrEqual(maxInterval);
-      expect(currentInterval).toBe(maxInterval);
+      await Promise.all([runCallback(), runCallback(), runCallback()]);
+      expect(completedCount).toBe(1);
     });
 
-    it("respects minimum polling interval", () => {
-      const minInterval = 5000;
-      const maxInterval = 60000;
+    it("watcher path changes when source switches between database and JSONL", () => {
+      let currentWatchPath: string | null = "agent-traces.db";
 
-      expect(minInterval).toBeLessThanOrEqual(maxInterval);
-      expect(minInterval).toBeGreaterThan(0);
+      const setWatchPath = (path: string | null) => {
+        currentWatchPath = path;
+      };
+
+      setWatchPath(null);
+      expect(currentWatchPath).toBeNull();
+
+      setWatchPath("agent-traces.db");
+      expect(currentWatchPath).toBe("agent-traces.db");
+    });
+
+    it("skips watcher setup when path is null (JSONL mode)", () => {
+      const watchPath: string | null = null;
+      const shouldSetupWatcher = watchPath !== null;
+      expect(shouldSetupWatcher).toBe(false);
     });
 
     it("resets failover counter when DB produces data", () => {
       let consecutiveEmptyPolls = 5;
-      const newCount = 3; // Data found
+      const newCount = 3;
 
       if (newCount > 0) {
         consecutiveEmptyPolls = 0;

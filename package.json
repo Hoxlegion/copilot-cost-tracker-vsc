@@ -134,20 +134,20 @@
           "type": "number",
           "default": 5000,
           "minimum": 1000,
-          "description": "Minimum polling interval in milliseconds (fastest rate when active)."
+          "description": "Deprecated. This setting is no longer used by the event-driven watcher."
         },
         "copilotCostTracker.pollIntervalMax": {
           "type": "number",
-          "default": 60000,
+          "default": 30000,
           "minimum": 5000,
-          "description": "Maximum polling interval in milliseconds (slowest rate when idle)."
+          "description": "Fallback poll interval in milliseconds. Used as a safety net in case the file watcher misses events."
         },
         "copilotCostTracker.refreshDebounceMs": {
           "type": "number",
-          "default": 2000,
+          "default": 300,
           "minimum": 100,
           "maximum": 5000,
-          "description": "Debounce delay (ms) for UI refresh. Lower = snappier, higher = less CPU."
+          "description": "Debounce delay (ms) after a file change event before ingesting new data. Collapses rapid successive events into one update."
         },
         "copilotCostTracker.telemetrySource": {
           "type": "string",
