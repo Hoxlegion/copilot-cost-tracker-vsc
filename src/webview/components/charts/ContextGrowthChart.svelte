@@ -3,6 +3,7 @@
   import { filterState } from '../../stores/filter';
   import ChartWrapper from '../shared/ChartWrapper.svelte';
   import { tooltipConfig, baseScaleConfig } from '../../utils/chartStyles';
+  import { formatSessionLabel } from '../../utils/format';
   
   const LINE_COLORS = [
     'rgba(229, 115, 115, 0.9)',
@@ -19,21 +20,6 @@
     'rgba(79, 195, 247, 0.15)',
     'rgba(186, 104, 200, 0.15)',
   ];
-  
-  function formatSessionLabel(workspace: string, startMs: number, sessionId: string): string {
-    const shortId = sessionId.slice(0, 5);
-    const d = new Date(startMs);
-    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    const month = months[d.getMonth()];
-    const day = d.getDate();
-    let hours = d.getHours();
-    const minutes = d.getMinutes().toString().padStart(2, '0');
-    const ampm = hours >= 12 ? 'PM' : 'AM';
-    hours = hours % 12 || 12;
-    const dateStr = `${month} ${day}, ${hours}:${minutes} ${ampm}`;
-    const ws = workspace.length > 20 ? workspace.slice(0, 17) + '...' : workspace;
-    return `${ws} · ${dateStr} (${shortId})`;
-  }
   
   $: allTimelines = $dashboardData?.contextTimelines ?? [];
   $: contextDistribution = $dashboardData?.contextDistribution ?? [];

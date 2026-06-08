@@ -5,6 +5,7 @@
   import DataTable from '../shared/DataTable.svelte';
   import ContextScatterChart from '../charts/ContextScatterChart.svelte';
   import ContextGrowthChart from '../charts/ContextGrowthChart.svelte';
+  import { formatSessionLabel } from '../../utils/format';
   
   $: data = $dashboardData;
   $: allDistribution = data?.contextDistribution ?? [];
@@ -94,7 +95,7 @@
   ];
   
   $: tableRows = contextDistribution.slice(0, 20).map(d => ({
-    session: d.sessionId.slice(0, 12) + '...',
+    session: formatSessionLabel(d.workspace, d.startMs, d.sessionId),
     turns: d.turnCount,
     context: formatTokens(d.currentContextWeight),
     pages: formatPages(d.currentContextWeight),
