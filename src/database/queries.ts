@@ -576,6 +576,10 @@ export function getSessionContextDistribution(db: Database, sinceMs: number): Se
        FROM turns t2 
        WHERE t2.session_id = t1.session_id 
        ORDER BY timestamp DESC LIMIT 1) AS current_context_weight,
+      (SELECT workspace 
+       FROM turns t3 
+       WHERE t3.session_id = t1.session_id 
+       ORDER BY timestamp ASC LIMIT 1) AS workspace,
       COUNT(*) AS turn_count,
       MIN(timestamp) AS start_ms,
       MAX(timestamp) AS last_ms,
@@ -597,6 +601,7 @@ export function getSessionContextDistribution(db: Database, sinceMs: number): Se
       startMs: row.start_ms as number,
       lastMs: row.last_ms as number,
       totalCost: (row.total_cost as number) || 0,
+      workspace: (row.workspace as string) || "unknown",
     });
   }
   stmt.free();

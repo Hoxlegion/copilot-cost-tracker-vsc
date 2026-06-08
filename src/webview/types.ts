@@ -124,10 +124,13 @@ export interface ContextDistributionItem {
   startMs: number;
   lastMs: number;
   totalCost: number;
+  workspace: string;
 }
 
 export interface ContextTimelineData {
   sessionId: string;
+  workspace: string;
+  startMs: number;
   turns: Array<{
     timestamp: number;
     inputTokens: number;

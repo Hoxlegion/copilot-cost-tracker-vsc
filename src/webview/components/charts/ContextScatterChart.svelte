@@ -1,9 +1,16 @@
 <script lang="ts">
   import { dashboardData } from '../../stores/dashboard';
+  import { filterState } from '../../stores/filter';
   import ChartWrapper from '../shared/ChartWrapper.svelte';
   import { tooltipConfig, baseScaleConfig } from '../../utils/chartStyles';
   
-  $: contextDistribution = $dashboardData?.contextDistribution ?? [];
+  $: allDistribution = $dashboardData?.contextDistribution ?? [];
+  
+  $: contextDistribution = allDistribution.filter(d => {
+    if ($filterState.fromMs !== null && d.startMs < $filterState.fromMs) return false;
+    if ($filterState.toMs !== null && d.startMs > $filterState.toMs) return false;
+    return true;
+  });
   
   $: chartData = {
     datasets: [

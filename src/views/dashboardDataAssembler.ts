@@ -55,6 +55,8 @@ export interface DashboardRawData {
   contextDistribution: SessionContextDistribution[];
   contextTimelines: Array<{
     sessionId: string;
+    workspace: string;
+    startMs: number;
     turns: ContextTimelinePoint[];
   }>;
 }
@@ -134,9 +136,11 @@ export class DashboardDataAssembler {
     const alerts = getAlerts(this.database);
     const playbook = buildPlaybook(alerts);
 
-    const topHeaviestSessions = contextDistribution.slice(0, 5);
+    const topHeaviestSessions = contextDistribution.filter((s) => s.turnCount > 3).slice(0, 5);
     const contextTimelines = topHeaviestSessions.map((s) => ({
       sessionId: s.sessionId,
+      workspace: resolveWorkspaceName(s.workspace),
+      startMs: s.startMs,
       turns: this.database.getSessionContextTimeline(s.sessionId),
     }));
 

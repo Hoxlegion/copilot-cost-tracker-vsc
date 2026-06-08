@@ -161,4 +161,5 @@ export interface SessionContextDistribution {
   startMs: number;
   lastMs: number;
   totalCost: number;
+  workspace: string;
 }

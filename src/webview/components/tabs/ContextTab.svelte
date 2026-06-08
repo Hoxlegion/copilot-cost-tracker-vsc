@@ -1,12 +1,23 @@
 <script lang="ts">
   import { dashboardData } from '../../stores/dashboard';
+  import { filterState } from '../../stores/filter';
   import StatCard from '../shared/StatCard.svelte';
   import DataTable from '../shared/DataTable.svelte';
   import ContextScatterChart from '../charts/ContextScatterChart.svelte';
   import ContextGrowthChart from '../charts/ContextGrowthChart.svelte';
   
   $: data = $dashboardData;
-  $: contextDistribution = data?.contextDistribution ?? [];
+  $: allDistribution = data?.contextDistribution ?? [];
+  
+  $: contextDistribution = allDistribution.filter(d => {
+    if ($filterState.fromMs !== null && d.startMs < $filterState.fromMs) return false;
+    if ($filterState.toMs !== null && d.startMs > $filterState.toMs) return false;
+    return true;
+  });
+  
+  $: filteredSessionIds = new Set(contextDistribution.map(d => d.sessionId));
+  
+  $: filteredTimelines = (data?.contextTimelines ?? []).filter(t => filteredSessionIds.has(t.sessionId));
   
   $: avgContext = contextDistribution.length > 0
     ? contextDistribution.reduce((sum, d) => sum + d.currentContextWeight, 0) / contextDistribution.length
@@ -24,7 +35,7 @@
   $: peakPages = Math.round(peakContext / 2500);
   
   $: contextWastePct = (() => {
-    const timelines = data?.contextTimelines ?? [];
+    const timelines = filteredTimelines;
     if (timelines.length === 0) return 0;
     let totalWaste = 0;
     let count = 0;
@@ -125,7 +136,7 @@
   
   <div class="charts-grid">
     <div class="chart-section">
-      <h4>Session Context Distribution (30d)</h4>
+      <h4>Session Context Distribution</h4>
       <p class="chart-desc">Each dot is a session. X = turns, Y = context weight at last turn.</p>
       <ContextScatterChart />
     </div>
@@ -139,7 +150,7 @@
   
   {#if contextDistribution.length > 0}
     <div class="table-section">
-      <h4>Heaviest Sessions (30d)</h4>
+      <h4>Heaviest Sessions</h4>
       <DataTable 
         columns={tableColumns}
         rows={tableRows}
