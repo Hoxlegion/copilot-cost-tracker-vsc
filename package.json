@@ -233,6 +233,11 @@
           "default": true,
           "description": "Show live cost indicator in the status bar."
         },
+        "copilotCostTracker.contextWeightNotifications": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show warnings when the active chat session accumulates heavy context (20K, 40K, 80K tokens). Each new message resends the entire conversation history."
+        },
         "copilotCostTracker.pricingUrl": {
           "type": "string",
           "default": "",

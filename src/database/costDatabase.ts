@@ -18,6 +18,9 @@ import type {
   InsightMetrics,
   AlertMetrics,
   AlertThresholdConfig,
+  SessionContextInfo,
+  ContextTimelinePoint,
+  SessionContextDistribution,
 } from "./types";
 
 export type {
@@ -33,6 +36,9 @@ export type {
   InsightMetrics,
   AlertMetrics,
   AlertThresholdConfig,
+  SessionContextInfo,
+  ContextTimelinePoint,
+  SessionContextDistribution,
 };
 
 let wasmPath: string | undefined;
@@ -259,6 +265,23 @@ export class CostDatabase {
       };
     }
     return metrics.getCacheSavingsMetrics(this.db, sinceMs, workspace);
+  }
+
+  // ── Context Awareness ───────────────────────────────
+
+  getMostRecentSessionContext(sinceMs: number): SessionContextInfo | null {
+    if (!this.db) return null;
+    return queries.getMostRecentSessionContext(this.db, sinceMs);
+  }
+
+  getSessionContextTimeline(sessionId: string): ContextTimelinePoint[] {
+    if (!this.db) return [];
+    return queries.getSessionContextTimeline(this.db, sessionId);
+  }
+
+  getSessionContextDistribution(sinceMs: number): SessionContextDistribution[] {
+    if (!this.db) return [];
+    return queries.getSessionContextDistribution(this.db, sinceMs);
   }
 
   // ── Maintenance ─────────────────────────────────────

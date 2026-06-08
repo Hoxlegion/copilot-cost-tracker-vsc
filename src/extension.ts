@@ -4,7 +4,7 @@ import { TracesDbReader, LogParser } from "./parser";
 import { PricingEngine } from "./pricing";
 import { CostDatabase, setWasmPath } from "./database";
 import { TracesIngester } from "./watcher";
-import { CostTreeProvider, DashboardPanel, StatusBarIndicator } from "./views";
+import { CostTreeProvider, DashboardPanel, StatusBarIndicator, ContextTracker } from "./views";
 import { ConfigManager } from "./config";
 import { Logger } from "./logger";
 import { PromptCostIntelligenceProvider } from "./promptCostIntelligence";
@@ -45,8 +45,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   ingester.setTelemetrySource(configManager.config.telemetrySource);
 
   // UI components
+  const contextTracker = new ContextTracker(database, logger);
+  contextTracker.setNotificationsEnabled(configManager.config.contextWeightNotifications);
   const treeProvider = new CostTreeProvider(database, pricing);
-  const statusBar = new StatusBarIndicator(database, pricing, configManager, logger);
+  const statusBar = new StatusBarIndicator(database, pricing, configManager, logger, contextTracker);
   const promptIntelligence = new PromptCostIntelligenceProvider(configManager, logger);
 
   // Register TreeView, CodeLens, and Hover
@@ -69,6 +71,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (refreshTimer) { clearTimeout(refreshTimer); }
     refreshTimer = setTimeout(() => {
       treeProvider.refresh();
+      contextTracker.update();
       statusBar.update();
       if (DashboardPanel.currentPanel) {
         void DashboardPanel.currentPanel.update();
@@ -81,6 +84,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   configManager.onDidChange((cfg) => {
     refreshDebounceMs = cfg.refreshDebounceMs;
+    contextTracker.setNotificationsEnabled(cfg.contextWeightNotifications);
     statusBar.updateVisibility();
     treeProvider.refresh();
     ingester.setTelemetrySource(cfg.telemetrySource);
@@ -97,6 +101,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const initialScanSinceMs = Date.now() - configManager.config.initialScanDays * 24 * 60 * 60 * 1000;
   await ingester.ingest(initialScanSinceMs);
   treeProvider.refresh();
+  contextTracker.update();
   statusBar.update();
   ingester.startPolling(configManager.config.pollIntervalMin, configManager.config.pollIntervalMax);
 
@@ -114,7 +119,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Disposables
   context.subscriptions.push(
     configManager, logger, promptIntelligence, treeView,
-    promptCodeLens, promptHover, statusBar, ingester,
+    promptCodeLens, promptHover, statusBar, contextTracker, ingester,
   );
 }
 

@@ -46,6 +46,8 @@ export interface DashboardRawData {
   periodAggregate: { costUsd: number; credits: number; turns: number };
   budgetCredits: number;
   lastUpdatedMs: number;
+  contextDistribution: ContextDistributionItem[];
+  contextTimelines: ContextTimelineData[];
 }
 
 export interface InsightMetrics {
@@ -113,4 +115,23 @@ export interface TurnDiscoveryRow {
   models: string[];
   agents: string[];
   tools: string[];
+}
+
+export interface ContextDistributionItem {
+  sessionId: string;
+  currentContextWeight: number;
+  turnCount: number;
+  startMs: number;
+  lastMs: number;
+  totalCost: number;
+}
+
+export interface ContextTimelineData {
+  sessionId: string;
+  turns: Array<{
+    timestamp: number;
+    inputTokens: number;
+    cachedTokens: number;
+    currentContextWeight: number;
+  }>;
 }

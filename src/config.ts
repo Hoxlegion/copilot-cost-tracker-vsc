@@ -54,6 +54,7 @@ export interface ExtensionConfig {
   currency: string;
   exchangeRate: number;
   showStatusBar: boolean;
+  contextWeightNotifications: boolean;
 
   // Logging
   logLevel: LogLevel;
@@ -174,6 +175,7 @@ function readConfig(): ExtensionConfig {
   const currency = cfg.get<string>("currency") ?? "USD";
   const exchangeRate = Math.max(cfg.get<number>("exchangeRate") ?? 1, 0.0001);
   const showStatusBar = cfg.get<boolean>("showStatusBar") ?? true;
+  const contextWeightNotifications = cfg.get<boolean>("contextWeightNotifications") ?? true;
 
   const rawLogLevel = cfg.get<string>("logLevel") ?? "error";
   const logLevel: LogLevel = LOG_LEVELS.has(rawLogLevel as LogLevel)
@@ -199,6 +201,7 @@ function readConfig(): ExtensionConfig {
     currency,
     exchangeRate,
     showStatusBar,
+    contextWeightNotifications,
     logLevel,
   };
 }
