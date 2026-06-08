@@ -5,7 +5,6 @@
   import DataTable from '../shared/DataTable.svelte';
   
   $: data = $dashboardData;
-  $: modelBreakdown = data?.modelBreakdown ?? [];
   $: allSessions = data?.allSessions ?? [];
   
   $: filteredSessions = allSessions.filter(s => {
@@ -25,10 +24,40 @@
   $: totalTokens = billableInput + totalOutput;
   $: avgPerTurn = totalTurns > 0 ? Math.round(totalTokens / totalTurns) : 0;
   
-  $: topModel = modelBreakdown.reduce((top, m) => {
+  $: filteredModelBreakdown = (() => {
+    const modelMap = new Map<string, {
+      model: string;
+      totalCostUsd: number;
+      totalCredits: number;
+      turnCount: number;
+    }>();
+    
+    filteredSessions.forEach(s => {
+      const current = modelMap.get(s.primaryModel) ?? {
+        model: s.primaryModel,
+        totalCostUsd: 0,
+        totalCredits: 0,
+        turnCount: 0,
+      };
+      current.totalCostUsd += s.totalCostUsd;
+      current.totalCredits += s.totalCredits;
+      current.turnCount += s.turnCount;
+      modelMap.set(s.primaryModel, current);
+    });
+    
+    const models = Array.from(modelMap.values());
+    const totalCost = models.reduce((sum, m) => sum + m.totalCostUsd, 0);
+    
+    return models.map(m => ({
+      ...m,
+      percentage: totalCost > 0 ? (m.totalCostUsd / totalCost) * 100 : 0,
+    })).sort((a, b) => b.totalCostUsd - a.totalCostUsd);
+  })();
+  
+  $: topModel = filteredModelBreakdown.reduce((top, m) => {
     if (!top || m.totalCostUsd > top.totalCostUsd) return m;
     return top;
-  }, null as typeof modelBreakdown[0] | null);
+  }, null as typeof filteredModelBreakdown[0] | null);
   
   const tokenColumns = [
     { key: 'model', label: 'Model', type: 'string' as const },
@@ -38,7 +67,7 @@
     { key: 'avgCredits', label: 'Credits/Turn', type: 'number' as const },
   ];
   
-  $: tokenRows = modelBreakdown.map(m => {
+  $: tokenRows = filteredModelBreakdown.map(m => {
     const avgCost = m.turnCount > 0 ? m.totalCostUsd / m.turnCount : 0;
     const avgCredits = m.turnCount > 0 ? m.totalCredits / m.turnCount : 0;
     

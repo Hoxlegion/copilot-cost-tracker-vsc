@@ -5,17 +5,6 @@
   $: insightMetrics = data?.insightMetrics;
   $: monthCostUsd = data?.monthTotal.costUsd ?? 0;
   
-  $: estHoursSaved = (() => {
-    if (!insightMetrics) return '0.0';
-    const charsPerToken = 4;
-    const charsPerMinute = 175;
-    const maxMinsPerTurn = 2;
-    const outputChars30d = insightMetrics.totalOutputTokens * charsPerToken;
-    const rawMinutesSaved = outputChars30d / charsPerMinute;
-    const cappedMinutesSaved = Math.min(rawMinutesSaved, insightMetrics.totalTurns * maxMinsPerTurn);
-    return (cappedMinutesSaved / 60).toFixed(1);
-  })();
-  
   $: costPerOutputK = (() => {
     if (!insightMetrics || insightMetrics.totalOutputTokens < 1000) return '—';
     return (monthCostUsd / (insightMetrics.totalOutputTokens / 1000)).toFixed(3);
@@ -39,11 +28,6 @@
   </div>
   
   <div class="stat-row">
-    <div class="stat">
-      <div class="stat-label">Est. Time Saved (30d)</div>
-      <div class="stat-value">{estHoursSaved}h</div>
-      <div class="stat-sub">output chars ÷ 175 CPM, capped at 2 min/turn</div>
-    </div>
     <div class="stat">
       <div class="stat-label">Cost per Output-K Tokens</div>
       <div class="stat-value">${costPerOutputK}</div>
@@ -72,12 +56,6 @@
       </tr>
     </thead>
     <tbody>
-      <tr>
-        <td>Time Saved</td>
-        <td><code>min(output_chars ÷ 175 CPM, turns × 2 min)</code></td>
-        <td>1 token ≈ 4 chars; developer codes at 175 chars/min</td>
-        <td>No acceptance rate — assumes 100% of output is used</td>
-      </tr>
       <tr>
         <td>Cost per Output-K</td>
         <td><code>monthly_cost ÷ (output_tokens ÷ 1000)</code></td>

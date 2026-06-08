@@ -6,15 +6,89 @@
   import ModelPieChart from '../charts/ModelPieChart.svelte';
   
   $: data = $dashboardData;
-  $: modelBreakdown = data?.modelBreakdown ?? [];
-  $: agentBreakdown = data?.agentBreakdown ?? [];
   $: allSessions = data?.allSessions ?? [];
+  $: dailyAgentBreakdown = data?.dailyAgentBreakdown ?? [];
   
   $: filteredSessions = allSessions.filter(s => {
     if ($filterState.fromMs !== null && s.startTimestamp < $filterState.fromMs) return false;
     if ($filterState.toMs !== null && s.startTimestamp > $filterState.toMs) return false;
     return true;
   });
+  
+  $: filteredModelBreakdown = (() => {
+    const modelMap = new Map<string, {
+      model: string;
+      totalCostUsd: number;
+      totalCredits: number;
+      turnCount: number;
+      totalInputTokens: number;
+      totalOutputTokens: number;
+      totalCachedTokens: number;
+    }>();
+    
+    filteredSessions.forEach(s => {
+      const current = modelMap.get(s.primaryModel) ?? {
+        model: s.primaryModel,
+        totalCostUsd: 0,
+        totalCredits: 0,
+        turnCount: 0,
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+        totalCachedTokens: 0,
+      };
+      current.totalCostUsd += s.totalCostUsd;
+      current.totalCredits += s.totalCredits;
+      current.turnCount += s.turnCount;
+      current.totalInputTokens += s.totalInputTokens;
+      current.totalOutputTokens += s.totalOutputTokens;
+      current.totalCachedTokens += s.totalCachedTokens;
+      modelMap.set(s.primaryModel, current);
+    });
+    
+    const models = Array.from(modelMap.values());
+    const totalCost = models.reduce((sum, m) => sum + m.totalCostUsd, 0);
+    
+    return models.map(m => ({
+      ...m,
+      percentage: totalCost > 0 ? (m.totalCostUsd / totalCost) * 100 : 0,
+    })).sort((a, b) => b.totalCostUsd - a.totalCostUsd);
+  })();
+  
+  $: filteredAgentBreakdown = (() => {
+    const agentMap = new Map<string, {
+      agentName: string;
+      totalCostUsd: number;
+      totalCredits: number;
+      turnCount: number;
+    }>();
+    
+    dailyAgentBreakdown.forEach(day => {
+      const dayTs = new Date(day.period + 'T00:00:00').getTime();
+      const dayEndTs = dayTs + 86400000 - 1;
+      
+      if ($filterState.fromMs !== null && dayEndTs < $filterState.fromMs) return;
+      if ($filterState.toMs !== null && dayTs > $filterState.toMs) return;
+      
+      const current = agentMap.get(day.agentName) ?? {
+        agentName: day.agentName,
+        totalCostUsd: 0,
+        totalCredits: 0,
+        turnCount: 0,
+      };
+      current.totalCostUsd += day.totalCostUsd;
+      current.totalCredits += day.totalCredits;
+      current.turnCount += day.turnCount;
+      agentMap.set(day.agentName, current);
+    });
+    
+    const agents = Array.from(agentMap.values());
+    const totalCost = agents.reduce((sum, a) => sum + a.totalCostUsd, 0);
+    
+    return agents.map(a => ({
+      ...a,
+      percentage: totalCost > 0 ? (a.totalCostUsd / totalCost) * 100 : 0,
+    })).sort((a, b) => b.totalCostUsd - a.totalCostUsd);
+  })();
   
   const modelColumns = [
     { key: 'model', label: 'Model', type: 'string' as const },
@@ -27,7 +101,7 @@
     { key: 'tailMs', label: 'Tail (ms)', type: 'number' as const },
   ];
   
-  $: modelRows = modelBreakdown.map(m => {
+  $: modelRows = filteredModelBreakdown.map(m => {
     const totalTokens = m.totalInputTokens + m.totalOutputTokens + m.totalCachedTokens;
     const cacheBase = m.totalInputTokens + m.totalCachedTokens;
     const cachePct = cacheBase > 0 ? (m.totalCachedTokens / cacheBase) * 100 : 0;
@@ -77,7 +151,7 @@
     'title': 'Title Generation',
   };
   
-  $: agentRows = agentBreakdown.slice(0, 12).map(a => ({
+  $: agentRows = filteredAgentBreakdown.slice(0, 12).map(a => ({
     agent: AGENT_LABEL_MAP[a.agentName] ?? a.agentName ?? 'Other',
     turns: a.turnCount,
     credits: a.totalCredits.toFixed(1),
