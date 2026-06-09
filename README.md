@@ -1,6 +1,6 @@
 # Copilot Cost Tracker
 
-[![Version](https://img.shields.io/badge/version-0.3.1-blue.svg)](https://github.com/Hoxlegion/copilot-cost-tracker-vsc/releases)
+[![Version](https://img.shields.io/badge/version-0.4.0-blue.svg)](https://github.com/Hoxlegion/copilot-cost-tracker-vsc/releases)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![VS Code](https://img.shields.io/badge/VS%20Code-%5E1.85.0-blue.svg)](https://code.visualstudio.com/)
 
@@ -72,7 +72,7 @@ Hierarchical breakdown: budget → period → models → sessions.
 
 ### Dashboard (6-tab analytics)
 Quick overview, Sessions list, model/token analytics, and curated Insights with discovery views.
-![6-tab Chart.js dashboard](media/MainDashboard.png)
+![6-tab Chart.js dashboard](media/DashboardModels.png)
 
 Includes global date range filters, sorting, and detailed breakdowns.
 
@@ -104,7 +104,7 @@ If VS Code policy/settings scope blocks automatic updates, set it manually.
 
 ### From VSIX (Manual)
 ```bash
-code --install-extension copilot-cost-tracker-0.3.1.vsix
+code --install-extension copilot-cost-tracker-0.4.0.vsix
 ```
 
 ### From Source
@@ -113,7 +113,7 @@ git clone https://github.com/Hoxlegion/copilot-cost-tracker-vsc.git
 cd copilot-cost-tracker
 npm install
 npm run package
-code --install-extension copilot-cost-tracker-0.3.1.vsix
+code --install-extension copilot-cost-tracker-0.4.0.vsix
 ```
 
 ---
@@ -178,10 +178,11 @@ Accessible via the Command Palette (`Ctrl+Shift+P`) under the **Copilot Cost Tra
 ### Status Bar
 Displays at the bottom of VS Code:
 ```
-$(credit-card)  +2.3 | 42.5 cr
+$(credit-card)  +2.3 | 42.5 cr | 35K
 ```
 - **`+2.3`** — Credits consumed in current session
 - **`42.5 cr`** — Total credits this billing period
+- **`Context: 35K tokens`** — Tokens used in current session
 - Color-coded: yellow at 75%, red at 90%, based on budget
 
 ### Cost Overview Tree
@@ -261,8 +262,6 @@ Define custom rates for unlisted models:
 }
 ```
 
-For exact built-in rates, see the source table in `src/pricing/defaultPricing.ts`.
-
 ---
 
 ## Architecture
@@ -302,6 +301,7 @@ npm run build          # Development build with source maps
 npm run package        # Create .vsix file for distribution
 npm test               # Run unit tests (vitest)
 npm run test:watch     # Watch mode
+npm run deploy:local   # Builds and installs to local VS Code
 ```
 
 ### Project Structure
