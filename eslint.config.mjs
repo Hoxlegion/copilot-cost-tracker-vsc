@@ -1,7 +1,7 @@
 import eslint from '@eslint/js';
 import tseslint from 'typescript-eslint';
 
-export default tseslint.config(
+export default tseslint.defineConfig(
   // Global ignores (replaces ignorePatterns)
   {
     ignores: ['dist/**', 'node_modules/**', 'src/webview/**', '*.mjs', '*.js'],
