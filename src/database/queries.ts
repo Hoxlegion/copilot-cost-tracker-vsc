@@ -1,5 +1,5 @@
 import type { Database } from "sql.js";
-import type { AggregatedCost, ModelBreakdown, AgentBreakdown, DailyAgentBreakdown, ModelLatencySample, SessionSummary, SessionModelBreakdownRow, StoredTurn } from "./types";
+import type { AggregatedCost, ModelBreakdown, AgentBreakdown, DailyAgentBreakdown, ModelLatencySample, SessionSummary, SessionModelBreakdownRow, StoredTurn, SessionContextInfo, ContextTimelinePoint, SessionContextDistribution } from "./types";
 
 export function clampInt(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
@@ -501,4 +501,110 @@ export function getSessionLastTimestamp(db: Database, sessionId: string): number
   }
   stmt.free();
   return lastTimestamp;
+}
+
+export function getMostRecentSessionContext(db: Database, sinceMs: number): SessionContextInfo | null {
+  const safeSince = Number.isFinite(sinceMs) ? Math.floor(sinceMs) : 0;
+  const stmt = db.prepare(`
+    SELECT 
+      session_id,
+      COUNT(*) AS turn_count,
+      MAX(timestamp) AS last_activity_ms,
+      MIN(timestamp) AS first_activity_ms,
+      (SELECT input_tokens + cached_tokens 
+       FROM turns t2 
+       WHERE t2.session_id = t1.session_id 
+       ORDER BY timestamp DESC LIMIT 1) AS current_context_weight
+    FROM turns t1
+    WHERE timestamp >= :since
+    GROUP BY session_id
+    ORDER BY last_activity_ms DESC
+    LIMIT 1
+  `);
+  stmt.bind({ ":since": safeSince });
+
+  let result: SessionContextInfo | null = null;
+  if (stmt.step()) {
+    const row = stmt.getAsObject();
+    result = {
+      sessionId: row.session_id as string,
+      turnCount: row.turn_count as number,
+      lastActivityMs: row.last_activity_ms as number,
+      firstActivityMs: row.first_activity_ms as number,
+      currentContextWeight: (row.current_context_weight as number) || 0,
+    };
+  }
+  stmt.free();
+  return result;
+}
+
+export function getSessionContextTimeline(db: Database, sessionId: string): ContextTimelinePoint[] {
+  const stmt = db.prepare(`
+    SELECT 
+      timestamp, 
+      input_tokens, 
+      cached_tokens, 
+      output_tokens,
+      (input_tokens + cached_tokens) AS current_context_weight
+    FROM turns
+    WHERE session_id = :sessionId
+    ORDER BY timestamp ASC
+  `);
+  stmt.bind({ ":sessionId": sessionId });
+
+  const rows: ContextTimelinePoint[] = [];
+  while (stmt.step()) {
+    const row = stmt.getAsObject();
+    rows.push({
+      timestamp: row.timestamp as number,
+      inputTokens: row.input_tokens as number,
+      cachedTokens: row.cached_tokens as number,
+      outputTokens: row.output_tokens as number,
+      currentContextWeight: (row.current_context_weight as number) || 0,
+    });
+  }
+  stmt.free();
+  return rows;
+}
+
+export function getSessionContextDistribution(db: Database, sinceMs: number): SessionContextDistribution[] {
+  const safeSince = Number.isFinite(sinceMs) ? Math.floor(sinceMs) : 0;
+  const stmt = db.prepare(`
+    SELECT 
+      session_id,
+      (SELECT input_tokens + cached_tokens 
+       FROM turns t2 
+       WHERE t2.session_id = t1.session_id 
+       ORDER BY timestamp DESC LIMIT 1) AS current_context_weight,
+      (SELECT workspace 
+       FROM turns t3 
+       WHERE t3.session_id = t1.session_id 
+       ORDER BY timestamp ASC LIMIT 1) AS workspace,
+      COUNT(*) AS turn_count,
+      MIN(timestamp) AS start_ms,
+      MAX(timestamp) AS last_ms,
+      SUM(cost_usd) AS total_cost
+    FROM turns t1
+    WHERE timestamp >= :since
+    GROUP BY session_id
+    HAVING COUNT(*) >= 2
+    ORDER BY current_context_weight DESC
+  `);
+  stmt.bind({ ":since": safeSince });
+
+  const rows: SessionContextDistribution[] = [];
+  while (stmt.step()) {
+    const row = stmt.getAsObject();
+    rows.push({
+      sessionId: row.session_id as string,
+      currentContextWeight: (row.current_context_weight as number) || 0,
+      turnCount: row.turn_count as number,
+      startMs: row.start_ms as number,
+      lastMs: row.last_ms as number,
+      totalCost: (row.total_cost as number) || 0,
+      workspace: (row.workspace as string) || "unknown",
+    });
+  }
+  stmt.free();
+  return rows;
 }

@@ -1,9 +1,9 @@
 import { DASHBOARD_CSS } from "./dashboardCss";
-import { createNonce, AGENT_LABEL_MAP } from "./helpers";
 import { PricingEngine } from "../pricing";
 import type { CostDatabase } from "../database";
 import type { DashboardRawData } from "./dashboardDataAssembler";
 import {
+  createNonce, AGENT_LABEL_MAP,
   buildModelPeriodData, buildHeatmapData, getUsagePresentation, getBudgetDetails,
   buildInsightViewData, buildSurfaceCostView, buildCacheSavingsView,
   buildWorkspaceSummaryView, buildRecentSessionRowsHtml, formatFreshnessLabel,

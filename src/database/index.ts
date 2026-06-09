@@ -12,4 +12,7 @@ export type {
   InsightMetrics,
   AlertMetrics,
   AlertThresholdConfig,
+  SessionContextInfo,
+  SessionContextDistribution,
+  ContextTimelinePoint,
 } from "./types";

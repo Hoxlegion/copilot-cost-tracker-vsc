@@ -137,3 +137,29 @@ export interface AlertMetricAccumulator {
   previousSessionId: string | null;
   previousTimestamp: number;
 }
+
+export interface SessionContextInfo {
+  sessionId: string;
+  turnCount: number;
+  lastActivityMs: number;
+  firstActivityMs: number;
+  currentContextWeight: number;
+}
+
+export interface ContextTimelinePoint {
+  timestamp: number;
+  inputTokens: number;
+  cachedTokens: number;
+  outputTokens: number;
+  currentContextWeight: number;
+}
+
+export interface SessionContextDistribution {
+  sessionId: string;
+  currentContextWeight: number;
+  turnCount: number;
+  startMs: number;
+  lastMs: number;
+  totalCost: number;
+  workspace: string;
+}

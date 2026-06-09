@@ -3,7 +3,7 @@
  * Separates data gathering from view-model transformation and rendering.
  */
 
-import { CostDatabase, InsightMetrics, CacheSavingsMetrics } from "../database";
+import { CostDatabase, InsightMetrics, CacheSavingsMetrics, SessionContextDistribution, ContextTimelinePoint } from "../database";
 import { TracesDbReader, SurfaceBreakdown, TurnDiscoveryRow } from "../parser";
 import { getBillingPeriodEndMs, getBillingPeriodStartMs } from "../billing";
 import { getAlerts, buildPlaybook, DashboardAlert, PlaybookRow } from "../insights";
@@ -52,6 +52,13 @@ export interface DashboardRawData {
   periodAggregate: { costUsd: number; credits: number; turns: number };
   budgetCredits: number;
   lastUpdatedMs: number;
+  contextDistribution: SessionContextDistribution[];
+  contextTimelines: Array<{
+    sessionId: string;
+    workspace: string;
+    startMs: number;
+    turns: ContextTimelinePoint[];
+  }>;
 }
 
 /**
@@ -85,6 +92,7 @@ export class DashboardDataAssembler {
       periodCredits,
       periodAggregate,
       cacheSavings,
+      contextDistribution,
     ] = await Promise.all([
       Promise.resolve(this.database.getInsightMetrics(30)),
       this.reader.getSurfaceBreakdown(sinceMs30d),
@@ -100,6 +108,7 @@ export class DashboardDataAssembler {
       Promise.resolve(this.database.getCreditsSince(periodStartMs)),
       Promise.resolve(this.database.getCostSince(periodStartMs)),
       Promise.resolve(this.database.getCacheSavingsMetrics(periodStartMs)),
+      Promise.resolve(this.database.getSessionContextDistribution(sinceMs30d)),
     ]);
 
     const sessionModelRows = this.database.getSessionModelBreakdowns(allSessions.map((s) => s.sessionId));
@@ -127,6 +136,14 @@ export class DashboardDataAssembler {
     const alerts = getAlerts(this.database);
     const playbook = buildPlaybook(alerts);
 
+    const topHeaviestSessions = contextDistribution.filter((s) => s.turnCount > 3).slice(0, 5);
+    const contextTimelines = topHeaviestSessions.map((s) => ({
+      sessionId: s.sessionId,
+      workspace: resolveWorkspaceName(s.workspace),
+      startMs: s.startMs,
+      turns: this.database.getSessionContextTimeline(s.sessionId),
+    }));
+
     const lastUpdatedMs = allSessions.length > 0
       ? Math.max(...allSessions.map(s => s.lastTimestamp))
       : Date.now();
@@ -152,6 +169,8 @@ export class DashboardDataAssembler {
       periodAggregate,
       budgetCredits,
       lastUpdatedMs,
+      contextDistribution,
+      contextTimelines,
     };
   }
 }

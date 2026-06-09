@@ -4,7 +4,7 @@ import { TracesDbReader, LogParser } from "./parser";
 import { PricingEngine } from "./pricing";
 import { CostDatabase, setWasmPath } from "./database";
 import { TracesIngester } from "./watcher";
-import { CostTreeProvider, DashboardPanel, StatusBarIndicator } from "./views";
+import { CostTreeProvider, DashboardPanel, StatusBarIndicator, ContextTracker } from "./views";
 import { ConfigManager } from "./config";
 import { Logger } from "./logger";
 import { PromptCostIntelligenceProvider } from "./promptCostIntelligence";
@@ -12,6 +12,27 @@ import { registerCommands } from "./commands";
 import { setupTimers } from "./timers";
 
 let database: CostDatabase | undefined;
+const COPILOT_DB_SPAN_EXPORTER_KEY = "github.copilot.chat.otel.dbSpanExporter.enabled";
+
+async function ensureCopilotDbSpanExporterEnabled(logger: Logger): Promise<void> {
+  const config = vscode.workspace.getConfiguration();
+  const isEnabled = config.get<boolean>(COPILOT_DB_SPAN_EXPORTER_KEY, false);
+
+  if (isEnabled) {
+    return;
+  }
+
+  try {
+    await config.update(COPILOT_DB_SPAN_EXPORTER_KEY, true, vscode.ConfigurationTarget.Global);
+    logger.info(`Auto-enabled setting: ${COPILOT_DB_SPAN_EXPORTER_KEY}`);
+  } catch (error) {
+    logger.warn(`Failed to auto-enable setting: ${COPILOT_DB_SPAN_EXPORTER_KEY}`, error);
+    void vscode.window.showWarningMessage(
+      "Copilot Cost Tracker could not auto-enable Copilot DB telemetry export. "
+      + `Please set ${COPILOT_DB_SPAN_EXPORTER_KEY} to true in your settings.`
+    );
+  }
+}
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   // Foundation
@@ -24,6 +45,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
 
   logger.info("Activating Copilot Cost Tracker");
+  await ensureCopilotDbSpanExporterEnabled(logger);
 
   // WASM path for sql.js
   const wasmPath = path.join(context.extensionPath, "dist", "sql-wasm.wasm");
@@ -40,13 +62,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   database = new CostDatabase(storagePath);
   await database.initialize();
 
+  // Derive workspace storage hash from storageUri (e.g. .../workspaceStorage/{hash}/extension-name/)
+  // This gives resolveWorkspaceName a proper hash it can look up in workspace.json
+  const workspaceStorageHash = context.storageUri
+    ? path.basename(path.dirname(context.storageUri.fsPath))
+    : "unknown";
+
   // Ingestion pipeline
-  const ingester = new TracesIngester(reader, logParser, pricing, database, configManager, logger);
+  const ingester = new TracesIngester(reader, logParser, pricing, database, configManager, logger, workspaceStorageHash);
   ingester.setTelemetrySource(configManager.config.telemetrySource);
 
   // UI components
+  const contextTracker = new ContextTracker(database, logger);
+  contextTracker.setNotificationsEnabled(configManager.config.contextWeightNotifications);
   const treeProvider = new CostTreeProvider(database, pricing);
-  const statusBar = new StatusBarIndicator(database, pricing, configManager, logger);
+  const statusBar = new StatusBarIndicator(database, pricing, configManager, logger, contextTracker);
   const promptIntelligence = new PromptCostIntelligenceProvider(configManager, logger);
 
   // Register TreeView, CodeLens, and Hover
@@ -62,29 +92,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     [{ scheme: "file" }, { scheme: "untitled" }], promptIntelligence
   );
 
-  // Debounced UI refresh
-  let refreshTimer: NodeJS.Timeout | undefined;
-  let refreshDebounceMs = configManager.config.refreshDebounceMs;
-  const debouncedRefresh = () => {
-    if (refreshTimer) { clearTimeout(refreshTimer); }
-    refreshTimer = setTimeout(() => {
-      treeProvider.refresh();
-      statusBar.update();
-      if (DashboardPanel.currentPanel) {
-        void DashboardPanel.currentPanel.update();
-      }
-    }, refreshDebounceMs);
+  // Event wiring
+  const refreshAll = () => {
+    treeProvider.refresh();
+    contextTracker.update();
+    statusBar.update();
+    if (DashboardPanel.currentPanel) {
+      void DashboardPanel.currentPanel.update();
+    }
   };
 
-  // Event wiring
-  ingester.onDidDataChange(() => debouncedRefresh());
+  ingester.onDidDataChange(() => refreshAll());
 
   configManager.onDidChange((cfg) => {
-    refreshDebounceMs = cfg.refreshDebounceMs;
+    contextTracker.setNotificationsEnabled(cfg.contextWeightNotifications);
     statusBar.updateVisibility();
     treeProvider.refresh();
     ingester.setTelemetrySource(cfg.telemetrySource);
-    ingester.updatePollingBounds(cfg.pollIntervalMin, cfg.pollIntervalMax);
+    ingester.updateWatchOptions(cfg.refreshDebounceMs, cfg.pollIntervalMax);
   });
 
   // Commands
@@ -93,12 +118,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     extensionUri: context.extensionUri,
   });
 
-  // Initial ingest + start polling
+  // Initial ingest + start file watcher
   const initialScanSinceMs = Date.now() - configManager.config.initialScanDays * 24 * 60 * 60 * 1000;
   await ingester.ingest(initialScanSinceMs);
   treeProvider.refresh();
+  contextTracker.update();
   statusBar.update();
-  ingester.startPolling(configManager.config.pollIntervalMin, configManager.config.pollIntervalMax);
+  const tracesDbPath = reader.exists() ? reader.path : null;
+  ingester.startWatching(tracesDbPath, configManager.config.refreshDebounceMs, configManager.config.pollIntervalMax);
 
   // Startup prune
   const pruned = database.pruneOldTurns(configManager.config.retentionDays);
@@ -114,7 +141,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Disposables
   context.subscriptions.push(
     configManager, logger, promptIntelligence, treeView,
-    promptCodeLens, promptHover, statusBar, ingester,
+    promptCodeLens, promptHover, statusBar, contextTracker, ingester,
   );
 }
 

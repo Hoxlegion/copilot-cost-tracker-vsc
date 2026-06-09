@@ -4,6 +4,7 @@ import { PricingEngine } from "../pricing";
 import { ConfigManager, ExtensionConfig } from "../config";
 import { assessBudgetPace, BudgetPaceAssessment, getBillingPeriodEndMs, getBillingPeriodStartMs } from "../billing";
 import { Logger } from "../logger";
+import { ContextTracker } from "./contextTracker";
 
 export class StatusBarIndicator implements vscode.Disposable {
   private readonly statusBarItem: vscode.StatusBarItem;
@@ -11,6 +12,7 @@ export class StatusBarIndicator implements vscode.Disposable {
   private readonly pricing: PricingEngine;
   private readonly configManager: ConfigManager;
   private readonly logger: Logger;
+  private readonly contextTracker: ContextTracker;
   private visible: boolean = false;
   private readonly commandDisposable: vscode.Disposable;
 
@@ -25,12 +27,14 @@ export class StatusBarIndicator implements vscode.Disposable {
     database: CostDatabase,
     pricing: PricingEngine,
     configManager: ConfigManager,
-    logger: Logger
+    logger: Logger,
+    contextTracker: ContextTracker
   ) {
     this.database = database;
     this.pricing = pricing;
     this.configManager = configManager;
     this.logger = logger;
+    this.contextTracker = contextTracker;
     this.activationTimestamp = Date.now();
 
     this.statusBarItem = vscode.window.createStatusBarItem(
@@ -64,6 +68,18 @@ export class StatusBarIndicator implements vscode.Disposable {
       },
       { label: "", kind: vscode.QuickPickItemKind.Separator },
     ];
+
+    const ctxWeight = this.contextTracker.getContextWeight();
+    if (ctxWeight && ctxWeight.tokens > 0) {
+      const kTokens = (ctxWeight.tokens / 1000).toFixed(0);
+      items.push(
+        {
+          label: `$(brain) Context: ${kTokens}K tokens (${ctxWeight.humanLabel})`,
+          description: `${ctxWeight.turnCount} turns · ${ctxWeight.label}`,
+        },
+        { label: "", kind: vscode.QuickPickItemKind.Separator }
+      );
+    }
 
     for (const m of models.slice(0, 5)) {
       items.push({
@@ -120,7 +136,11 @@ export class StatusBarIndicator implements vscode.Disposable {
     const pace = assessBudgetPace(periodStartMs, periodEndMs, periodCredits, cfg.budgetCredits);
 
     // Format: session USD | period total USD
-    const text = `$(credit-card) +$${sessionUsd.toFixed(2)} | $${periodUsd.toFixed(2)} | ${pace.shortLabel}`;
+    const ctxWeight = this.contextTracker.getContextWeight();
+    const ctxSegment = ctxWeight && ctxWeight.tokens > 0
+      ? ` | $(brain) ${(ctxWeight.tokens / 1000).toFixed(0)}K`
+      : "";
+    const text = `$(credit-card) +$${sessionUsd.toFixed(2)} | $${periodUsd.toFixed(2)}${ctxSegment}`;
     this.statusBarItem.text = text;
 
     // Color coding based on budget thresholds (D8)
@@ -143,6 +163,23 @@ export class StatusBarIndicator implements vscode.Disposable {
     const contextEstimate = this.estimateContextCost();
     if (contextEstimate !== null) {
       tooltip.appendMarkdown(`Context: ~${contextEstimate.tokens.toLocaleString()} tokens → est. **$${contextEstimate.costUsd.toFixed(4)}** per call\n\n`);
+    }
+
+    if (ctxWeight && ctxWeight.tokens > 0) {
+      const kTokens = (ctxWeight.tokens / 1000).toFixed(1);
+      let impactLabel: string;
+      if (ctxWeight.tier === "light") {
+        impactLabel = "Low";
+      } else if (ctxWeight.tier === "moderate") {
+        impactLabel = "Medium";
+      } else {
+        impactLabel = "High";
+      }
+      tooltip.appendMarkdown(`---\n\n`);
+      tooltip.appendMarkdown(`**Active Chat Context**\n\n`);
+      tooltip.appendMarkdown(`Weight: **${kTokens}K tokens** (${ctxWeight.humanLabel})\n\n`);
+      tooltip.appendMarkdown(`Session: ${ctxWeight.turnCount} turn${ctxWeight.turnCount === 1 ? "" : "s"} · ${ctxWeight.label}\n\n`);
+      tooltip.appendMarkdown(`Impact: **${impactLabel}** — each turn resends this history\n\n`);
     }
 
     tooltip.appendMarkdown(`*Click for options*`);

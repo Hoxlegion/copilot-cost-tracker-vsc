@@ -7,7 +7,8 @@
   import TokensTab from './components/tabs/TokensTab.svelte';
   import InsightsTab from './components/tabs/InsightsTab.svelte';
   import EstimatesTab from './components/tabs/EstimatesTab.svelte';
-  import { BarChart3, MessageSquare, Bot, Type, Lightbulb, AlertTriangle } from '@lucide/svelte';
+  import ContextTab from './components/tabs/ContextTab.svelte';
+  import { BarChart3, MessageSquare, Bot, Type, Lightbulb, AlertTriangle, Layers } from '@lucide/svelte';
   
   let activeTab = 'overview';
   
@@ -50,6 +51,10 @@
       <AlertTriangle size={16} />
       <span class="tab-label">Estimates</span>
     </button>
+    <button class:active={activeTab === 'context'} on:click={() => activeTab = 'context'} data-tab="context">
+      <Layers size={16} />
+      <span class="tab-label">Context</span>
+    </button>
   </nav>
   
   {#if data}
@@ -71,6 +76,8 @@
       <InsightsTab />
     {:else if activeTab === 'estimates'}
       <EstimatesTab />
+    {:else if activeTab === 'context'}
+      <ContextTab />
     {/if}
   </main>
 </div>
@@ -181,6 +188,10 @@
   
   .tabs button[data-tab="estimates"].active {
     border-bottom-color: #e57373;
+  }
+  
+  .tabs button[data-tab="context"].active {
+    border-bottom-color: #9575cd;
   }
   
   .tabs button :global(svg) {

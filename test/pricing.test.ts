@@ -210,13 +210,10 @@ describe("Pricing Engine", () => {
 
   describe("Cache Savings Calculation", () => {
     it("calculates cache savings for cache write tokens (Anthropic models)", () => {
-      const engine = new PricingEngine();
       const modelFamily = "claude-sonnet-4.6";
       const cacheWriteTokens = 1_000_000; // 1M tokens to write to cache
-      const cacheReadTokens = 0;
 
-      const engine_method = (engine as any).calculateCacheSavingsCost;
-      // Since this is a private method, we'll test the math directly
+      // Since calculateCacheSavingsCost is private, test the math directly
       const pricing = MOCK_PRICING[modelFamily];
       const expectedCost = (cacheWriteTokens / 1_000_000) * pricing.cacheWrite;
 
@@ -225,7 +222,6 @@ describe("Pricing Engine", () => {
 
     it("calculates cache savings for cache read tokens (all models)", () => {
       const modelFamily = "gpt-5.4";
-      const cacheWriteTokens = 0;
       const cacheReadTokens = 1_000_000; // 1M cached tokens read
 
       const pricing = MOCK_PRICING[modelFamily];
@@ -248,7 +244,7 @@ describe("Pricing Engine", () => {
     });
 
     it("converts savings cost to credits", () => {
-      const costUsd = 5.0;
+      const costUsd = 5;
       const creditsFromCost = costUsd * 100; // 1 credit = $0.01
 
       expect(creditsFromCost).toBe(500);

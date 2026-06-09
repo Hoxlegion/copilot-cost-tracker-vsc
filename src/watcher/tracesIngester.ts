@@ -4,7 +4,7 @@ import { PricingEngine } from "../pricing";
 import { CostDatabase } from "../database";
 import { TelemetrySource, ConfigManager } from "../config";
 import { Logger } from "../logger";
-import { PollingScheduler } from "./pollingStrategy";
+import { FileWatcherStrategy } from "./fileWatcherStrategy";
 
 export class TracesIngester implements vscode.Disposable {
   private readonly reader: TracesDbReader;
@@ -13,8 +13,9 @@ export class TracesIngester implements vscode.Disposable {
   private readonly database: CostDatabase;
   private readonly configManager: ConfigManager;
   private readonly logger: Logger;
+  private readonly workspaceId: string;
   private readonly onDataChanged: vscode.EventEmitter<void>;
-  private readonly scheduler: PollingScheduler;
+  private watcher: FileWatcherStrategy | undefined;
   private isDisposed: boolean = false;
 
   private lastProcessedTimestamp: number = 0;
@@ -33,7 +34,8 @@ export class TracesIngester implements vscode.Disposable {
     pricing: PricingEngine,
     database: CostDatabase,
     configManager: ConfigManager,
-    logger: Logger
+    logger: Logger,
+    workspaceId: string = "unknown"
   ) {
     this.reader = reader;
     this.logParser = logParser;
@@ -41,9 +43,9 @@ export class TracesIngester implements vscode.Disposable {
     this.database = database;
     this.configManager = configManager;
     this.logger = logger;
+    this.workspaceId = workspaceId;
     this.onDataChanged = new vscode.EventEmitter<void>();
     this.onDidDataChange = this.onDataChanged.event;
-    this.scheduler = new PollingScheduler();
 
     this.lastProcessedTimestamp = database.getMaxTimestamp();
     this.logger.debug(`Recovered watermark: ${this.lastProcessedTimestamp}`);
@@ -65,15 +67,23 @@ export class TracesIngester implements vscode.Disposable {
     return this.activeSource;
   }
 
-  startPolling(minMs?: number, maxMs?: number): void {
-    if (minMs !== undefined || maxMs !== undefined) {
-      this.scheduler.updateBounds(minMs ?? 5000, maxMs ?? 60000);
+  startWatching(watchPath: string | null, debounceMs: number, fallbackIntervalMs: number): void {
+    if (this.watcher) {
+      this.watcher.dispose();
     }
-    this.scheduler.start(() => this.ingest());
+    this.watcher = new FileWatcherStrategy(watchPath, () => this.ingest(), {
+      debounceMs,
+      fallbackIntervalMs,
+    });
+    this.watcher.start();
   }
 
-  updatePollingBounds(minMs: number, maxMs: number): void {
-    this.scheduler.updateBounds(minMs, maxMs);
+  updateWatchOptions(debounceMs: number, fallbackIntervalMs: number): void {
+    this.watcher?.updateOptions(debounceMs, fallbackIntervalMs);
+  }
+
+  setWatchPath(path: string | null): void {
+    this.watcher?.updateWatchPath(path);
   }
 
   async fullIngest(): Promise<number> {
@@ -100,6 +110,7 @@ export class TracesIngester implements vscode.Disposable {
         this.logger.info("Traces DB not found, falling back to JSONL");
         this.activeSource = "jsonl";
         this.lastDbFailoverAtMs = Date.now();
+        this.setWatchPath(null);
       }
       return "jsonl";
     }
@@ -112,6 +123,7 @@ export class TracesIngester implements vscode.Disposable {
       this.logger.info("Probing traces DB for recovery after JSONL failover");
       this.activeSource = "database";
       this.consecutiveEmptyDbPolls = 0;
+      this.setWatchPath(this.reader.path);
     }
 
     if (this.consecutiveEmptyDbPolls >= TracesIngester.FAILOVER_THRESHOLD_POLLS) {
@@ -120,6 +132,7 @@ export class TracesIngester implements vscode.Disposable {
       );
       this.activeSource = "jsonl";
       this.lastDbFailoverAtMs = Date.now();
+      this.setWatchPath(null);
       return "jsonl";
     }
 
@@ -195,7 +208,7 @@ export class TracesIngester implements vscode.Disposable {
         },
         costUsd,
         credits,
-        span.chatSessionId ?? "unknown"
+        this.workspaceId
       );
 
       newCount++;
@@ -257,7 +270,7 @@ export class TracesIngester implements vscode.Disposable {
 
   dispose(): void {
     this.isDisposed = true;
-    this.scheduler.stop();
+    this.watcher?.dispose();
     this.onDataChanged.dispose();
   }
 }

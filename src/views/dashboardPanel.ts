@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { CostDatabase } from '../database';
 import { PricingEngine } from '../pricing';
 import { TracesDbReader } from '../parser';
@@ -90,8 +90,8 @@ export class DashboardPanel {
         
         const nonce = this.getNonce();
         html = html
-          .replace(/\{\{CSP_SOURCE\}\}/g, this.panel.webview.cspSource)
-          .replace(/\{\{NONCE\}\}/g, nonce);
+          .replaceAll('{{CSP_SOURCE}}', this.panel.webview.cspSource)
+          .replaceAll('{{NONCE}}', nonce);
         
         const webviewUri = this.panel.webview.asWebviewUri(
           vscode.Uri.joinPath(this.extensionUri, 'dist', 'webview')
@@ -111,8 +111,8 @@ export class DashboardPanel {
         );
         
         // Also handle the original template script tag if present
-        html = html.replace(/src="\.\//g, `src="${webviewUri}/`);
-        html = html.replace(/href="\.\//g, `href="${webviewUri}/`);
+        html = html.replaceAll('src="./', `src="${webviewUri}/`);
+        html = html.replaceAll('href="./', `href="${webviewUri}/`);
         
         this.panel.webview.html = html;
         this.htmlLoaded = true;

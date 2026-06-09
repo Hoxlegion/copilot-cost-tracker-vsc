@@ -4,23 +4,21 @@ import tseslint from 'typescript-eslint';
 export default tseslint.config(
   // Global ignores (replaces ignorePatterns)
   {
-    ignores: ['dist/**', 'node_modules/**', 'src/webview/**'],
+    ignores: ['dist/**', 'node_modules/**', 'src/webview/**', '*.mjs', '*.js'],
   },
-  
-  // Base configs
-  eslint.configs.recommended,
-  ...tseslint.configs.recommended,
-  
-  // Your custom overrides & rules
+
+  // Type-aware linting for src and test TypeScript files only
   {
+    files: ['src/**/*.ts', 'test/**/*.ts', 'vitest.config.ts'],
+    extends: [eslint.configs.recommended, ...tseslint.configs.recommended],
     languageOptions: {
       parserOptions: {
-        project: './tsconfig.json',
+        project: './tsconfig.eslint.json',
         tsconfigRootDir: import.meta.dirname,
       },
     },
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',
     },
-  }
+  },
 );

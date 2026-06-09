@@ -2,6 +2,9 @@
   import { dashboardData } from '../../stores/dashboard';
   import { filterState } from '../../stores/filter';
   import DataTable from '../shared/DataTable.svelte';
+  import type { DashboardRawData, TurnDiscoveryRow } from '../../types';
+
+  type SessionEntry = DashboardRawData['allSessions'][number];
   
   let activePane: 'summary' | 'table' | 'discovery' = 'summary';
   let discoveryOnlyTools = false;
@@ -244,12 +247,12 @@
         columns={sessionColumns}
         rows={sessionRows}
         expandable={true}
-        rowId={(row) => row.id}
+        rowId={(row) => String(row.id)}
       >
         <div slot="expand" let:row>
           <div class="expand-content">
             <h4>Per-model breakdown</h4>
-            {#if row._raw.modelBreakdown && row._raw.modelBreakdown.length > 0}
+            {#if (row._raw as SessionEntry).modelBreakdown && (row._raw as SessionEntry).modelBreakdown.length > 0}
               <table>
                 <thead>
                   <tr>
@@ -262,7 +265,7 @@
                   </tr>
                 </thead>
                 <tbody>
-                  {#each row._raw.modelBreakdown as model}
+                  {#each (row._raw as SessionEntry).modelBreakdown as model}
                     {@const modelTotalTokens = model.totalInputTokens + model.totalOutputTokens + model.totalCachedTokens}
                     {@const modelCachePct = (model.totalInputTokens + model.totalCachedTokens) > 0 
                       ? (model.totalCachedTokens / (model.totalInputTokens + model.totalCachedTokens)) * 100 
@@ -310,21 +313,21 @@
         rows={discoveryRows}
         expandable={true}
         expandAll={discoveryExpandAll}
-        rowId={(row) => row.id}
+        rowId={(row) => String(row.id)}
       >
         <div slot="expand" let:row>
           <div class="expand-content">
             <div class="discovery-details">
               <div class="discovery-header">
-                <span>Last active: {new Date(row._raw.lastTimeMs).toLocaleTimeString()}</span>
-                <span>Session: {row._raw.chatSessionId}</span>
+                <span>Last active: {new Date((row._raw as TurnDiscoveryRow).lastTimeMs).toLocaleTimeString()}</span>
+                <span>Session: {(row._raw as TurnDiscoveryRow).chatSessionId}</span>
               </div>
               <div class="discovery-cards">
                 <div class="card-group">
                   <span class="card-label">Models</span>
                   <div class="card-row">
-                    {#if row._raw.models.length > 0}
-                      {#each row._raw.models as model}
+                    {#if (row._raw as TurnDiscoveryRow).models.length > 0}
+                      {#each (row._raw as TurnDiscoveryRow).models as model}
                         <span class="card model-card">{model}</span>
                       {/each}
                     {:else}
@@ -335,8 +338,8 @@
                 <div class="card-group">
                   <span class="card-label">Agents</span>
                   <div class="card-row">
-                    {#if row._raw.agents.length > 0}
-                      {#each row._raw.agents as agent}
+                    {#if (row._raw as TurnDiscoveryRow).agents.length > 0}
+                      {#each (row._raw as TurnDiscoveryRow).agents as agent}
                         <span class="card agent-card">{agent}</span>
                       {/each}
                     {:else}
@@ -347,8 +350,8 @@
                 <div class="card-group">
                   <span class="card-label">Tools</span>
                   <div class="card-row">
-                    {#if row._raw.tools.length > 0}
-                      {#each row._raw.tools as tool}
+                    {#if (row._raw as TurnDiscoveryRow).tools.length > 0}
+                      {#each (row._raw as TurnDiscoveryRow).tools as tool}
                         <span class="card tool-card">{tool}</span>
                       {/each}
                     {:else}

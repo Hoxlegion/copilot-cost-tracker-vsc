@@ -1,6 +1,6 @@
 # Copilot Cost Tracker
 
-[![Version](https://img.shields.io/badge/version-0.3.1-blue.svg)](https://github.com/Hoxlegion/copilot-cost-tracker-vsc/releases)
+[![Version](https://img.shields.io/badge/version-0.4.0-blue.svg)](https://github.com/Hoxlegion/copilot-cost-tracker-vsc/releases)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![VS Code](https://img.shields.io/badge/VS%20Code-%5E1.85.0-blue.svg)](https://code.visualstudio.com/)
 
@@ -48,7 +48,10 @@ Get live updates on AI credit consumption with an always-visible status bar, bud
 | Multi-model prices | Built-in rates for all June 2026 GA models from OpenAI, Anthropic, Google, GitHub |
 | Custom model rates | Define credits-per-1M-tokens for models not in the built-in table |
 | Model exclusion | Filter out models you don't want tracked (default: `gpt-4o-mini` code completions) |
-| Adaptive polling | Interval doubles when idle (up to `pollIntervalMax`), resets immediately on new data |
+| Context weight notifications | Warnings at 20K, 40K, 80K tokens when active sessions accumulate heavy context |
+| Context awareness alerts | Identifies patterns: micro-turn bloat, raw paste, premium model misallocation, agent sprawl |
+| File watcher strategy | Event-driven updates with 2s debounce for near-instant status bar refresh (sub-second after data arrival) |
+| Response latency metrics | Tracks model response times and displays avg latency per model and session |
 | DB + JSONL failover | Reads `agent-traces.db` directly; falls back to JSONL debug logs automatically |
 | Watermark recovery | On restart, resumes from the last processed timestamp — no duplicate counting |
 | Periodic persistence | In-memory SQLite flushed to disk every 60 seconds |
@@ -69,7 +72,7 @@ Hierarchical breakdown: budget → period → models → sessions.
 
 ### Dashboard (6-tab analytics)
 Quick overview, Sessions list, model/token analytics, and curated Insights with discovery views.
-![6-tab Chart.js dashboard](media/MainDashboard.png)
+![6-tab Chart.js dashboard](media/DashboardModels.png)
 
 Includes global date range filters, sorting, and detailed breakdowns.
 
@@ -77,11 +80,14 @@ Includes global date range filters, sorting, and detailed breakdowns.
 
 ## Requirements
 
-Your VS Code must have these telemetry settings enabled so Copilot Chat writes usage data that this extension reads:
+Copilot Chat must have this telemetry setting enabled so usage data is written for this extension to read:
 
 ```jsonc
 "github.copilot.chat.otel.dbSpanExporter.enabled": true
 ```
+
+The extension now attempts to enable this automatically on activation.
+If VS Code policy/settings scope blocks automatic updates, set it manually.
 
 **That's it.** The extension reads data that Copilot Chat already creates - no external APIs or authentication needed.
 
@@ -98,7 +104,7 @@ Your VS Code must have these telemetry settings enabled so Copilot Chat writes u
 
 ### From VSIX (Manual)
 ```bash
-code --install-extension copilot-cost-tracker-0.3.1.vsix
+code --install-extension copilot-cost-tracker-0.4.0.vsix
 ```
 
 ### From Source
@@ -107,7 +113,7 @@ git clone https://github.com/Hoxlegion/copilot-cost-tracker-vsc.git
 cd copilot-cost-tracker
 npm install
 npm run package
-code --install-extension copilot-cost-tracker-0.3.1.vsix
+code --install-extension copilot-cost-tracker-0.4.0.vsix
 ```
 
 ---
@@ -116,13 +122,13 @@ code --install-extension copilot-cost-tracker-0.3.1.vsix
 
 **3 steps:**
 
-1. **Add VS Code setting** (required)  
-   Open VS Code Settings, search `copilot.chat.otel.dbSpanExporter`, set to `true`.  
-   Or add to `settings.json`:
+1. **Verify telemetry setting** (usually automatic)  
+  On activation, the extension attempts to set this to `true` automatically.  
+  If needed, set it manually in `settings.json`:
    ```jsonc
    "github.copilot.chat.otel.dbSpanExporter.enabled": true
    ```
-   Then restart VS Code.
+  Then restart VS Code if you still don't see data.
 
 2. **Open the extension**  
    Click the **Copilot Cost Tracker** icon in the Activity Bar (left sidebar).
@@ -143,6 +149,12 @@ Most users won't need to change anything. These are the most common settings:
 | `budgetWarningThresholds` | array | `[75, 90, 100]` | % thresholds for VS Code notifications |
 | `currency` | string | `"USD"` | Display currency code |
 | `showStatusBar` | boolean | `true` | Show cost in status bar |
+| `contextWeightNotifications` | boolean | `true` | Show warnings for heavy context (20K, 40K, 80K tokens) |
+| `microTurnGapSeconds` | number | `120` | Max seconds between turns for micro-turn pattern detection |
+| `microTurnMinCount` | number | `5` | Consecutive rapid turns to trigger Micro-Turn Bloat alert |
+| `rawPasteMinInputTokens` | number | `15000` | Min uncached tokens in a turn to trigger Raw Paste alert |
+| `premiumMisallocationMinCredits` | number | `2` | Min credits for Premium Model Misallocation alert |
+| `agentSprawlMinInputTokens` | number | `80000` | Min input tokens to trigger Massive Context Turn alert |
 
 See the [Advanced: Pricing & Configuration](#advanced-pricing--configuration) section below for the full settings reference.
 
@@ -166,10 +178,11 @@ Accessible via the Command Palette (`Ctrl+Shift+P`) under the **Copilot Cost Tra
 ### Status Bar
 Displays at the bottom of VS Code:
 ```
-$(credit-card)  +2.3 | 42.5 cr
+$(credit-card)  +2.3 | 42.5 cr | 35K
 ```
 - **`+2.3`** — Credits consumed in current session
 - **`42.5 cr`** — Total credits this billing period
+- **`Context: 35K tokens`** — Tokens used in current session
 - Color-coded: yellow at 75%, red at 90%, based on budget
 
 ### Cost Overview Tree
@@ -182,7 +195,7 @@ Hierarchical sidebar view:
 6-tab webview with Chart.js visualizations and global date range filtering:
 - **Overview**: Range cost/credits, budget usage (with "No budget set" handling), days remaining, forecast, cache savings, top workspace, avg response time
 - **Sessions**: Summary, table, and discovery views with expandable per-model breakdowns and turn-level analytics
-- **Models**: Cost breakdown by model with avg cost/turn, token usage, cache %, and latency metrics
+- **Models**: Cost breakdown by model with avg cost/turn, avg response time (latency), token usage, and cache %
 - **Tokens**: Input/output/cached token statistics and cache hit rates
 - **Insights**: Token savings playbook, action-type spend breakdown, range-specific alerts
 - **Estimates**: Time/cost heuristics (speculative)
@@ -249,8 +262,6 @@ Define custom rates for unlisted models:
 }
 ```
 
-For exact built-in rates, see the source table in `src/pricing/defaultPricing.ts`.
-
 ---
 
 ## Architecture
@@ -260,7 +271,8 @@ This extension is built with:
 - **VS Code API**: Settings, status bar, webview, Output Channel
 - **Svelte**: Reactive dashboard webview with component-based architecture
 - **Chart.js**: Dashboard visualizations
-- **Adaptive polling**: Responsive during use, silent when idle
+- **File watcher strategy**: Event-driven file monitoring with debouncing for responsive UI updates
+- **Context tracking**: Real-time session context weight monitoring with granular alerts
 
 Data flows from VS Code's internal telemetry → traces database → cost calculation → in-memory DB → UI.
 
@@ -289,6 +301,7 @@ npm run build          # Development build with source maps
 npm run package        # Create .vsix file for distribution
 npm test               # Run unit tests (vitest)
 npm run test:watch     # Watch mode
+npm run deploy:local   # Builds and installs to local VS Code
 ```
 
 ### Project Structure

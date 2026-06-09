@@ -54,6 +54,7 @@ export interface ExtensionConfig {
   currency: string;
   exchangeRate: number;
   showStatusBar: boolean;
+  contextWeightNotifications: boolean;
 
   // Logging
   logLevel: LogLevel;
@@ -117,8 +118,8 @@ function readConfig(): ExtensionConfig {
   const cfg = vscode.workspace.getConfiguration(SECTION);
 
   const pollIntervalMin = clamp(cfg.get<number>("pollIntervalMin") ?? 5000, 1000, 300000);
-  const pollIntervalMax = clamp(cfg.get<number>("pollIntervalMax") ?? 60000, pollIntervalMin, 600000);
-  const refreshDebounceMs = clamp(Math.round(cfg.get<number>("refreshDebounceMs") ?? 2000), 100, 5000);
+  const pollIntervalMax = clamp(cfg.get<number>("pollIntervalMax") ?? 30000, pollIntervalMin, 600000);
+  const refreshDebounceMs = clamp(Math.round(cfg.get<number>("refreshDebounceMs") ?? 300), 100, 5000);
 
   const billingCycleStartDay = clamp(Math.round(cfg.get<number>("billingCycleStartDay") ?? 1), 1, 31);
   const budgetCredits = Math.max(cfg.get<number>("budgetCredits") ?? 180, 0);
@@ -174,6 +175,7 @@ function readConfig(): ExtensionConfig {
   const currency = cfg.get<string>("currency") ?? "USD";
   const exchangeRate = Math.max(cfg.get<number>("exchangeRate") ?? 1, 0.0001);
   const showStatusBar = cfg.get<boolean>("showStatusBar") ?? true;
+  const contextWeightNotifications = cfg.get<boolean>("contextWeightNotifications") ?? true;
 
   const rawLogLevel = cfg.get<string>("logLevel") ?? "error";
   const logLevel: LogLevel = LOG_LEVELS.has(rawLogLevel as LogLevel)
@@ -199,6 +201,7 @@ function readConfig(): ExtensionConfig {
     currency,
     exchangeRate,
     showStatusBar,
+    contextWeightNotifications,
     logLevel,
   };
 }
