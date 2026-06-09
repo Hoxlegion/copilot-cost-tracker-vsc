@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true,
+    "lib": ["ES2023"]
+  },
+  "include": ["src/**/*", "test/**/*", "vitest.config.ts"]
+}

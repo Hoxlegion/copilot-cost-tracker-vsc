@@ -72,11 +72,13 @@ export class StatusBarIndicator implements vscode.Disposable {
     const ctxWeight = this.contextTracker.getContextWeight();
     if (ctxWeight && ctxWeight.tokens > 0) {
       const kTokens = (ctxWeight.tokens / 1000).toFixed(0);
-      items.push({
-        label: `$(brain) Context: ${kTokens}K tokens (${ctxWeight.humanLabel})`,
-        description: `${ctxWeight.turnCount} turns · ${ctxWeight.label}`,
-      });
-      items.push({ label: "", kind: vscode.QuickPickItemKind.Separator });
+      items.push(
+        {
+          label: `$(brain) Context: ${kTokens}K tokens (${ctxWeight.humanLabel})`,
+          description: `${ctxWeight.turnCount} turns · ${ctxWeight.label}`,
+        },
+        { label: "", kind: vscode.QuickPickItemKind.Separator }
+      );
     }
 
     for (const m of models.slice(0, 5)) {
@@ -165,11 +167,18 @@ export class StatusBarIndicator implements vscode.Disposable {
 
     if (ctxWeight && ctxWeight.tokens > 0) {
       const kTokens = (ctxWeight.tokens / 1000).toFixed(1);
-      const impactLabel = ctxWeight.tier === "light" ? "Low" : ctxWeight.tier === "moderate" ? "Medium" : "High";
+      let impactLabel: string;
+      if (ctxWeight.tier === "light") {
+        impactLabel = "Low";
+      } else if (ctxWeight.tier === "moderate") {
+        impactLabel = "Medium";
+      } else {
+        impactLabel = "High";
+      }
       tooltip.appendMarkdown(`---\n\n`);
       tooltip.appendMarkdown(`**Active Chat Context**\n\n`);
       tooltip.appendMarkdown(`Weight: **${kTokens}K tokens** (${ctxWeight.humanLabel})\n\n`);
-      tooltip.appendMarkdown(`Session: ${ctxWeight.turnCount} turn${ctxWeight.turnCount !== 1 ? "s" : ""} · ${ctxWeight.label}\n\n`);
+      tooltip.appendMarkdown(`Session: ${ctxWeight.turnCount} turn${ctxWeight.turnCount === 1 ? "" : "s"} · ${ctxWeight.label}\n\n`);
       tooltip.appendMarkdown(`Impact: **${impactLabel}** — each turn resends this history\n\n`);
     }
 

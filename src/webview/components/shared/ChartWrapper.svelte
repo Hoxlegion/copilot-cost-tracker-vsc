@@ -5,7 +5,7 @@
   
   Chart.register(...registerables);
   
-  export let type: 'line' | 'bar' | 'doughnut' | 'pie';
+  export let type: 'line' | 'bar' | 'doughnut' | 'pie' | 'scatter';
   export let data: any;
   export let options: any = {};
   export let canvasId: string;

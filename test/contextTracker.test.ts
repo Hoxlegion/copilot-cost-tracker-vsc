@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
 
+function tokensToPages(tokens: number): string {
+  const pages = Math.round(tokens / 2500);
+  if (pages <= 0) return "< 1 page";
+  if (pages === 1) return "~1 page";
+  return `~${pages} pages`;
+}
+
 describe("ContextTracker Tier Classification", () => {
   const TIER_THRESHOLDS = {
     light: 5_000,
@@ -51,13 +58,6 @@ describe("ContextTracker Tier Classification", () => {
   });
 
   describe("tokensToPages", () => {
-    function tokensToPages(tokens: number): string {
-      const pages = Math.round(tokens / 2500);
-      if (pages <= 0) return "< 1 page";
-      if (pages === 1) return "~1 page";
-      return `~${pages} pages`;
-    }
-
     it("returns '< 1 page' for 0 tokens", () => {
       expect(tokensToPages(0)).toBe("< 1 page");
     });
@@ -153,7 +153,7 @@ describe("ContextTracker Tier Classification", () => {
       firedThresholds.add(20000);
       firedThresholds.add(40000);
 
-      const trackedSessionId = "session-A";
+      const trackedSessionId: string = "session-A";
       const newSessionId = "session-B";
 
       if (newSessionId !== trackedSessionId) {
@@ -187,7 +187,7 @@ describe("ContextTracker Tier Classification", () => {
       let waste = 0;
       if (turns.length >= 2) {
         const first = turns[0].currentContextWeight;
-        const last = turns[turns.length - 1].currentContextWeight;
+        const last = turns.at(-1)?.currentContextWeight ?? 0;
         if (last > 0) {
           waste = (last - first) / last;
         }

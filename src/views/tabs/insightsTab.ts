@@ -1,6 +1,11 @@
 import type { DashboardViewData } from "./index";
 
 export function renderInsightsTab(v: DashboardViewData): string {
+  const cacheHitQuality = v.insightMetrics.cacheHitPct >= 70
+    ? 'Excellent'
+    : v.insightMetrics.cacheHitPct >= 40
+      ? 'Moderate — reuse files across sessions'
+      : 'Low — avoid large one-off pastes';
   return `
   <div class="tab-content" id="tab-insights">
     <div class="chart-section-title" style="margin-bottom:8px">Token Savings Playbook — Today</div>
@@ -15,7 +20,7 @@ export function renderInsightsTab(v: DashboardViewData): string {
         <div class="stat">
           <div class="stat-label">Cache Hit Rate (Range)</div>
           <div class="stat-value" id="insightCacheHitValue" style="color:${v.cacheHitColor}">${v.insightMetrics.cacheHitPct.toFixed(1)}%</div>
-          <div class="stat-sub" id="insightCacheHitSub">${(v.insightMetrics.totalCachedTokens / 1000).toFixed(0)}K cached of ${((v.insightMetrics.totalInputTokens + v.insightMetrics.totalCachedTokens) / 1000).toFixed(0)}K total input · ${v.insightMetrics.cacheHitPct >= 70 ? 'Excellent' : v.insightMetrics.cacheHitPct >= 40 ? 'Moderate — reuse files across sessions' : 'Low — avoid large one-off pastes'}</div>
+          <div class="stat-sub" id="insightCacheHitSub">${(v.insightMetrics.totalCachedTokens / 1000).toFixed(0)}K cached of ${((v.insightMetrics.totalInputTokens + v.insightMetrics.totalCachedTokens) / 1000).toFixed(0)}K total input · ${cacheHitQuality}</div>
           <div class="budget-bar"><div class="budget-fill" id="insightCacheHitFill" style="width:${Math.min(100, v.insightMetrics.cacheHitPct)}%;background:${v.cacheHitColor}"></div></div>
         </div>
         <div class="stat">

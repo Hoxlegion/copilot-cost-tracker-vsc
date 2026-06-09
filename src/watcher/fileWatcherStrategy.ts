@@ -88,8 +88,8 @@ export class FileWatcherStrategy {
     if (this.watcher) {
       try {
         this.watcher.close();
-      } catch (_e) {
-        void _e;
+      } catch {
+        // ignore close errors
       }
       this.watcher = undefined;
     }

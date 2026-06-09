@@ -161,7 +161,7 @@ describe("Ingester Failover & Polling", () => {
 
     it("recovers watermark from database on startup", () => {
       const maxTimestampInDb = 15000;
-      let lastProcessed = maxTimestampInDb; // Recovered from DB
+      const lastProcessed = maxTimestampInDb; // Recovered from DB
 
       const newTurns = [
         { timestamp: 14000 }, // Before watermark, skip

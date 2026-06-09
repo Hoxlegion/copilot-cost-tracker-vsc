@@ -22,7 +22,7 @@
     const totalCached = filteredSessions.reduce((sum, s) => sum + s.totalCachedTokens, 0);
     const totalOutput = filteredSessions.reduce((sum, s) => sum + s.totalOutputTokens, 0);
     const totalTurns = filteredSessions.reduce((sum, s) => sum + s.turnCount, 0);
-    const errorTurns = filteredSessions.filter(s => s.status === 'error').length;
+    const errorTurns = 0; // sessions don't carry per-turn status; use insightMetrics for error counts
     
     const billableInput = totalInput + totalCached;
     const cacheHitPct = billableInput > 0 ? (totalCached / billableInput) * 100 : 0;

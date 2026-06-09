@@ -48,7 +48,7 @@ export class ContextTracker implements vscode.Disposable {
   private readonly logger: Logger;
   private currentWeight: ContextWeight | null = null;
   private trackedSessionId: string | null = null;
-  private firedThresholds: Set<number> = new Set();
+  private readonly firedThresholds: Set<number> = new Set();
   private notificationsEnabled: boolean = true;
 
   constructor(database: CostDatabase, logger: Logger) {
@@ -122,5 +122,6 @@ export class ContextTracker implements vscode.Disposable {
   }
 
   dispose(): void {
+    // no-op: no resources to release
   }
 }
