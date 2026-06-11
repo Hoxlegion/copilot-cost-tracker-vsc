@@ -10,9 +10,14 @@ function shortenWorkspaceName(workspace: string): string {
   return tail.length > 34 ? `${tail.slice(0, 31)}…` : tail;
 }
 
+const SAFE_HASH_RE = /^[a-f0-9]{32,64}$/i;
+
 export function resolveWorkspaceName(hash: string): string {
   if (!hash || hash === "unknown") return hash || "unknown";
   if (hash.includes("/") || hash.includes("\\")) return shortenWorkspaceName(hash);
+
+  // Reject hashes that don't look like hex digests to prevent path traversal
+  if (!SAFE_HASH_RE.test(hash)) return hash.slice(0, 12) + "…";
 
   try {
     const platform = os.platform();

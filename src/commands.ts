@@ -25,10 +25,14 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
 
   context.subscriptions.push(
     vscode.commands.registerCommand("copilotCostTracker.refresh", async () => {
-      await pricing.refreshPricing();
-      const count = await ingester.fullIngest();
-      refreshAndUpdate();
-      vscode.window.showInformationMessage(`Copilot Cost Tracker: Refreshed. ${count} new turns processed.`);
+      try {
+        await pricing.refreshPricing();
+        const count = await ingester.fullIngest();
+        refreshAndUpdate();
+        vscode.window.showInformationMessage(`Copilot Cost Tracker: Refreshed. ${count} new turns processed.`);
+      } catch (err) {
+        vscode.window.showErrorMessage(`Copilot Cost Tracker: Refresh failed — ${err instanceof Error ? err.message : String(err)}`);
+      }
     }),
 
     vscode.commands.registerCommand("copilotCostTracker.openDashboard", () => {
@@ -36,16 +40,24 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
     }),
 
     vscode.commands.registerCommand("copilotCostTracker.scanAll", async () => {
-      const count = await ingester.fullIngest();
-      refreshAndUpdate();
-      vscode.window.showInformationMessage(`Copilot Cost Tracker: Full scan complete. ${count} turns processed.`);
+      try {
+        const count = await ingester.fullIngest();
+        refreshAndUpdate();
+        vscode.window.showInformationMessage(`Copilot Cost Tracker: Full scan complete. ${count} turns processed.`);
+      } catch (err) {
+        vscode.window.showErrorMessage(`Copilot Cost Tracker: Scan failed — ${err instanceof Error ? err.message : String(err)}`);
+      }
     }),
 
     vscode.commands.registerCommand("copilotCostTracker.scanFullHistory", async () => {
-      vscode.window.showInformationMessage("Copilot Cost Tracker: Starting full history backfill...");
-      const count = await ingester.ingest(0);
-      refreshAndUpdate();
-      vscode.window.showInformationMessage(`Copilot Cost Tracker: Full history backfill complete. ${count} turns processed.`);
+      try {
+        vscode.window.showInformationMessage("Copilot Cost Tracker: Starting full history backfill...");
+        const count = await ingester.ingest(0);
+        refreshAndUpdate();
+        vscode.window.showInformationMessage(`Copilot Cost Tracker: Full history backfill complete. ${count} turns processed.`);
+      } catch (err) {
+        vscode.window.showErrorMessage(`Copilot Cost Tracker: History backfill failed — ${err instanceof Error ? err.message : String(err)}`);
+      }
     }),
   );
 }

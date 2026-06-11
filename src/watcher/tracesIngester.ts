@@ -25,6 +25,7 @@ export class TracesIngester implements vscode.Disposable {
   private static readonly FAILOVER_THRESHOLD_POLLS = 12;
   private lastDbFailoverAtMs: number = 0;
   private static readonly DB_RECOVERY_PROBE_MS = 60_000;
+  private static readonly INGEST_BATCH_SIZE = 5_000;
 
   readonly onDidDataChange: vscode.Event<void>;
 
@@ -144,21 +145,53 @@ export class TracesIngester implements vscode.Disposable {
     if (span.startTimeMs <= this.lastProcessedTimestamp) return true;
 
     if (span.inputTokens === 0 && span.outputTokens === 0) {
-      this.lastProcessedTimestamp = span.startTimeMs;
       return true;
     }
 
     const model = span.responseModel ?? span.requestModel ?? "unknown";
     const excluded = this.configManager.config.excludedModels;
     if (excluded.some((e) => model.toLowerCase().includes(e.toLowerCase()))) {
-      this.lastProcessedTimestamp = span.startTimeMs;
       return true;
     }
 
     return false;
   }
 
+  private insertSpanAsTurn(span: TraceSpan): void {
+    const model = span.responseModel ?? span.requestModel ?? "unknown";
+    const costUsd = this.pricing.calculateCost(
+      model,
+      span.inputTokens,
+      span.outputTokens,
+      span.cachedTokens,
+      span.cacheWriteTokens
+    );
+    const credits = this.pricing.costToCredits(costUsd);
+
+    this.database.insertTurn(
+      {
+        sessionId: span.chatSessionId ?? span.conversationId ?? "unknown",
+        timestamp: span.startTimeMs,
+        duration: span.endTimeMs - span.startTimeMs,
+        agentName: span.agentName ?? "unknown",
+        model,
+        modelFamily: model,
+        inputTokens: span.inputTokens,
+        outputTokens: span.outputTokens,
+        cachedTokens: span.cachedTokens,
+        cacheWriteTokens: span.cacheWriteTokens,
+        totalTokens: span.inputTokens + span.outputTokens + span.cachedTokens + span.cacheWriteTokens,
+        status: span.statusCode === 0 ? "ok" : "error",
+      },
+      costUsd,
+      credits,
+      this.workspaceId
+    );
+  }
+
   private async ingestFromTracesDb(sinceOverride?: number): Promise<number> {
+    if (this.isDisposed) return 0;
+
     const since = sinceOverride ?? this.lastProcessedTimestamp;
 
     let spans: TraceSpan[];
@@ -178,41 +211,38 @@ export class TracesIngester implements vscode.Disposable {
     this.consecutiveEmptyDbPolls = 0;
 
     let newCount = 0;
-    for (const span of spans) {
-      if (this.shouldSkipSpan(span)) continue;
+    let maxTimestamp = this.lastProcessedTimestamp;
 
-      const model = span.responseModel ?? span.requestModel ?? "unknown";
-      const costUsd = this.pricing.calculateCost(
-        model,
-        span.inputTokens,
-        span.outputTokens,
-        span.cachedTokens,
-        span.cacheWriteTokens
-      );
-      const credits = this.pricing.costToCredits(costUsd);
+    this.database.beginTransaction();
+    try {
+      for (const span of spans) {
+        if (this.isDisposed) break;
+        if (this.shouldSkipSpan(span)) continue;
 
-      this.database.insertTurn(
-        {
-          sessionId: span.chatSessionId ?? span.conversationId ?? "unknown",
-          timestamp: span.startTimeMs,
-          duration: span.endTimeMs - span.startTimeMs,
-          agentName: span.agentName ?? "unknown",
-          model,
-          modelFamily: model,
-          inputTokens: span.inputTokens,
-          outputTokens: span.outputTokens,
-          cachedTokens: span.cachedTokens,
-          cacheWriteTokens: span.cacheWriteTokens,
-          totalTokens: span.inputTokens + span.outputTokens + span.cachedTokens + span.cacheWriteTokens,
-          status: span.statusCode === 0 ? "ok" : "error",
-        },
-        costUsd,
-        credits,
-        this.workspaceId
-      );
+        this.insertSpanAsTurn(span);
+        newCount++;
 
-      newCount++;
-      this.lastProcessedTimestamp = span.startTimeMs;
+        if (span.startTimeMs > maxTimestamp) {
+          maxTimestamp = span.startTimeMs;
+        }
+
+        if (newCount % TracesIngester.INGEST_BATCH_SIZE === 0) {
+          this.database.commitTransaction();
+          this.lastProcessedTimestamp = maxTimestamp;
+          await this.database.save();
+          this.database.beginTransaction();
+          this.logger.debug(`Ingested batch of ${TracesIngester.INGEST_BATCH_SIZE} spans (${newCount} total so far)`);
+        }
+      }
+
+      this.database.commitTransaction();
+
+      const batchMaxTimestamp = spans.at(-1)!.startTimeMs;
+      this.lastProcessedTimestamp = Math.max(maxTimestamp, batchMaxTimestamp);
+    } catch (err) {
+      this.database.rollbackTransaction();
+      this.logger.error("Failed during batch insert, rolling back transaction", err);
+      return 0;
     }
 
     if (newCount > 0 && !this.isDisposed) {

@@ -3,7 +3,7 @@ import { PricingEngine } from "../pricing";
 import type { CostDatabase } from "../database";
 import type { DashboardRawData } from "./dashboardDataAssembler";
 import {
-  createNonce, AGENT_LABEL_MAP,
+  createNonce, safeJsonForScript, AGENT_LABEL_MAP,
   buildModelPeriodData, buildHeatmapData, getUsagePresentation, getBudgetDetails,
   buildInsightViewData, buildSurfaceCostView, buildCacheSavingsView,
   buildWorkspaceSummaryView, buildRecentSessionRowsHtml, formatFreshnessLabel,
@@ -63,16 +63,16 @@ export function renderDashboard(data: DashboardTemplateData): string {
   const today = database.getCostSince(todayStart);
   const week = database.getCostSince(weekStart);
 
-  const dailyLabels = JSON.stringify(dailyCosts.map((d) => d.period).reverse());
-  const dailyData = JSON.stringify(dailyCosts.map((d) => d.totalCostUsd).reverse());
-  const dailyCreditsData = JSON.stringify(dailyCosts.map((d) => d.totalCredits).reverse());
+  const dailyLabels = safeJsonForScript(dailyCosts.map((d) => d.period).reverse());
+  const dailyData = safeJsonForScript(dailyCosts.map((d) => d.totalCostUsd).reverse());
+  const dailyCreditsData = safeJsonForScript(dailyCosts.map((d) => d.totalCredits).reverse());
 
-  const modelLabels = JSON.stringify(modelBreakdown.map((m) => m.model));
-  const modelCostData = JSON.stringify(modelBreakdown.map((m) => m.totalCostUsd));
-  const modelTurnData = JSON.stringify(modelBreakdown.map((m) => m.turnCount));
-  const modelPctData = JSON.stringify(modelBreakdown.map((m) => m.percentage));
-  const agentBreakdownData = JSON.stringify(agentBreakdownSliced);
-  const dailyAgentBreakdownData = JSON.stringify(dailyAgentBreakdown);
+  const modelLabels = safeJsonForScript(modelBreakdown.map((m) => m.model));
+  const modelCostData = safeJsonForScript(modelBreakdown.map((m) => m.totalCostUsd));
+  const modelTurnData = safeJsonForScript(modelBreakdown.map((m) => m.turnCount));
+  const modelPctData = safeJsonForScript(modelBreakdown.map((m) => m.percentage));
+  const agentBreakdownData = safeJsonForScript(agentBreakdownSliced);
+  const dailyAgentBreakdownData = safeJsonForScript(dailyAgentBreakdown);
 
   const usage = getUsagePresentation(periodCredits, budgetCredits);
   const usagePct = usage.usagePct;
@@ -81,25 +81,25 @@ export function renderDashboard(data: DashboardTemplateData): string {
   const { daysRemaining, dailyBudgetRemaining, burnRate, projectedPeriodCredits, forecastVisible, forecastOverage } = budgetDetails;
 
   const heatmapData = buildHeatmapData(dailyCostsForRange);
-  const dailyRangeSeriesJson = JSON.stringify(dailyCostsForRange.map((d) => ({
+  const dailyRangeSeriesJson = safeJsonForScript(dailyCostsForRange.map((d) => ({
     period: d.period, cost: d.totalCostUsd, credits: d.totalCredits, turns: d.turnCount,
   })));
 
   const insightView = buildInsightViewData(insightMetrics);
   const totalBillableInput30d = insightView.totalBillableInput30d;
   const avgInputPerTurn = insightView.avgInputPerTurn;
-  const ioRatioLabels = JSON.stringify(insightMetricsFullRange.ioRatioDays.map((d) => d.period));
-  const ioNetInput = JSON.stringify(insightMetricsFullRange.ioRatioDays.map((d) => d.inputTokens));
-  const ioCached = JSON.stringify(insightMetricsFullRange.ioRatioDays.map((d) => d.cachedTokens));
-  const ioOutput = JSON.stringify(insightMetricsFullRange.ioRatioDays.map((d) => d.outputTokens));
+  const ioRatioLabels = safeJsonForScript(insightMetricsFullRange.ioRatioDays.map((d) => d.period));
+  const ioNetInput = safeJsonForScript(insightMetricsFullRange.ioRatioDays.map((d) => d.inputTokens));
+  const ioCached = safeJsonForScript(insightMetricsFullRange.ioRatioDays.map((d) => d.cachedTokens));
+  const ioOutput = safeJsonForScript(insightMetricsFullRange.ioRatioDays.map((d) => d.outputTokens));
 
   const meaningfulSurfaces = getMeaningfulSurfaces(surfaceData);
-  const surfaceLabels = JSON.stringify(meaningfulSurfaces.map((s) => s.label));
-  const surfaceInputs = JSON.stringify(meaningfulSurfaces.map((s) => s.inputTokens + s.cachedTokens));
+  const surfaceLabels = safeJsonForScript(meaningfulSurfaces.map((s) => s.label));
+  const surfaceInputs = safeJsonForScript(meaningfulSurfaces.map((s) => s.inputTokens + s.cachedTokens));
 
   const surfaceCostView = buildSurfaceCostView(agentBreakdown, AGENT_LABEL_MAP);
-  const surfaceCostLabels = JSON.stringify(surfaceCostView.map((s) => s.label));
-  const surfaceCostData = JSON.stringify(surfaceCostView.map((s) => s.costUsd));
+  const surfaceCostLabels = safeJsonForScript(surfaceCostView.map((s) => s.label));
+  const surfaceCostData = safeJsonForScript(surfaceCostView.map((s) => s.costUsd));
   const surfaceCostTableHtml = surfaceCostView
     .map((s) =>
       `<tr>
@@ -119,7 +119,7 @@ export function renderDashboard(data: DashboardTemplateData): string {
 
   const alertCardsHtml = buildAlertCardsHtml(alerts);
 
-  const cacheSavingsView = buildCacheSavingsView(cacheSavings, periodAggregate.costUsd, pricing);
+  const cacheSavingsView = buildCacheSavingsView(cacheSavings, periodAggregate.costUsd);
 
   const workspaceSummaryView = buildWorkspaceSummaryView(allSessions);
   const recentSessionRowsHtml = buildRecentSessionRowsHtml(allSessions);
@@ -135,7 +135,7 @@ export function renderDashboard(data: DashboardTemplateData): string {
       </tr>`)
     .join("\n");
 
-  const sessionsJson = JSON.stringify(allSessions.map((s) => ({
+  const sessionsJson = safeJsonForScript(allSessions.map((s) => ({
     ts: s.startTimestamp,
     sessionId: s.sessionId,
     workspace: s.workspace,
@@ -150,9 +150,9 @@ export function renderDashboard(data: DashboardTemplateData): string {
     avgLatencyMs: Math.round(s.avgDurationMs),
     modelBreakdown: s.modelBreakdown,
   })));
-  const turnDiscoveryJson = JSON.stringify(turnDiscovery.slice(0, 400));
+  const turnDiscoveryJson = safeJsonForScript(turnDiscovery.slice(0, 400));
 
-  const agentLabelMapJson = JSON.stringify(AGENT_LABEL_MAP);
+  const agentLabelMapJson = safeJsonForScript(AGENT_LABEL_MAP);
 
   const viewData: DashboardViewData = {
     ...rawData,
@@ -170,7 +170,7 @@ export function renderDashboard(data: DashboardTemplateData): string {
     heatmapData, dailyRangeSeriesJson, sessionsJson, turnDiscoveryJson, agentLabelMapJson,
     ioRatioLabels, ioNetInput, ioCached, ioOutput,
     surfaceLabels, surfaceInputs, surfaceCostLabels, surfaceCostData,
-    modelDataByPeriodJson: JSON.stringify(modelDataByPeriod),
+    modelDataByPeriodJson: safeJsonForScript(modelDataByPeriod),
     budgetCredits, billingPeriodStartMs, nonce, cspSource,
   };
 

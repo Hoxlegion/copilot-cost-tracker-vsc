@@ -27,9 +27,15 @@ export function getModelLatencySamples(db: Database, days: number = 30, workspac
   return rows;
 }
 
-export function getDailyCosts(db: Database, days: number = 30, workspace?: string): AggregatedCost[] {
-  const safeDays = clampInt(days, 1, 3650);
-  const since = Date.now() - safeDays * 24 * 60 * 60 * 1000;
+function resolveSince(daysOrSinceMs: number, isSinceMs: boolean): number {
+  if (isSinceMs) {
+    return Number.isFinite(daysOrSinceMs) ? Math.floor(daysOrSinceMs) : 0;
+  }
+  return Date.now() - clampInt(daysOrSinceMs, 1, 3650) * 24 * 60 * 60 * 1000;
+}
+
+export function getDailyCosts(db: Database, daysOrSinceMs: number = 30, workspace?: string, isSinceMs: boolean = false): AggregatedCost[] {
+  const since = resolveSince(daysOrSinceMs, isSinceMs);
 
   const stmt = db.prepare(`
     SELECT
@@ -60,38 +66,11 @@ export function getDailyCosts(db: Database, days: number = 30, workspace?: strin
 }
 
 export function getDailyCostsSince(db: Database, sinceMs: number, workspace?: string): AggregatedCost[] {
-  const safeSince = Number.isFinite(sinceMs) ? Math.floor(sinceMs) : 0;
-  const stmt = db.prepare(`
-    SELECT
-      date(timestamp / 1000, 'unixepoch') as period,
-      SUM(cost_usd) as total_cost_usd,
-      SUM(credits) as total_credits,
-      COUNT(*) as turn_count
-    FROM turns
-    WHERE timestamp >= :since
-      AND (:workspace IS NULL OR workspace = :workspace)
-    GROUP BY period
-    ORDER BY period DESC
-  `);
-  stmt.bind({ ":since": safeSince, ":workspace": workspace ?? null });
-
-  const rows: AggregatedCost[] = [];
-  while (stmt.step()) {
-    const row = stmt.getAsObject();
-    rows.push({
-      period: row.period as string,
-      totalCostUsd: row.total_cost_usd as number,
-      totalCredits: row.total_credits as number,
-      turnCount: row.turn_count as number,
-    });
-  }
-  stmt.free();
-  return rows;
+  return getDailyCosts(db, sinceMs, workspace, true);
 }
 
-export function getModelBreakdown(db: Database, days: number = 30, workspace?: string): ModelBreakdown[] {
-  const safeDays = clampInt(days, 1, 3650);
-  const since = Date.now() - safeDays * 24 * 60 * 60 * 1000;
+export function getModelBreakdown(db: Database, daysOrSinceMs: number = 30, workspace?: string, isSinceMs: boolean = false): ModelBreakdown[] {
+  const since = resolveSince(daysOrSinceMs, isSinceMs);
 
   const stmt = db.prepare(`
     SELECT
@@ -128,41 +107,11 @@ export function getModelBreakdown(db: Database, days: number = 30, workspace?: s
 }
 
 export function getModelBreakdownSince(db: Database, sinceMs: number, workspace?: string): ModelBreakdown[] {
-  const safeSince = Number.isFinite(sinceMs) ? Math.floor(sinceMs) : 0;
-
-  const stmt = db.prepare(
-    `SELECT model_family, SUM(cost_usd) as total_cost_usd, SUM(credits) as total_credits, COUNT(*) as turn_count
-     FROM turns
-     WHERE timestamp >= :since
-       AND (:workspace IS NULL OR workspace = :workspace)
-     GROUP BY model_family
-     ORDER BY total_cost_usd DESC`
-  );
-  stmt.bind({ ":since": safeSince, ":workspace": workspace ?? null });
-
-  const rows: ModelBreakdown[] = [];
-  while (stmt.step()) {
-    const r = stmt.getAsObject();
-    rows.push({
-      model: r.model_family as string,
-      totalCostUsd: r.total_cost_usd as number,
-      totalCredits: r.total_credits as number,
-      turnCount: r.turn_count as number,
-      percentage: 0,
-    });
-  }
-  stmt.free();
-
-  const totalCost = rows.reduce((sum, r) => sum + r.totalCostUsd, 0);
-  for (const row of rows) {
-    row.percentage = totalCost > 0 ? (row.totalCostUsd / totalCost) * 100 : 0;
-  }
-  return rows;
+  return getModelBreakdown(db, sinceMs, workspace, true);
 }
 
-export function getAgentBreakdown(db: Database, days: number = 30, workspace?: string): AgentBreakdown[] {
-  const safeDays = clampInt(days, 1, 3650);
-  const since = Date.now() - safeDays * 24 * 60 * 60 * 1000;
+export function getAgentBreakdown(db: Database, daysOrSinceMs: number = 30, workspace?: string, isSinceMs: boolean = false): AgentBreakdown[] {
+  const since = resolveSince(daysOrSinceMs, isSinceMs);
 
   const stmt = db.prepare(`
     SELECT agent_name, SUM(cost_usd) as total_cost_usd, SUM(credits) as total_credits, COUNT(*) as turn_count
@@ -195,36 +144,7 @@ export function getAgentBreakdown(db: Database, days: number = 30, workspace?: s
 }
 
 export function getAgentBreakdownSince(db: Database, sinceMs: number, workspace?: string): AgentBreakdown[] {
-  const safeSince = Number.isFinite(sinceMs) ? Math.floor(sinceMs) : 0;
-
-  const stmt = db.prepare(`
-    SELECT agent_name, SUM(cost_usd) as total_cost_usd, SUM(credits) as total_credits, COUNT(*) as turn_count
-    FROM turns
-    WHERE timestamp >= :since
-      AND (:workspace IS NULL OR workspace = :workspace)
-    GROUP BY agent_name
-    ORDER BY total_cost_usd DESC
-  `);
-  stmt.bind({ ":since": safeSince, ":workspace": workspace ?? null });
-
-  const rows: AgentBreakdown[] = [];
-  while (stmt.step()) {
-    const row = stmt.getAsObject();
-    rows.push({
-      agentName: (row.agent_name as string) || "unknown",
-      totalCostUsd: row.total_cost_usd as number,
-      totalCredits: row.total_credits as number,
-      turnCount: row.turn_count as number,
-      percentage: 0,
-    });
-  }
-  stmt.free();
-
-  const totalCost = rows.reduce((sum, r) => sum + r.totalCostUsd, 0);
-  for (const row of rows) {
-    row.percentage = totalCost > 0 ? (row.totalCostUsd / totalCost) * 100 : 0;
-  }
-  return rows;
+  return getAgentBreakdown(db, sinceMs, workspace, true);
 }
 
 export function getDailyAgentBreakdown(db: Database, days: number = 365, workspace?: string): DailyAgentBreakdown[] {
@@ -344,22 +264,29 @@ export function getSessionSummaries(db: Database, workspace?: string, limit: num
   const safeLimit = clampInt(limit, 1, 500);
   const stmt = db.prepare(`
     SELECT
-      session_id,
-      workspace,
-      MIN(timestamp) as start_timestamp,
-      MAX(timestamp) as last_timestamp,
+      t.session_id,
+      t.workspace,
+      MIN(t.timestamp) as start_timestamp,
+      MAX(t.timestamp) as last_timestamp,
       COUNT(*) as turn_count,
-      SUM(input_tokens) as total_input_tokens,
-      SUM(output_tokens) as total_output_tokens,
-      SUM(cached_tokens) as total_cached_tokens,
-      SUM(cost_usd) as total_cost_usd,
-      SUM(credits) as total_credits,
-      AVG(duration) as avg_duration_ms,
-      (SELECT model_family FROM turns t2 WHERE t2.session_id = turns.session_id GROUP BY model_family ORDER BY COUNT(*) DESC LIMIT 1) as primary_model
-    FROM turns
-    WHERE (:workspace IS NULL OR workspace = :workspace)
-    GROUP BY session_id, workspace
-    HAVING total_cost_usd > 0 OR total_input_tokens > 0
+      SUM(t.input_tokens) as total_input_tokens,
+      SUM(t.output_tokens) as total_output_tokens,
+      SUM(t.cached_tokens) as total_cached_tokens,
+      SUM(t.cost_usd) as total_cost_usd,
+      SUM(t.credits) as total_credits,
+      AVG(t.duration) as avg_duration_ms,
+      pm.primary_model
+    FROM turns t
+    LEFT JOIN (
+      SELECT session_id, model_family AS primary_model,
+             ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY COUNT(*) DESC) AS rn
+      FROM turns
+      GROUP BY session_id, model_family
+    ) pm ON pm.session_id = t.session_id AND pm.rn = 1
+    WHERE (:workspace IS NULL OR t.workspace = :workspace)
+    GROUP BY t.session_id, t.workspace
+    HAVING (total_cost_usd > 0 OR total_input_tokens > 0)
+      AND NOT (turn_count <= 2 AND total_cost_usd = 0)
     ORDER BY start_timestamp DESC
     LIMIT :limit
   `);

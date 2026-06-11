@@ -54,13 +54,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Core services
   const reader = new TracesDbReader(wasmPath);
   const logParser = new LogParser();
-  const pricing = new PricingEngine();
-  pricing.setDependencies(configManager, logger);
+  const pricing = new PricingEngine(configManager, logger);
   await pricing.initialize();
 
   const storagePath = context.globalStorageUri.fsPath;
   database = new CostDatabase(storagePath);
   await database.initialize();
+
+  if (database.didRecoverFromCorruption) {
+    logger.warn("Database was corrupted and has been reset");
+    void vscode.window.showWarningMessage(
+      "Copilot Cost Tracker: The cost database was corrupted and has been reset. Historical data was lost."
+    );
+  }
 
   // Derive workspace storage hash from storageUri (e.g. .../workspaceStorage/{hash}/extension-name/)
   // This gives resolveWorkspaceName a proper hash it can look up in workspace.json
@@ -133,8 +139,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     logger.info(`Pruned ${pruned} old turns based on retentionDays=${configManager.config.retentionDays}`);
   }
 
-  // Periodic timers
-  setupTimers(context, database, pricing, configManager, logger);
+  // Periodic timers — lightweight UI refresh only (no disk I/O).
+  // Ingestion is handled by the file watcher + fallback poll in TracesIngester.
+  setupTimers(context, database, pricing, configManager, logger, {
+    contextTracker,
+    statusBar,
+  });
 
   logger.info("Activation complete");
 

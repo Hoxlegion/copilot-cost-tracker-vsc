@@ -60,11 +60,24 @@ export class ContextTracker implements vscode.Disposable {
     this.notificationsEnabled = enabled;
   }
 
+  // Consider context stale if no activity in the last 2 minutes.
+  // This prevents showing old session data after switching to a new/empty chat.
+  private static readonly STALENESS_THRESHOLD_MS = 2 * 60 * 1000;
+
   update(): ContextWeight | null {
     const sinceMs = Date.now() - 24 * 60 * 60 * 1000;
     const info = this.database.getMostRecentSessionContext(sinceMs);
 
     if (!info) {
+      this.currentWeight = null;
+      return null;
+    }
+
+    // If the most recent session hasn't had activity recently,
+    // treat the context as stale — the user likely switched to a new chat
+    // that hasn't generated any turns yet.
+    const age = Date.now() - info.lastActivityMs;
+    if (age > ContextTracker.STALENESS_THRESHOLD_MS) {
       this.currentWeight = null;
       return null;
     }

@@ -35,7 +35,7 @@ export class DashboardPanel {
     this.extensionUri = extensionUri;
     this.database = database;
     this.pricing = pricing;
-    this.assembler = new DashboardDataAssembler(database, reader);
+    this.assembler = new DashboardDataAssembler(database, reader, pricing);
     
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
     

@@ -23,6 +23,9 @@ export class StatusBarIndicator implements vscode.Disposable {
   private readonly firedThresholds: Set<number> = new Set();
   private lastBillingPeriodStartMs: number = 0;
 
+  // Change detection: skip redundant tooltip rebuilds on timer ticks
+  private lastStatusText: string = "";
+
   constructor(
     database: CostDatabase,
     pricing: PricingEngine,
@@ -141,6 +144,12 @@ export class StatusBarIndicator implements vscode.Disposable {
       ? ` | $(brain) ${(ctxWeight.tokens / 1000).toFixed(0)}K`
       : "";
     const text = `$(credit-card) +$${sessionUsd.toFixed(2)} | $${periodUsd.toFixed(2)}${ctxSegment}`;
+
+    // Skip expensive tooltip rebuild if nothing changed since last update
+    if (text === this.lastStatusText) {
+      return;
+    }
+    this.lastStatusText = text;
     this.statusBarItem.text = text;
 
     // Color coding based on budget thresholds (D8)

@@ -134,7 +134,8 @@
           "type": "number",
           "default": 5000,
           "minimum": 1000,
-          "description": "Deprecated. This setting is no longer used by the event-driven watcher."
+          "description": "Deprecated. This setting is no longer used by the event-driven watcher.",
+          "markdownDeprecationMessage": "This setting is no longer used. The extension now uses an event-driven file watcher with `#copilotCostTracker.pollIntervalMax#` as a fallback."
         },
         "copilotCostTracker.pollIntervalMax": {
           "type": "number",
