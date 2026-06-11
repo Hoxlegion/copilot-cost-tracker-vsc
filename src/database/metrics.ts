@@ -13,61 +13,6 @@ export function getAlertThresholdConfig(thresholds?: Partial<AlertThresholdConfi
   };
 }
 
-function getVerbosityMetrics(db: Database, sinceMs: number): { avgOutputTokensToday: number; turnsToday: number } {
-  const verbosityResult = db.exec(`
-    SELECT AVG(CAST(output_tokens AS REAL)), COUNT(*)
-    FROM turns WHERE timestamp >= ${sinceMs} AND output_tokens > 0
-  `);
-
-  if (verbosityResult.length === 0 || verbosityResult[0].values.length === 0) {
-    return { avgOutputTokensToday: 0, turnsToday: 0 };
-  }
-
-  const row = verbosityResult[0].values[0];
-  return {
-    avgOutputTokensToday: (row[0] as number) || 0,
-    turnsToday: (row[1] as number) || 0,
-  };
-}
-
-function getMaxSessionInputTokensSince(db: Database, sinceMs: number): number {
-  const bloatResult = db.exec(`
-    SELECT MAX(session_total) FROM (
-      SELECT session_id, SUM(input_tokens + cached_tokens) AS session_total
-      FROM turns WHERE timestamp >= ${sinceMs}
-      GROUP BY session_id
-    )
-  `);
-
-  if (bloatResult.length === 0 || bloatResult[0].values.length === 0) {
-    return 0;
-  }
-
-  return (bloatResult[0].values[0][0] as number) || 0;
-}
-
-function getMaxIdleGapMsSince(db: Database, sinceMs: number): number {
-  const gapResult = db.exec(`
-    SELECT MAX(gap_ms) FROM (
-      SELECT
-        t1.session_id,
-        (
-          SELECT MIN(t2.timestamp) FROM turns t2
-          WHERE t2.session_id = t1.session_id AND t2.timestamp > t1.timestamp
-        ) - t1.timestamp AS gap_ms
-      FROM turns t1
-      WHERE t1.timestamp >= ${sinceMs}
-    )
-    WHERE gap_ms IS NOT NULL
-  `);
-
-  if (gapResult.length === 0 || gapResult[0].values.length === 0) {
-    return 0;
-  }
-
-  return (gapResult[0].values[0][0] as number) || 0;
-}
-
 function applyAlertMetricRow(
   acc: AlertMetricAccumulator,
   row: unknown[],
@@ -107,23 +52,90 @@ function applyAlertMetricRow(
   acc.previousTimestamp = timestamp;
 }
 
-function getThresholdAlertMetrics(
+export function getInsightMetrics(db: Database, days: number = 30): InsightMetrics {
+  const safeDays = clampIntForMetrics(days, 1, 3650);
+  const since = Date.now() - safeDays * 24 * 60 * 60 * 1000;
+
+  const totalsStmt = db.prepare(`
+    SELECT
+      COALESCE(SUM(input_tokens), 0),
+      COALESCE(SUM(output_tokens), 0),
+      COALESCE(SUM(cached_tokens), 0),
+      COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END), 0),
+      COUNT(*)
+    FROM turns WHERE timestamp >= :since
+  `);
+  totalsStmt.bind({ ":since": since });
+
+  let totalInputTokens = 0, totalOutputTokens = 0, totalCachedTokens = 0, errorTurns = 0, totalTurns = 0;
+  if (totalsStmt.step()) {
+    const row = totalsStmt.get();
+    totalInputTokens = (row[0] as number) || 0;
+    totalOutputTokens = (row[1] as number) || 0;
+    totalCachedTokens = (row[2] as number) || 0;
+    errorTurns = (row[3] as number) || 0;
+    totalTurns = (row[4] as number) || 0;
+  }
+  totalsStmt.free();
+
+  const totalBillableInput = totalInputTokens + totalCachedTokens;
+  const cacheHitPct = totalBillableInput > 0
+    ? Math.round((totalCachedTokens / totalBillableInput) * 1000) / 10
+    : 0;
+
+  const dailyStmt = db.prepare(`
+    SELECT
+      date(timestamp / 1000, 'unixepoch') as period,
+      SUM(input_tokens), SUM(output_tokens), SUM(cached_tokens)
+    FROM turns WHERE timestamp >= :since
+    GROUP BY period ORDER BY period ASC
+  `);
+  dailyStmt.bind({ ":since": since });
+
+  const ioRatioDays: InsightMetrics["ioRatioDays"] = [];
+  while (dailyStmt.step()) {
+    const row = dailyStmt.get();
+    ioRatioDays.push({
+      period: row[0] as string,
+      inputTokens: (row[1] as number) || 0,
+      outputTokens: (row[2] as number) || 0,
+      cachedTokens: (row[3] as number) || 0,
+    });
+  }
+  dailyStmt.free();
+
+  return { totalInputTokens, totalOutputTokens, totalCachedTokens, errorTurns, totalTurns, cacheHitPct, ioRatioDays };
+}
+
+export function getAlertMetrics(
   db: Database,
   sinceMs: number,
-  cfg: AlertThresholdConfig
-): {
-  microTurnCount: number;
-  microTurnAvgOutput: number;
-  rawPasteMaxNetInput: number;
-  premiumMisallocationCount: number;
-  premiumMisallocationAvgCredits: number;
-  massiveContextMaxInput: number;
-} {
-  const rowsResult = db.exec(`
-    SELECT session_id, timestamp, input_tokens, output_tokens, cached_tokens, credits
-    FROM turns WHERE timestamp >= ${sinceMs}
+  thresholds?: Partial<AlertThresholdConfig>
+): AlertMetrics {
+  const cfg = getAlertThresholdConfig(thresholds);
+
+  // Single-pass query: compute verbosity, session totals, idle gaps, and per-row
+  // threshold metrics in one scan using window functions.
+  const stmt = db.prepare(`
+    SELECT
+      session_id,
+      timestamp,
+      input_tokens,
+      output_tokens,
+      cached_tokens,
+      credits,
+      SUM(input_tokens + cached_tokens) OVER (PARTITION BY session_id) AS session_total_input,
+      LAG(timestamp) OVER (PARTITION BY session_id ORDER BY timestamp) AS prev_timestamp
+    FROM turns
+    WHERE timestamp >= :since
     ORDER BY session_id ASC, timestamp ASC
   `);
+  stmt.bind({ ":since": sinceMs });
+
+  let totalOutputTokens = 0;
+  let turnsWithOutput = 0;
+  let maxSessionInputTokens = 0;
+  let maxIdleGapMs = 0;
 
   const acc: AlertMetricAccumulator = {
     microTurnCount: 0,
@@ -136,120 +148,70 @@ function getThresholdAlertMetrics(
     previousTimestamp: 0,
   };
 
-  if (rowsResult.length > 0) {
-    for (const row of rowsResult[0].values) {
-      applyAlertMetricRow(acc, row, cfg);
+  while (stmt.step()) {
+    const row = stmt.getAsObject() as Record<string, unknown>;
+    const outputTokens = (row.output_tokens as number) || 0;
+    const inputTokens = (row.input_tokens as number) || 0;
+    const cachedTokens = (row.cached_tokens as number) || 0;
+    const sessionTotalInput = (row.session_total_input as number) || 0;
+    const prevTimestamp = row.prev_timestamp as number | null;
+    const timestamp = (row.timestamp as number) || 0;
+
+    // Verbosity
+    if (outputTokens > 0) {
+      totalOutputTokens += outputTokens;
+      turnsWithOutput++;
     }
+
+    // Max session input
+    if (sessionTotalInput > maxSessionInputTokens) {
+      maxSessionInputTokens = sessionTotalInput;
+    }
+
+    // Max idle gap
+    if (prevTimestamp != null) {
+      const gap = timestamp - prevTimestamp;
+      if (gap > maxIdleGapMs) {
+        maxIdleGapMs = gap;
+      }
+    }
+
+    // Threshold alert metrics (reuse existing accumulator logic)
+    applyAlertMetricRow(
+      acc,
+      [row.session_id, timestamp, inputTokens, outputTokens, cachedTokens, row.credits],
+      cfg
+    );
   }
+  stmt.free();
 
   if (acc.microTurnCount < cfg.microTurnMinCount) {
     acc.microTurnCount = 0;
     acc.microTurnOutputTotal = 0;
   }
 
-  const microTurnAvgOutput = acc.microTurnCount > 0
-    ? Math.round(acc.microTurnOutputTotal / acc.microTurnCount)
-    : 0;
-
-  const premiumMisallocationAvgCredits = acc.premiumMisallocationCount > 0
-    ? acc.premiumMisallocationCreditsTotal / acc.premiumMisallocationCount
-    : 0;
-
   return {
+    avgOutputTokensToday: turnsWithOutput > 0 ? totalOutputTokens / turnsWithOutput : 0,
+    turnsToday: turnsWithOutput,
+    maxSessionInputTokens,
+    maxIdleGapMs,
     microTurnCount: acc.microTurnCount,
-    microTurnAvgOutput,
+    microTurnAvgOutput: acc.microTurnCount > 0 ? Math.round(acc.microTurnOutputTotal / acc.microTurnCount) : 0,
     rawPasteMaxNetInput: acc.rawPasteMaxNetInput,
     premiumMisallocationCount: acc.premiumMisallocationCount,
-    premiumMisallocationAvgCredits,
+    premiumMisallocationAvgCredits: acc.premiumMisallocationCount > 0
+      ? acc.premiumMisallocationCreditsTotal / acc.premiumMisallocationCount
+      : 0,
     massiveContextMaxInput: acc.massiveContextMaxInput,
   };
 }
 
-export function getInsightMetrics(db: Database, days: number = 30): InsightMetrics {
-  const safeDays = clampIntForMetrics(days, 1, 3650);
-  const since = Date.now() - safeDays * 24 * 60 * 60 * 1000;
-
-  const totalsResult = db.exec(`
-    SELECT
-      COALESCE(SUM(input_tokens), 0),
-      COALESCE(SUM(output_tokens), 0),
-      COALESCE(SUM(cached_tokens), 0),
-      COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END), 0),
-      COUNT(*)
-    FROM turns WHERE timestamp >= ${since}
-  `);
-
-  let totalInputTokens = 0, totalOutputTokens = 0, totalCachedTokens = 0, errorTurns = 0, totalTurns = 0;
-  if (totalsResult.length > 0 && totalsResult[0].values.length > 0) {
-    const row = totalsResult[0].values[0];
-    totalInputTokens = (row[0] as number) || 0;
-    totalOutputTokens = (row[1] as number) || 0;
-    totalCachedTokens = (row[2] as number) || 0;
-    errorTurns = (row[3] as number) || 0;
-    totalTurns = (row[4] as number) || 0;
-  }
-
-  const totalBillableInput = totalInputTokens + totalCachedTokens;
-  const cacheHitPct = totalBillableInput > 0
-    ? Math.round((totalCachedTokens / totalBillableInput) * 1000) / 10
-    : 0;
-
-  const dailyResult = db.exec(`
-    SELECT
-      date(timestamp / 1000, 'unixepoch') as period,
-      SUM(input_tokens), SUM(output_tokens), SUM(cached_tokens)
-    FROM turns WHERE timestamp >= ${since}
-    GROUP BY period ORDER BY period ASC
-  `);
-
-  const ioRatioDays: InsightMetrics["ioRatioDays"] = [];
-  if (dailyResult.length > 0) {
-    for (const row of dailyResult[0].values) {
-      ioRatioDays.push({
-        period: row[0] as string,
-        inputTokens: (row[1] as number) || 0,
-        outputTokens: (row[2] as number) || 0,
-        cachedTokens: (row[3] as number) || 0,
-      });
-    }
-  }
-
-  return { totalInputTokens, totalOutputTokens, totalCachedTokens, errorTurns, totalTurns, cacheHitPct, ioRatioDays };
-}
-
-export function getAlertMetrics(
+export function getCacheSavingsMetrics(
   db: Database,
   sinceMs: number,
-  thresholds?: Partial<AlertThresholdConfig>
-): AlertMetrics {
-  const cfg = getAlertThresholdConfig(thresholds);
-  const { avgOutputTokensToday, turnsToday } = getVerbosityMetrics(db, sinceMs);
-  const maxSessionInputTokens = getMaxSessionInputTokensSince(db, sinceMs);
-  const maxIdleGapMs = getMaxIdleGapMsSince(db, sinceMs);
-  const {
-    microTurnCount,
-    microTurnAvgOutput,
-    rawPasteMaxNetInput,
-    premiumMisallocationCount,
-    premiumMisallocationAvgCredits,
-    massiveContextMaxInput,
-  } = getThresholdAlertMetrics(db, sinceMs, cfg);
-
-  return {
-    avgOutputTokensToday,
-    turnsToday,
-    maxSessionInputTokens,
-    maxIdleGapMs,
-    microTurnCount,
-    microTurnAvgOutput,
-    rawPasteMaxNetInput,
-    premiumMisallocationCount,
-    premiumMisallocationAvgCredits,
-    massiveContextMaxInput,
-  };
-}
-
-export function getCacheSavingsMetrics(db: Database, sinceMs: number, workspace?: string): CacheSavingsMetrics {
+  workspace?: string,
+  calculateSavingsCost?: (modelFamily: string, writeTokens: number, readTokens: number) => number,
+): CacheSavingsMetrics {
   const safeSince = Number.isFinite(sinceMs) ? Math.floor(sinceMs) : 0;
 
   const stmt = db.prepare(`
@@ -268,31 +230,43 @@ export function getCacheSavingsMetrics(db: Database, sinceMs: number, workspace?
   const byModel: CacheSavingsMetrics["byModel"] = [];
   let totalWriteTokens = 0;
   let totalReadTokens = 0;
+  let totalSavingsCostUsd = 0;
 
   while (stmt.step()) {
     const row = stmt.getAsObject();
+    const modelFamily = row.model_family as string;
     const writeTokens = (row.total_write_tokens as number) || 0;
     const readTokens = (row.total_read_tokens as number) || 0;
 
     totalWriteTokens += writeTokens;
     totalReadTokens += readTokens;
 
+    const savingsCostUsd = calculateSavingsCost
+      ? calculateSavingsCost(modelFamily, writeTokens, readTokens)
+      : 0;
+    totalSavingsCostUsd += savingsCostUsd;
+
     byModel.push({
-      modelFamily: row.model_family as string,
+      modelFamily,
       cacheWriteTokens: writeTokens,
       cacheReadTokens: readTokens,
-      savingsCostUsd: 0,
-      savingsCredits: 0,
+      savingsCostUsd,
+      savingsCredits: savingsCostUsd * 100,
       percentage: 0,
     });
   }
   stmt.free();
 
+  // Compute percentage share per model
+  for (const entry of byModel) {
+    entry.percentage = totalSavingsCostUsd > 0 ? (entry.savingsCostUsd / totalSavingsCostUsd) * 100 : 0;
+  }
+
   return {
     totalCacheWriteTokens: totalWriteTokens,
     totalCacheReadTokens: totalReadTokens,
-    totalSavingsCostUsd: 0,
-    totalSavingsCredits: 0,
+    totalSavingsCostUsd,
+    totalSavingsCredits: totalSavingsCostUsd * 100,
     byModel,
   };
 }

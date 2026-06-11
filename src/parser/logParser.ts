@@ -77,8 +77,8 @@ export class LogParser {
                 dirs.push(sessionDir);
               }
             }
-          } catch {
-            // Skip inaccessible directories
+          } catch (err) {
+            console.warn(`[LogParser] Skipping inaccessible debug-log directory: ${debugLogDir}`, err);
           }
         }
       }
@@ -119,12 +119,16 @@ export class LogParser {
     }
 
     const entries: LogEntry[] = [];
+    let skippedLines = 0;
     for (const line of lines) {
       try {
         entries.push(JSON.parse(line) as LogEntry);
       } catch {
-        // Skip malformed lines
+        skippedLines++;
       }
+    }
+    if (skippedLines > 0) {
+      console.warn(`[LogParser] Skipped ${skippedLines} malformed line(s) in ${mainJsonlPath}`);
     }
 
     if (entries.length === 0) {

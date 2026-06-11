@@ -1,5 +1,9 @@
 import { resolveWorkspaceName } from "./workspaceResolver";
 
+function escapeAttr(value: string): string {
+  return value.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+}
+
 export function buildWorkspaceSummaryView(allSessions: Array<{
   sessionId: string;
   workspace: string;
@@ -40,7 +44,7 @@ export function buildWorkspaceSummaryView(allSessions: Array<{
     ? `<tr><td colspan="5" style="color:var(--muted)">No workspace data yet</td></tr>`
     : rows.map((r) =>
       `<tr>
-        <td title="${r.workspace}">${r.displayName}</td>
+        <td title="${escapeAttr(r.workspace)}">${r.displayName}</td>
         <td class="num">$${r.costUsd.toFixed(3)}</td>
         <td class="num">${r.credits.toFixed(1)}</td>
         <td class="num">${r.sessions}</td>
@@ -71,8 +75,8 @@ export function buildRecentSessionRowsHtml(allSessions: Array<{
     const timeLabel = s.lastTimestamp > 0 ? new Date(s.lastTimestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—";
     return `<tr>
       <td>${timeLabel}</td>
-      <td title="${s.workspace}">${resolveWorkspaceName(s.workspace)}</td>
-      <td title="${s.sessionId}"><button class="goto-session" data-session-id="${s.sessionId}" style="background:none;border:none;color:var(--accent);cursor:pointer;padding:0">${shortSession}</button></td>
+      <td title="${escapeAttr(s.workspace)}">${resolveWorkspaceName(s.workspace)}</td>
+      <td title="${escapeAttr(s.sessionId)}"><button class="goto-session" data-session-id="${escapeAttr(s.sessionId)}" style="background:none;border:none;color:var(--accent);cursor:pointer;padding:0">${shortSession}</button></td>
       <td>${s.primaryModel || "unknown"}</td>
       <td class="num">${s.turnCount}</td>
       <td class="num">${cacheHitPct.toFixed(1)}%</td>

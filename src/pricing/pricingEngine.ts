@@ -8,6 +8,7 @@ const DEFAULT_FALLBACK_RATE: ModelPricing = {
   input: 2.5,  // 250 credits/1M → $2.50 USD
   output: 15,  // 1500 credits/1M → $15.00 USD
   cached: 0.25, // 25 credits/1M → $0.25 USD
+  cacheWrite: 3.75, // 375 credits/1M → $3.75 USD (1.5× input)
 };
 
 export interface UnknownModelDiagnostics {
@@ -29,8 +30,13 @@ export class PricingEngine {
   private readonly unknownExcludedModels: Set<string> = new Set();
   private unknownExcludedTurnCount: number = 0;
 
+  constructor(configManager?: ConfigManager, logger?: Logger) {
+    if (configManager) this.configManager = configManager;
+    if (logger) this.logger = logger;
+  }
+
   /**
-   * Set dependencies (called after construction to avoid circular deps).
+   * Set dependencies (kept for backward compatibility; prefer constructor injection).
    */
   setDependencies(configManager: ConfigManager, logger: Logger): void {
     this.configManager = configManager;
@@ -42,32 +48,53 @@ export class PricingEngine {
   }
 
   async refreshPricing(): Promise<void> {
-    // 1. Fetch from user-configured remote URL, cached for 24 hours.
     const url = this.configManager?.config.pricingUrl
       ?? vscode.workspace.getConfiguration("copilotCostTracker").get<string>("pricingUrl", "");
 
     if (url && Date.now() - this.lastFetch > this.FETCH_INTERVAL_MS) {
-      try {
-        const response = await fetch(url);
-        if (response.ok) {
-          const remote = (await response.json()) as PricingData;
-          if (remote.models && remote.version) {
-            this.pricing = remote;
-            this.lastFetch = Date.now();
-            this.logger?.debug("Pricing updated from remote URL");
-            return;
-          }
-        }
-      } catch (err) {
-        // Network failure or invalid response; fall through to built-in table
-        this.logger?.warn("Failed to fetch remote pricing; using built-in pricing", err);
-      }
+      const fetched = await this.fetchRemotePricing(url);
+      if (fetched) return;
     }
 
-    // 2. Fall back to built-in table (updated manually from GitHub Docs on each release).
+    // Fall back to built-in table (updated manually from GitHub Docs on each release).
     if (!this.lastFetch) {
       this.pricing = DEFAULT_PRICING;
       this.logger?.debug("Using built-in pricing table");
+    }
+  }
+
+  private async fetchRemotePricing(url: string): Promise<boolean> {
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(url);
+    } catch {
+      this.logger?.warn(`Invalid pricing URL: "${url}" — skipping remote fetch`);
+      return false;
+    }
+
+    if (parsedUrl.protocol !== "https:") {
+      this.logger?.warn(`Pricing URL must use HTTPS (got "${parsedUrl.protocol}") — skipping remote fetch`);
+      return false;
+    }
+
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+      if (!response.ok) return false;
+
+      const remote = (await response.json()) as PricingData;
+      const validationError = this.validatePricingData(remote);
+      if (validationError) {
+        this.logger?.warn(`Remote pricing JSON failed validation: ${validationError}; using built-in pricing`);
+        return false;
+      }
+
+      this.pricing = remote;
+      this.lastFetch = Date.now();
+      this.logger?.debug("Pricing updated from remote URL");
+      return true;
+    } catch (err) {
+      this.logger?.warn("Failed to fetch remote pricing; using built-in pricing", err);
+      return false;
     }
   }
 
@@ -202,6 +229,24 @@ export class PricingEngine {
       .toLowerCase()
       .replace(/\s+/g, "-")
       .replaceAll("_", "-");
+  }
+
+  /** Validate full pricing data structure. Returns null on success, error string on failure. */
+  private validatePricingData(data: unknown): string | null {
+    const d = data as Record<string, unknown>;
+    if (!d.version || typeof d.version !== "string") return "missing or invalid 'version'";
+    if (!d.models || typeof d.models !== "object") return "missing or invalid 'models'";
+    const MAX_RATE = 1000;
+    for (const [key, val] of Object.entries(d.models as Record<string, unknown>)) {
+      if (!val || typeof val !== "object") return `model "${key}": value is not an object`;
+      const m = val as Record<string, unknown>;
+      if (typeof m.input !== "number" || typeof m.output !== "number" || typeof m.cached !== "number") {
+        return `model "${key}": missing required numeric fields (input, output, cached)`;
+      }
+      if (m.input < 0 || m.output < 0 || m.cached < 0) return `model "${key}": negative rate`;
+      if (m.input > MAX_RATE || m.output > MAX_RATE || m.cached > MAX_RATE) return `model "${key}": rate exceeds $${MAX_RATE}/1M ceiling`;
+    }
+    return null;
   }
 
 

@@ -60,10 +60,15 @@ export class Logger implements vscode.Disposable {
     const timestamp = new Date().toISOString();
     const prefix = `[${timestamp}] [${level.toUpperCase()}]`;
     const formatted = args.length > 0
-      ? `${prefix} ${message} ${args.map((a) => (a !== null && typeof a === "object" ? JSON.stringify(a) : String(a))).join(" ")}`
+      ? `${prefix} ${message} ${args.map((a) => this.formatArg(a)).join(" ")}`
       : `${prefix} ${message}`;
 
     this._channel.appendLine(formatted);
+  }
+
+  private formatArg(a: unknown): string {
+    if (a === null || typeof a !== "object") return String(a);
+    try { return JSON.stringify(a); } catch { return String(a); }
   }
 
   /** Show the OutputChannel in the editor. */

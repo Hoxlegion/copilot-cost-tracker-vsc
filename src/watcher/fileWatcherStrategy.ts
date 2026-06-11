@@ -130,6 +130,8 @@ export class FileWatcherStrategy {
     this.isRunning = true;
     try {
       await this.callback();
+    } catch (err) {
+      console.error("[FileWatcherStrategy] Callback failed:", err);
     } finally {
       this.isRunning = false;
     }

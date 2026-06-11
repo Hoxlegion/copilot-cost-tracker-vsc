@@ -109,15 +109,24 @@ export class PromptCostIntelligenceProvider implements vscode.CodeLensProvider, 
   }
 
   private async computePreview(document: vscode.TextDocument): Promise<void> {
+    const uriKey = document.uri.toString();
     const capturedVersion = document.version;
-    const tokens = await this.countTokens(document.getText());
 
-    const openDoc = vscode.workspace.textDocuments.find((d) => d.uri.toString() === document.uri.toString());
-    if (!openDoc?.version || openDoc.version !== capturedVersion) {
+    let tokens: number;
+    try {
+      tokens = await this.countTokens(document.getText());
+    } catch (err) {
+      this.logger.debug("Token counting failed for preview", err);
       return;
     }
 
-    this.previewByUri.set(document.uri.toString(), {
+    // Verify document is still open and unchanged after async work
+    const openDoc = vscode.workspace.textDocuments.find((d) => d.uri.toString() === uriKey);
+    if (!openDoc || openDoc.version !== capturedVersion) {
+      return;
+    }
+
+    this.previewByUri.set(uriKey, {
       version: capturedVersion,
       tokens,
     });
@@ -128,7 +137,7 @@ export class PromptCostIntelligenceProvider implements vscode.CodeLensProvider, 
   private async countTokens(text: string): Promise<number> {
     try {
       const lmApi = (vscode as unknown as { lm?: { selectChatModels?: (selector?: object) => Thenable<any[]> } }).lm;
-      const models = await lmApi?.selectChatModels?.() ?? [];
+      const models = (await lmApi?.selectChatModels?.()) ?? [];
       const preferred = models.find((model) =>
         typeof model?.id === "string" && PREFERRED_TOKEN_COUNTER_MODELS.has(model.id)
       );

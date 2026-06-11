@@ -91,6 +91,7 @@ function parseCustomModelRates(rawCustomRates: unknown): Record<string, ModelRat
   for (const [model, rate] of entries) {
     const safeModel = sanitizeModelName(model);
     if (!safeModel) {
+      console.warn(`[Config] Skipping custom model rate: "${model}" failed name validation`);
       continue;
     }
 
@@ -105,6 +106,8 @@ function parseCustomModelRates(rawCustomRates: unknown): Record<string, ModelRat
       output <= 1_000_000_000
     ) {
       customModelRates[safeModel] = { input, output };
+    } else {
+      console.warn(`[Config] Skipping custom model rate: "${model}" has invalid input/output values`);
     }
   }
 
@@ -118,7 +121,11 @@ function readConfig(): ExtensionConfig {
   const cfg = vscode.workspace.getConfiguration(SECTION);
 
   const pollIntervalMin = clamp(cfg.get<number>("pollIntervalMin") ?? 5000, 1000, 300000);
-  const pollIntervalMax = clamp(cfg.get<number>("pollIntervalMax") ?? 30000, pollIntervalMin, 600000);
+  const rawPollMax = clamp(cfg.get<number>("pollIntervalMax") ?? 30000, pollIntervalMin, 600000);
+  const pollIntervalMax = Math.max(rawPollMax, pollIntervalMin);
+  if (rawPollMax < pollIntervalMin) {
+    console.warn(`[Config] pollIntervalMax (${cfg.get<number>("pollIntervalMax")}) is less than pollIntervalMin (${pollIntervalMin}), clamping to ${pollIntervalMax}`);
+  }
   const refreshDebounceMs = clamp(Math.round(cfg.get<number>("refreshDebounceMs") ?? 300), 100, 5000);
 
   const billingCycleStartDay = clamp(Math.round(cfg.get<number>("billingCycleStartDay") ?? 1), 1, 31);

@@ -49,6 +49,8 @@ export function setWasmPath(p: string): void {
 export class CostDatabase {
   private db: Database | null = null;
   private readonly dbPath: string;
+  private saving: boolean = false;
+  private wasCorrupted: boolean = false;
 
   constructor(storagePath: string) {
     this.dbPath = path.join(storagePath, "copilot-costs.db");
@@ -74,13 +76,47 @@ export class CostDatabase {
     } catch (err) {
       console.warn(`[CostDatabase] Corrupted database file (${this.dbPath}), starting fresh. Error: ${err}`);
       this.db = new SQL.Database();
+      this.wasCorrupted = true;
     }
-    createTables(this.db);
+
+    try {
+      createTables(this.db);
+    } catch (err) {
+      console.warn(`[CostDatabase] Failed to create tables, resetting database. Error: ${err}`);
+      this.db.close();
+      this.db = new SQL.Database();
+      this.wasCorrupted = true;
+      createTables(this.db);
+    }
+  }
+
+  /** Returns true if the database was corrupted and had to be reset during initialization. */
+  get didRecoverFromCorruption(): boolean {
+    return this.wasCorrupted;
   }
 
   private requireDb(): Database {
     if (!this.db) throw new Error("Database not initialized");
     return this.db;
+  }
+
+  beginTransaction(): void {
+    if (!this.db) return;
+    this.db.run("BEGIN TRANSACTION");
+  }
+
+  commitTransaction(): void {
+    if (!this.db) return;
+    this.db.run("COMMIT");
+  }
+
+  rollbackTransaction(): void {
+    if (!this.db) return;
+    try {
+      this.db.run("ROLLBACK");
+    } catch {
+      // Ignore if no transaction is active
+    }
   }
 
   // ── CRUD ────────────────────────────────────────────
@@ -100,8 +136,16 @@ export class CostDatabase {
     return queries.getMaxTimestamp(this.db);
   }
 
+  private nullDbWarned = false;
+
   insertTurn(turn: ParsedTurn, costUsd: number, credits: number, workspace: string): void {
-    if (!this.db) return;
+    if (!this.db) {
+      if (!this.nullDbWarned) {
+        this.nullDbWarned = true;
+        console.warn("[CostDatabase] insertTurn called before database initialized — data is being dropped");
+      }
+      return;
+    }
     this.db.run(
       `INSERT OR IGNORE INTO turns
         (session_id, timestamp, duration, agent_name, model, model_family, input_tokens, output_tokens, cached_tokens, cache_write_tokens, total_tokens, cost_usd, credits, workspace, status)
@@ -254,7 +298,11 @@ export class CostDatabase {
     return metrics.getAlertMetrics(this.db, sinceMs, thresholds);
   }
 
-  getCacheSavingsMetrics(sinceMs: number, workspace?: string): CacheSavingsMetrics {
+  getCacheSavingsMetrics(
+    sinceMs: number,
+    workspace?: string,
+    calculateSavingsCost?: (modelFamily: string, writeTokens: number, readTokens: number) => number,
+  ): CacheSavingsMetrics {
     if (!this.db) {
       return {
         totalCacheWriteTokens: 0,
@@ -264,7 +312,7 @@ export class CostDatabase {
         byModel: [],
       };
     }
-    return metrics.getCacheSavingsMetrics(this.db, sinceMs, workspace);
+    return metrics.getCacheSavingsMetrics(this.db, sinceMs, workspace, calculateSavingsCost);
   }
 
   // ── Context Awareness ───────────────────────────────
@@ -286,14 +334,22 @@ export class CostDatabase {
 
   // ── Maintenance ─────────────────────────────────────
 
-  save(): void {
+  async save(): Promise<void> {
     if (!this.db) return;
-    const dir = path.dirname(this.dbPath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+    if (this.saving) return;
+    this.saving = true;
+    try {
+      const dir = path.dirname(this.dbPath);
+      await fs.promises.mkdir(dir, { recursive: true });
+      const data = this.db.export();
+      const tmpPath = this.dbPath + ".tmp";
+      await fs.promises.writeFile(tmpPath, Buffer.from(data));
+      await fs.promises.rename(tmpPath, this.dbPath);
+    } catch (err) {
+      console.error(`[CostDatabase] Failed to save database: ${err}`);
+    } finally {
+      this.saving = false;
     }
-    const data = this.db.export();
-    fs.writeFileSync(this.dbPath, Buffer.from(data));
   }
 
   pruneOldTurns(retentionDays: number): number {
@@ -302,28 +358,48 @@ export class CostDatabase {
     const safeDays = Math.max(1, Math.min(3650, retentionDays));
     const cutoffMs = Date.now() - safeDays * 24 * 60 * 60 * 1000;
 
-    const beforeResult = this.db.exec(`SELECT COUNT(*) as count FROM turns WHERE timestamp < ${cutoffMs}`);
-    const countBefore = beforeResult.length > 0 ? (beforeResult[0].values[0][0] as number) : 0;
+    const beforeStmt = this.db.prepare(`SELECT COUNT(*) FROM turns WHERE timestamp < :cutoff`);
+    beforeStmt.bind({ ":cutoff": cutoffMs });
+    const countBefore = beforeStmt.step() ? (beforeStmt.get()[0] as number) : 0;
+    beforeStmt.free();
 
     this.db.run(
       `DELETE FROM turns
        WHERE timestamp < ?
-         AND (session_id, timestamp) NOT IN (
-           SELECT session_id, MAX(timestamp)
-           FROM turns
-           GROUP BY session_id
+         AND rowid NOT IN (
+           SELECT rowid FROM (
+             SELECT rowid, ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY timestamp DESC) AS rn
+             FROM turns
+           ) WHERE rn = 1
          )`,
       [cutoffMs]
     );
 
-    const afterResult = this.db.exec(`SELECT COUNT(*) as count FROM turns WHERE timestamp < ${cutoffMs}`);
-    const countAfter = afterResult.length > 0 ? (afterResult[0].values[0][0] as number) : 0;
+    const afterStmt = this.db.prepare(`SELECT COUNT(*) FROM turns WHERE timestamp < :cutoff`);
+    afterStmt.bind({ ":cutoff": cutoffMs });
+    const countAfter = afterStmt.step() ? (afterStmt.get()[0] as number) : 0;
+    afterStmt.free();
+
     return Math.max(0, countBefore - countAfter);
   }
 
   close(): void {
-    this.save();
     if (this.db) {
+      // Synchronous save on close to ensure data is persisted before process exit
+      if (!this.saving) {
+        try {
+          const dir = path.dirname(this.dbPath);
+          if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+          }
+          const data = this.db.export();
+          const tmpPath = this.dbPath + ".tmp";
+          fs.writeFileSync(tmpPath, Buffer.from(data));
+          fs.renameSync(tmpPath, this.dbPath);
+        } catch (err) {
+          console.error(`[CostDatabase] Failed to save database on close: ${err}`);
+        }
+      }
       this.db.close();
       this.db = null;
     }

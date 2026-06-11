@@ -1,5 +1,4 @@
 import { CacheSavingsMetrics, InsightMetrics } from "../../database";
-import { PricingEngine } from "../../pricing";
 import type { SurfaceBreakdown } from "../../parser";
 import type { DashboardAlert } from "../../insights";
 
@@ -28,7 +27,6 @@ export function buildSurfaceCostView(
 export function buildCacheSavingsView(
   cacheSavings: CacheSavingsMetrics,
   periodCostUsd: number,
-  pricing: PricingEngine,
 ): {
   hasSavings: boolean;
   savingsCostUsd: string;
@@ -36,20 +34,7 @@ export function buildCacheSavingsView(
   savingsPct: string;
   topModelRows: string;
 } {
-  let totalSavingsCostUsd = 0;
-  for (const entry of cacheSavings.byModel) {
-    const cost = pricing.calculateCacheSavingsCost(entry.modelFamily, entry.cacheWriteTokens, entry.cacheReadTokens);
-    entry.savingsCostUsd = cost;
-    entry.savingsCredits = cost * 100;
-    totalSavingsCostUsd += cost;
-  }
-
-  cacheSavings.totalSavingsCostUsd = totalSavingsCostUsd;
-  cacheSavings.totalSavingsCredits = totalSavingsCostUsd * 100;
-
-  for (const entry of cacheSavings.byModel) {
-    entry.percentage = totalSavingsCostUsd > 0 ? (entry.savingsCostUsd / totalSavingsCostUsd) * 100 : 0;
-  }
+  const totalSavingsCostUsd = cacheSavings.totalSavingsCostUsd;
 
   const savingsPct = periodCostUsd > 0 && totalSavingsCostUsd > 0
     ? ((totalSavingsCostUsd / (periodCostUsd + totalSavingsCostUsd)) * 100).toFixed(1)

@@ -1,4 +1,4 @@
-export { createNonce, percentile, AGENT_LABEL_MAP } from "./dashboardUtils";
+export { createNonce, safeJsonForScript, percentile, AGENT_LABEL_MAP } from "./dashboardUtils";
 export { resolveWorkspaceName } from "./workspaceResolver";
 export { getUsagePresentation, getBudgetDetails, getBudgetColor, getForecastHtml } from "./budgetViewHelpers";
 export {

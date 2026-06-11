@@ -5,6 +5,7 @@
 
 import { CostDatabase, InsightMetrics, CacheSavingsMetrics, SessionContextDistribution, ContextTimelinePoint } from "../database";
 import { TracesDbReader, SurfaceBreakdown, TurnDiscoveryRow } from "../parser";
+import { PricingEngine } from "../pricing";
 import { getBillingPeriodEndMs, getBillingPeriodStartMs } from "../billing";
 import { getAlerts, buildPlaybook, DashboardAlert, PlaybookRow } from "../insights";
 import { resolveWorkspaceName } from "./helpers/workspaceResolver";
@@ -68,7 +69,8 @@ export interface DashboardRawData {
 export class DashboardDataAssembler {
   constructor(
     private readonly database: CostDatabase,
-    private readonly reader: TracesDbReader
+    private readonly reader: TracesDbReader,
+    private readonly pricing: PricingEngine,
   ) {}
 
   async assemble(billingCycleStartDay: number, budgetCredits: number): Promise<DashboardRawData> {
@@ -76,40 +78,30 @@ export class DashboardDataAssembler {
     const periodEndMs = getBillingPeriodEndMs(billingCycleStartDay);
     const sinceMs30d = Date.now() - 30 * 24 * 60 * 60 * 1000;
 
-    // Fetch all data in parallel where possible
-    const [
-      insightMetrics,
-      surfaceData,
-      turnDiscovery,
-      monthTotal,
-      dailyCosts,
-      dailyCostsForRange,
-      insightMetricsFullRange,
-      modelBreakdown,
-      agentBreakdown,
-      dailyAgentBreakdown,
-      allSessions,
-      periodCredits,
-      periodAggregate,
-      cacheSavings,
-      contextDistribution,
-    ] = await Promise.all([
-      Promise.resolve(this.database.getInsightMetrics(30)),
+    // Fetch async data from the reader in parallel
+    const [surfaceData, turnDiscovery] = await Promise.all([
       this.reader.getSurfaceBreakdown(sinceMs30d),
       this.reader.getTurnDiscovery(sinceMs30d),
-      Promise.resolve(this.database.getCurrentMonthTotal()),
-      Promise.resolve(this.database.getDailyCosts(30)),
-      Promise.resolve(this.database.getDailyCosts(365)),
-      Promise.resolve(this.database.getInsightMetrics(365)),
-      Promise.resolve(this.database.getModelBreakdown(30)),
-      Promise.resolve(this.database.getAgentBreakdown(30)),
-      Promise.resolve(this.database.getDailyAgentBreakdown(365)),
-      Promise.resolve(this.database.getSessionSummaries(undefined, 1000)),
-      Promise.resolve(this.database.getCreditsSince(periodStartMs)),
-      Promise.resolve(this.database.getCostSince(periodStartMs)),
-      Promise.resolve(this.database.getCacheSavingsMetrics(periodStartMs)),
-      Promise.resolve(this.database.getSessionContextDistribution(sinceMs30d)),
     ]);
+
+    // Synchronous database queries
+    const insightMetrics = this.database.getInsightMetrics(30);
+    const monthTotal = this.database.getCurrentMonthTotal();
+    const dailyCosts = this.database.getDailyCosts(30);
+    const dailyCostsForRange = this.database.getDailyCosts(365);
+    const insightMetricsFullRange = this.database.getInsightMetrics(365);
+    const modelBreakdown = this.database.getModelBreakdown(30);
+    const agentBreakdown = this.database.getAgentBreakdown(30);
+    const dailyAgentBreakdown = this.database.getDailyAgentBreakdown(365);
+    const allSessions = this.database.getSessionSummaries(undefined, 1000);
+    const periodCredits = this.database.getCreditsSince(periodStartMs);
+    const periodAggregate = this.database.getCostSince(periodStartMs);
+    const cacheSavings = this.database.getCacheSavingsMetrics(
+      periodStartMs,
+      undefined,
+      (model, write, read) => this.pricing.calculateCacheSavingsCost(model, write, read),
+    );
+    const contextDistribution = this.database.getSessionContextDistribution(sinceMs30d);
 
     const sessionModelRows = this.database.getSessionModelBreakdowns(allSessions.map((s) => s.sessionId));
     const sessionModelMap = new Map<string, typeof sessionModelRows>();
