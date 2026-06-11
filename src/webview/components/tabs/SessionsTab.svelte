@@ -78,7 +78,7 @@
     
     return {
       id: s.sessionId,
-      date,
+      date: s.title ? `${s.title} · ${date}` : date,
       model: s.primaryModel,
       turns: s.turnCount,
       cost: s.totalCostUsd.toFixed(2),

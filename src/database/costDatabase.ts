@@ -81,13 +81,125 @@ export class CostDatabase {
 
     try {
       createTables(this.db);
+      this.runMigrations(this.db);
     } catch (err) {
       console.warn(`[CostDatabase] Failed to create tables, resetting database. Error: ${err}`);
       this.db.close();
       this.db = new SQL.Database();
       this.wasCorrupted = true;
       createTables(this.db);
+      this.runMigrations(this.db);
     }
+  }
+
+  private runMigrations(db: Database): void {
+    try {
+      this.mergeDuplicateSessionRecords(db);
+    } catch (err) {
+      console.warn(`[CostDatabase] Migration error (non-fatal), continuing: ${err}`);
+    }
+  }
+
+  runLegacySessionDedupMigration(): void {
+    if (!this.db) return;
+    try {
+      this.mergeDuplicateSessionRecords(this.db);
+    } catch (err) {
+      console.warn(`[CostDatabase] Legacy session dedupe failed (non-fatal): ${err}`);
+    }
+  }
+
+  private mergeDuplicateSessionRecords(db: Database): void {
+    // Check if migration already ran (marker stored as a pragmatic session record)
+    const marker = db.exec("SELECT 1 FROM sessions WHERE session_id = '__migration_merge_v2__'");
+    if (marker.length > 0 && marker[0].values.length > 0) return;
+
+    // Defer marking completion until title sync has happened at least once.
+    // Otherwise we may mark as done too early and miss legacy duplicates.
+    const titledCountStmt = db.prepare(
+      "SELECT COUNT(*) as c FROM sessions WHERE title IS NOT NULL AND TRIM(title) != ''"
+    );
+    let titledCount = 0;
+    if (titledCountStmt.step()) {
+      const row = titledCountStmt.getAsObject();
+      titledCount = Number(row.c ?? 0);
+    }
+    titledCountStmt.free();
+    if (titledCount === 0) return;
+
+    // Find sessions with the same title in the same workspace, created within 1 hour of each other
+    // This cleans up duplicates from the title mapping bug that mapped to both parent and conversation IDs
+    const stmt = db.prepare(`
+      SELECT 
+        s1.session_id as primary_id,
+        s2.session_id as duplicate_id,
+        s1.title
+      FROM sessions s1
+      JOIN sessions s2 ON 
+        s1.workspace = s2.workspace 
+        AND s1.title IS NOT NULL 
+        AND s1.title = s2.title 
+        AND s1.session_id < s2.session_id
+        AND ABS(s1.start_timestamp - s2.start_timestamp) < 3600000
+    `);
+
+    const duplicates: Array<{ primary_id: string; duplicate_id: string; title: string }> = [];
+    while (stmt.step()) {
+      const row = stmt.getAsObject();
+      duplicates.push({
+        primary_id: row.primary_id as string,
+        duplicate_id: row.duplicate_id as string,
+        title: row.title as string,
+      });
+    }
+    stmt.free();
+
+    if (duplicates.length > 0) {
+      console.info(`[CostDatabase] Found ${duplicates.length} duplicate session pair(s) to merge`);
+
+      for (const dup of duplicates) {
+        // Move turns that won't violate the UNIQUE(session_id, timestamp, model) constraint
+        db.run(
+          `UPDATE turns SET session_id = ?
+           WHERE session_id = ?
+             AND NOT EXISTS (
+               SELECT 1 FROM turns t2
+               WHERE t2.session_id = ?
+                 AND t2.timestamp = turns.timestamp
+                 AND t2.model = turns.model
+             )`,
+          [dup.primary_id, dup.duplicate_id, dup.primary_id]
+        );
+
+        // Delete any remaining duplicate turns that couldn't be moved (they already exist on the primary)
+        db.run(`DELETE FROM turns WHERE session_id = ?`, [dup.duplicate_id]);
+
+        // Update primary session's last_timestamp
+        const tsStmt = db.prepare(`SELECT MAX(timestamp) as max_ts FROM turns WHERE session_id = ?`);
+        tsStmt.bind([dup.primary_id]);
+        let newLastTs: number | undefined;
+        if (tsStmt.step()) {
+          const row = tsStmt.getAsObject();
+          newLastTs = row.max_ts as number | undefined;
+        }
+        tsStmt.free();
+
+        if (newLastTs !== undefined && newLastTs > 0) {
+          db.run(`UPDATE sessions SET last_timestamp = ? WHERE session_id = ?`, [newLastTs, dup.primary_id]);
+        }
+
+        // Delete the duplicate session record
+        db.run(`DELETE FROM sessions WHERE session_id = ?`, [dup.duplicate_id]);
+
+        console.info(`[CostDatabase] Merged duplicate session "${dup.title}" (${dup.duplicate_id} → ${dup.primary_id})`);
+      }
+    }
+
+    // Mark migration as done so it doesn't re-run
+    db.run(
+      `INSERT OR IGNORE INTO sessions (session_id, workspace, start_timestamp, last_timestamp, processed_at) VALUES ('__migration_merge_v2__', '', 0, 0, ?)`,
+      [Date.now()]
+    );
   }
 
   /** Returns true if the database was corrupted and had to be reset during initialization. */
@@ -176,15 +288,63 @@ export class CostDatabase {
     startTimestamp: number,
     lastTimestamp: number,
     copilotVersion: string,
-    vscodeVersion: string
+    vscodeVersion: string,
+    title?: string
   ): void {
     if (!this.db) return;
     this.db.run(
       `INSERT OR REPLACE INTO sessions
-        (session_id, workspace, start_timestamp, last_timestamp, copilot_version, vscode_version, processed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [sessionId, workspace, startTimestamp, lastTimestamp, copilotVersion, vscodeVersion, Date.now()]
+        (session_id, workspace, start_timestamp, last_timestamp, copilot_version, vscode_version, processed_at, title)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [sessionId, workspace, startTimestamp, lastTimestamp, copilotVersion, vscodeVersion, Date.now(), title ?? null]
     );
+  }
+
+  updateSessionTitles(titles: Map<string, string>): void {
+    if (!this.db || titles.size === 0) return;
+
+    // Guard for legacy databases that may not have run schema migration yet.
+    const titleColCheck = this.db.exec("PRAGMA table_info(sessions)");
+    if (titleColCheck.length > 0) {
+      const hasTitle = titleColCheck[0].values.some((row) => row[1] === "title");
+      if (!hasTitle) {
+        this.db.run("ALTER TABLE sessions ADD COLUMN title TEXT");
+      }
+    }
+
+    // In traces-DB mode we may have turns without a matching sessions row.
+    // Create minimal session records so title updates can attach correctly.
+    const ensureSessionStmt = this.db.prepare(
+      `INSERT OR IGNORE INTO sessions
+        (session_id, workspace, start_timestamp, last_timestamp, copilot_version, vscode_version, processed_at, title)
+       SELECT
+         t.session_id,
+         MIN(t.workspace),
+         MIN(t.timestamp),
+         MAX(t.timestamp),
+         NULL,
+         NULL,
+         ?,
+         NULL
+       FROM turns t
+       WHERE t.session_id = ?
+       GROUP BY t.session_id`
+    );
+
+    const stmt = this.db.prepare(
+      `UPDATE sessions SET title = :title WHERE session_id = :id AND (title IS NULL OR title != :title)`
+    );
+    for (const [sessionId, title] of titles) {
+      ensureSessionStmt.bind([Date.now(), sessionId]);
+      ensureSessionStmt.step();
+      ensureSessionStmt.reset();
+
+      stmt.bind({ ":title": title, ":id": sessionId });
+      stmt.step();
+      stmt.reset();
+    }
+    ensureSessionStmt.free();
+    stmt.free();
   }
 
   // ── Sessions ────────────────────────────────────────

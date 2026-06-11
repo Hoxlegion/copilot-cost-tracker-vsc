@@ -9,6 +9,7 @@
   
   $: data = $dashboardData;
   $: allDistribution = data?.contextDistribution ?? [];
+  $: titleMap = new Map((data?.allSessions ?? []).filter(s => s.title).map(s => [s.sessionId, s.title!]));
   
   $: contextDistribution = allDistribution.filter(d => {
     if ($filterState.fromMs !== null && d.startMs < $filterState.fromMs) return false;
@@ -95,7 +96,7 @@
   ];
   
   $: tableRows = contextDistribution.slice(0, 20).map(d => ({
-    session: formatSessionLabel(d.workspace, d.startMs, d.sessionId),
+    session: formatSessionLabel(d.workspace, d.startMs, d.sessionId, titleMap.get(d.sessionId)),
     turns: d.turnCount,
     context: formatTokens(d.currentContextWeight),
     pages: formatPages(d.currentContextWeight),

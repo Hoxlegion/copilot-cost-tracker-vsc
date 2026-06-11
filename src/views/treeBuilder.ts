@@ -195,10 +195,12 @@ export function buildTree(
           month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"
         });
         const avgDuration = formatDuration(s.avgDurationMs);
+        const label = s.title ? `${s.title}` : time;
+        const timeDesc = s.title ? `${time} · ` : "";
         return {
           type: "session" as const,
-          label: time,
-          description: `${fmtUsd(s.totalCostUsd)} · ${s.turnCount} turns · ${simplifyModelName(s.primaryModel)} · avg ${avgDuration}`,
+          label,
+          description: `${timeDesc}${fmtUsd(s.totalCostUsd)} · ${s.turnCount} turns · ${simplifyModelName(s.primaryModel)} · avg ${avgDuration}`,
           sessionId: s.sessionId,
           iconId: "comment-discussion",
           hasChildren: s.turnCount > 0,

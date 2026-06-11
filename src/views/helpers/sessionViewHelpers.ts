@@ -64,6 +64,7 @@ export function buildWorkspaceSummaryView(allSessions: Array<{
 export function buildRecentSessionRowsHtml(allSessions: Array<{
   sessionId: string; workspace: string; lastTimestamp: number; turnCount: number;
   primaryModel: string; totalInputTokens: number; totalCachedTokens: number; totalCostUsd: number;
+  title?: string | null;
 }>): string {
   const recent = [...allSessions].sort((a, b) => (b.lastTimestamp || 0) - (a.lastTimestamp || 0)).slice(0, 6);
   if (recent.length === 0) return `<tr><td colspan="7" style="color:var(--muted)">No recent sessions yet</td></tr>`;
@@ -71,12 +72,12 @@ export function buildRecentSessionRowsHtml(allSessions: Array<{
   return recent.map((s) => {
     const cacheBase = s.totalInputTokens + s.totalCachedTokens;
     const cacheHitPct = cacheBase > 0 ? (s.totalCachedTokens / cacheBase) * 100 : 0;
-    const shortSession = s.sessionId.length > 12 ? `${s.sessionId.slice(0, 6)}…${s.sessionId.slice(-4)}` : s.sessionId;
+    const sessionLabel = s.title || (s.sessionId.length > 12 ? `${s.sessionId.slice(0, 6)}…${s.sessionId.slice(-4)}` : s.sessionId);
     const timeLabel = s.lastTimestamp > 0 ? new Date(s.lastTimestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—";
     return `<tr>
       <td>${timeLabel}</td>
       <td title="${escapeAttr(s.workspace)}">${resolveWorkspaceName(s.workspace)}</td>
-      <td title="${escapeAttr(s.sessionId)}"><button class="goto-session" data-session-id="${escapeAttr(s.sessionId)}" style="background:none;border:none;color:var(--accent);cursor:pointer;padding:0">${shortSession}</button></td>
+      <td title="${escapeAttr(s.sessionId)}"><button class="goto-session" data-session-id="${escapeAttr(s.sessionId)}" style="background:none;border:none;color:var(--accent);cursor:pointer;padding:0">${escapeAttr(sessionLabel)}</button></td>
       <td>${s.primaryModel || "unknown"}</td>
       <td class="num">${s.turnCount}</td>
       <td class="num">${cacheHitPct.toFixed(1)}%</td>

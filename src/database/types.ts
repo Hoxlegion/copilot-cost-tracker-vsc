@@ -30,6 +30,7 @@ export interface SessionSummary {
   totalCredits: number;
   primaryModel: string;
   avgDurationMs: number;
+  title: string | null;
 }
 
 export interface SessionModelBreakdownRow {

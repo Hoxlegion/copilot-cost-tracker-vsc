@@ -95,11 +95,16 @@ export class TracesIngester implements vscode.Disposable {
     if (this.isDisposed) return 0;
 
     const source = this.resolveSource();
+    let count: number;
     if (source === "database") {
-      return this.ingestFromTracesDb(sinceOverride);
+      count = await this.ingestFromTracesDb(sinceOverride);
     } else {
-      return this.ingestFromJsonl();
+      count = await this.ingestFromJsonl();
     }
+
+    this.syncSessionTitles();
+
+    return count;
   }
 
   private resolveSource(): "database" | "jsonl" {
@@ -296,6 +301,18 @@ export class TracesIngester implements vscode.Disposable {
       this.onDataChanged.fire();
     }
     return newTurns;
+  }
+
+  private syncSessionTitles(): void {
+    try {
+      const titles = this.logParser.discoverSessionTitles();
+      if (titles.size > 0) {
+        this.database.updateSessionTitles(titles);
+        this.database.runLegacySessionDedupMigration();
+      }
+    } catch (err) {
+      this.logger.debug("Failed to sync session titles", err);
+    }
   }
 
   dispose(): void {

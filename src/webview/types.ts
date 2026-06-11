@@ -30,6 +30,7 @@ export interface DashboardRawData {
     totalCredits: number;
     primaryModel: string;
     avgDurationMs: number;
+    title?: string | null;
     modelBreakdown: Array<{
       model: string;
       turnCount: number;

@@ -23,6 +23,7 @@
   
   $: allTimelines = $dashboardData?.contextTimelines ?? [];
   $: contextDistribution = $dashboardData?.contextDistribution ?? [];
+  $: titleMap = new Map(($dashboardData?.allSessions ?? []).filter(s => s.title).map(s => [s.sessionId, s.title!]));
   
   $: filteredSessionIds = new Set(
     contextDistribution
@@ -39,7 +40,7 @@
   $: chartData = {
     labels: [],
     datasets: contextTimelines.slice(0, 5).map((timeline, i) => ({
-      label: formatSessionLabel(timeline.workspace, timeline.startMs, timeline.sessionId),
+      label: formatSessionLabel(timeline.workspace, timeline.startMs, timeline.sessionId, titleMap.get(timeline.sessionId)),
       data: timeline.turns.map(t => t.currentContextWeight),
       borderColor: LINE_COLORS[i % LINE_COLORS.length],
       backgroundColor: FILL_COLORS[i % FILL_COLORS.length],

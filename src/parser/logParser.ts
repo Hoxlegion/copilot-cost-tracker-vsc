@@ -283,6 +283,94 @@ export class LogParser {
     return this.discoverLogDirectories();
   }
 
+  /**
+   * Scan all debug-log session directories for title-*.jsonl files and extract
+   * session titles. Returns a map of session/conversation ID → title string.
+   */
+  discoverSessionTitles(): Map<string, string> {
+    const titles = new Map<string, string>();
+    const dirs = this.discoverLogDirectories();
+
+    for (const dir of dirs) {
+      this.extractTitlesFromDir(dir, titles);
+    }
+
+    return titles;
+  }
+
+  private extractTitlesFromDir(sessionDir: string, titles: Map<string, string>): void {
+    let files: string[];
+    try {
+      files = fs.readdirSync(sessionDir);
+    } catch {
+      return;
+    }
+
+    for (const file of files) {
+      if (!file.startsWith("title-") || !file.endsWith(".jsonl")) continue;
+
+      const filePath = path.join(sessionDir, file);
+      try {
+        const content = fs.readFileSync(filePath, "utf-8");
+        const lines = content.split("\n").filter((l) => l.trim());
+
+        // The conversation ID is the sid of the title file entries
+        let conversationId: string | undefined;
+        // Parent debug session ID sometimes matches turns.session_id in traces mode
+        let parentSessionId: string | undefined;
+
+        for (const line of lines) {
+          try {
+            const entry = JSON.parse(line) as BaseLogEntry;
+
+            if (!conversationId && entry.sid) {
+              conversationId = entry.sid;
+            }
+
+            if (entry.type === "session_start" && entry.attrs?.parentSessionId) {
+              parentSessionId = entry.attrs.parentSessionId as string;
+            }
+
+            if (entry.type === "agent_response" && entry.attrs?.response) {
+              const title = this.extractTitleFromResponse(entry.attrs.response as string);
+              if (title) {
+                // Map by conversation ID when available.
+                if (conversationId) titles.set(conversationId, title);
+                // Also map by parent session ID, which is often the stats session ID.
+                if (parentSessionId) titles.set(parentSessionId, title);
+              }
+            }
+          } catch {
+            // Skip malformed lines
+          }
+        }
+      } catch {
+        // Skip unreadable files
+      }
+    }
+  }
+
+  private extractTitleFromResponse(response: string): string | null {
+    try {
+      const parsed = JSON.parse(response) as Array<{
+        role?: string;
+        parts?: Array<{ type?: string; content?: string }>;
+      }>;
+      for (const msg of parsed) {
+        if (msg.role === "assistant" && Array.isArray(msg.parts)) {
+          for (const part of msg.parts) {
+            if (part.type === "text" && part.content) {
+              return part.content.trim();
+            }
+          }
+        }
+      }
+    } catch {
+      // Not valid JSON
+    }
+    return null;
+  }
+
   get basePath(): string {
     return this.debugLogsBasePath;
   }

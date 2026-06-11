@@ -275,7 +275,8 @@ export function getSessionSummaries(db: Database, workspace?: string, limit: num
       SUM(t.cost_usd) as total_cost_usd,
       SUM(t.credits) as total_credits,
       AVG(t.duration) as avg_duration_ms,
-      pm.primary_model
+      pm.primary_model,
+      s.title
     FROM turns t
     LEFT JOIN (
       SELECT session_id, model_family AS primary_model,
@@ -283,6 +284,7 @@ export function getSessionSummaries(db: Database, workspace?: string, limit: num
       FROM turns
       GROUP BY session_id, model_family
     ) pm ON pm.session_id = t.session_id AND pm.rn = 1
+    LEFT JOIN sessions s ON s.session_id = t.session_id
     WHERE (:workspace IS NULL OR t.workspace = :workspace)
     GROUP BY t.session_id, t.workspace
     HAVING (total_cost_usd > 0 OR total_input_tokens > 0)
@@ -308,6 +310,7 @@ export function getSessionSummaries(db: Database, workspace?: string, limit: num
       totalCredits: row.total_credits as number,
       avgDurationMs: row.avg_duration_ms as number,
       primaryModel: row.primary_model as string,
+      title: (row.title as string) ?? null,
     });
   }
   stmt.free();
