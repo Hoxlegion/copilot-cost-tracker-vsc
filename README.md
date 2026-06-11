@@ -1,6 +1,6 @@
 # Copilot Cost Tracker
 
-[![Version](https://img.shields.io/badge/version-0.4.0-blue.svg)](https://github.com/Hoxlegion/copilot-cost-tracker-vsc/releases)
+[![Version](https://img.shields.io/badge/version-0.5.0-blue.svg)](https://github.com/Hoxlegion/copilot-cost-tracker-vsc/releases)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![VS Code](https://img.shields.io/badge/VS%20Code-%5E1.85.0-blue.svg)](https://code.visualstudio.com/)
 
