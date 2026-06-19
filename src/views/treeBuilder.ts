@@ -126,9 +126,11 @@ export function buildTree(
 
   // Today
   const todayData = getTodayData(database, workspaceFilter);
+  const yesterdayData = getYesterdayData(database, workspaceFilter);
+  const todayTrend = yesterdayData.costUsd > 0 && todayData.costUsd > yesterdayData.costUsd ? '↑' : yesterdayData.costUsd > 0 && todayData.costUsd < yesterdayData.costUsd ? '↓' : '';
   items.push({
     type: "today",
-    label: "Today",
+    label: `Today ${todayTrend}`,
     description: `${fmtUsd(todayData.costUsd)} · ${todayData.credits.toFixed(0)} cr · ${todayData.turns} turns`,
     iconId: "flame",
   });
@@ -169,7 +171,7 @@ export function buildTree(
       children: periodModels.map((m) => ({
         type: "model" as const,
         label: simplifyModelName(m.model),
-        description: `${m.percentage.toFixed(0)}% · ${fmtUsd(m.totalCostUsd)} · ${m.turnCount} turns`,
+        description: `${fmtUsd(m.totalCostUsd)} (${m.percentage.toFixed(0)}%) · ${m.turnCount} turns`,
         iconId: "symbol-method",
       })),
     });
@@ -186,7 +188,7 @@ export function buildTree(
       children: periodAgents.map((a) => ({
         type: "agent" as const,
         label: formatAgentName(a.agentName),
-        description: `${a.percentage.toFixed(0)}% · ${fmtUsd(a.totalCostUsd)} · ${a.turnCount} turns`,
+        description: `${fmtUsd(a.totalCostUsd)} (${a.percentage.toFixed(0)}%) · ${a.turnCount} turns`,
         tooltip: `Agent: ${a.agentName}`,
         iconId: "symbol-key",
       })),
@@ -214,7 +216,7 @@ export function buildTree(
         children: wsBreakdown.map((ws) => ({
           type: "workspace" as const,
           label: ws.name,
-          description: `${ws.credits.toFixed(0)} cr · ${fmtUsd(ws.costUsd)} · ${ws.turns} turns`,
+          description: `${fmtUsd(ws.costUsd)} · ${ws.credits.toFixed(0)} cr · ${ws.turns} turns`,
           iconId: "folder",
         })),
       });
@@ -235,12 +237,16 @@ export function buildTree(
         const avgDuration = formatDuration(s.avgDurationMs);
         const label = s.title ? `${s.title}` : time;
         const timeDesc = s.title ? `${time} · ` : "";
+        // Cost-based icon: flame for expensive sessions
+        const sessionIcon = s.totalCostUsd >= 100 ? "flame" : s.totalCostUsd >= 50 ? "warning" : "comment-discussion";
+        const sessionIconColor = s.totalCostUsd >= 100 ? "charts.red" : s.totalCostUsd >= 50 ? "charts.yellow" : undefined;
         return {
           type: "session" as const,
           label,
           description: `${timeDesc}${fmtUsd(s.totalCostUsd)} · ${s.turnCount} turns · ${simplifyModelName(s.primaryModel)} · avg ${avgDuration}`,
           sessionId: s.sessionId,
-          iconId: "comment-discussion",
+          iconId: sessionIcon,
+          iconColor: sessionIconColor,
           hasChildren: s.turnCount > 0,
         };
       }),
@@ -269,6 +275,9 @@ export function turnToTreeItem(
   });
   const duration = formatDuration(turn.duration);
   const modelPrefix = includeModel ? `${simplifyModelName(turn.modelFamily)} · ` : "";
+  // Visual indicator for expensive turns
+  const turnIcon = turn.credits >= 5 ? "flame" : turn.credits >= 2 ? "zap" : "hubot";
+  const turnIconColor = turn.credits >= 5 ? "charts.red" : turn.credits >= 2 ? "charts.yellow" : undefined;
 
   return {
     type: "turn",
@@ -282,7 +291,8 @@ export function turnToTreeItem(
       cacheWriteTokens: turn.cacheWriteTokens,
       credits: turn.credits,
     },
-    iconId: "hubot",
+    iconId: turnIcon,
+    iconColor: turnIconColor,
   };
 }
 
@@ -300,11 +310,26 @@ function getWeekData(database: CostReader, workspaceFilter?: string): { costUsd:
   return database.getCostSince(weekStart, workspaceFilter);
 }
 
+function getYesterdayData(database: CostReader, workspaceFilter?: string): { costUsd: number; credits: number; turns: number } {
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const yesterdayStart = todayStart - 86400000;
+  const todayData = database.getCostSince(todayStart, workspaceFilter);
+  const sinceYesterday = database.getCostSince(yesterdayStart, workspaceFilter);
+  return {
+    costUsd: sinceYesterday.costUsd - todayData.costUsd,
+    credits: sinceYesterday.credits - todayData.credits,
+    turns: sinceYesterday.turns - todayData.turns,
+  };
+}
+
 function makeProgressBar(pct: number): string {
   const filled = Math.max(0, Math.min(10, Math.round(pct / 10)));
   const empty = 10 - filled;
   return "▰".repeat(filled) + "▱".repeat(empty);
 }
+
+
 
 function creditsToUsdEstimate(credits: number): number {
   return credits / 100;

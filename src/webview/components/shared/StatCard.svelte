@@ -30,13 +30,31 @@
     border: 1px solid color-mix(in srgb, var(--vscode-panel-border) 70%, #2aa5ff 30%);
     border-radius: 10px;
     padding: 12px 14px;
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.16);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
     transition: transform 0.15s ease, box-shadow 0.15s ease;
+    position: relative;
+    overflow: hidden;
+  }
+  
+  .stat::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, rgba(79, 195, 247, 0.4), rgba(129, 199, 132, 0.2));
+    opacity: 0;
+    transition: opacity 0.15s ease;
   }
   
   .stat:hover {
     transform: translateY(-1px);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18);
+  }
+  
+  .stat:hover::before {
+    opacity: 1;
   }
   
   .stat-header {

@@ -1,3 +1,16 @@
+export function formatCompactNumber(value: number): string {
+  if (!Number.isFinite(value)) return '0';
+  if (Math.abs(value) >= 1000000) return (value / 1000000).toFixed(1) + 'M';
+  if (Math.abs(value) >= 1000) return (value / 1000).toFixed(1) + 'K';
+  return String(Math.round(value));
+}
+
+export function formatTokens(tokens: number): string {
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
+  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(1)}K`;
+  return `${tokens}`;
+}
+
 export function formatSessionLabel(workspace: string, startMs: number, sessionId: string, title?: string | null): string {
   const d = new Date(startMs);
   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];

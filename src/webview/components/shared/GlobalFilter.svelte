@@ -95,41 +95,49 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 12px 16px;
+    padding: 8px 16px;
     background: var(--vscode-editor-background);
     border-bottom: 1px solid var(--vscode-panel-border);
-    gap: 16px;
+    gap: 12px;
   }
   
   .filter-controls {
     display: flex;
-    gap: 16px;
+    gap: 12px;
     align-items: center;
     flex-wrap: wrap;
   }
   
   .preset-buttons {
     display: flex;
-    gap: 4px;
+    gap: 2px;
+    background: var(--vscode-input-background);
+    border-radius: 8px;
+    padding: 2px;
+    border: 1px solid var(--vscode-panel-border);
   }
   
   .preset-buttons button {
-    padding: 4px 12px;
-    background: var(--vscode-button-secondaryBackground);
-    color: var(--vscode-button-secondaryForeground);
-    border: 1px solid var(--vscode-button-border);
-    border-radius: 2px;
+    padding: 4px 14px;
+    background: transparent;
+    color: var(--vscode-descriptionForeground);
+    border: none;
+    border-radius: 6px;
     cursor: pointer;
-    font-size: 12px;
+    font-size: 11px;
+    font-weight: 500;
+    transition: all 0.15s ease;
   }
   
   .preset-buttons button:hover {
-    background: var(--vscode-button-secondaryHoverBackground);
+    background: var(--vscode-list-hoverBackground);
+    color: var(--vscode-editor-foreground);
   }
   
   .preset-buttons button.active {
     background: var(--vscode-button-background);
     color: var(--vscode-button-foreground);
+    font-weight: 600;
   }
   
   .custom-range {
@@ -143,13 +151,13 @@
     background: var(--vscode-input-background);
     color: var(--vscode-input-foreground);
     border: 1px solid var(--vscode-input-border);
-    border-radius: 2px;
-    font-size: 12px;
+    border-radius: 6px;
+    font-size: 11px;
   }
   
   .custom-range .separator {
     color: var(--vscode-descriptionForeground);
-    font-size: 12px;
+    font-size: 11px;
   }
   
   .custom-range button {
@@ -157,9 +165,9 @@
     background: var(--vscode-button-secondaryBackground);
     color: var(--vscode-button-secondaryForeground);
     border: 1px solid var(--vscode-button-border);
-    border-radius: 2px;
+    border-radius: 6px;
     cursor: pointer;
-    font-size: 12px;
+    font-size: 11px;
   }
   
   .custom-range button:hover {
