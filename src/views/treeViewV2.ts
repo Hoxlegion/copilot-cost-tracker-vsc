@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { CostReader } from "../database";
 import { PricingEngine } from "../pricing";
-import { buildTree, turnToTreeItem, CostTreeItem, TreeItemType } from "./treeBuilder";
+import { buildTree, turnToTreeItem, buildTurnTooltip, CostTreeItem, TreeItemType } from "./treeBuilder";
 
 export { CostTreeItem, TreeItemType };
 
@@ -57,10 +57,17 @@ export class CostTreeProvider implements vscode.TreeDataProvider<CostTreeItem> {
       const turns = this.database.getTurnsForSession(element.sessionId, 20);
       const modelsInSession = new Set(turns.map((t) => t.modelFamily.toLowerCase()));
       const includeModelInTurns = element.includeModelInTurns ?? modelsInSession.size > 1;
-      return turns.map((turn) => turnToTreeItem(turn, includeModelInTurns, this.pricing, this.referenceModels));
+      return turns.map((turn) => turnToTreeItem(turn, includeModelInTurns));
     }
 
     return element.children ?? [];
+  }
+
+  resolveTreeItem(item: vscode.TreeItem, element: CostTreeItem): vscode.TreeItem {
+    if (element.type === "turn" && element.turnData) {
+      item.tooltip = buildTurnTooltip(element.turnData, this.pricing, this.referenceModels);
+    }
+    return item;
   }
 
   private getCollapsibleState(type: TreeItemType): vscode.TreeItemCollapsibleState {

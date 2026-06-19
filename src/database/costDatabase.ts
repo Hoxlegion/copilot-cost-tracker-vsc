@@ -346,17 +346,25 @@ export class CostDatabase implements CostReader, CostWriter, CostMaintenance {
     const stmt = this.db.prepare(
       `UPDATE sessions SET title = :title WHERE session_id = :id AND (title IS NULL OR title != :title)`
     );
-    for (const [sessionId, title] of titles) {
-      ensureSessionStmt.bind([Date.now(), sessionId]);
-      ensureSessionStmt.step();
-      ensureSessionStmt.reset();
+    this.db.run("BEGIN");
+    try {
+      for (const [sessionId, title] of titles) {
+        ensureSessionStmt.bind([Date.now(), sessionId]);
+        ensureSessionStmt.step();
+        ensureSessionStmt.reset();
 
-      stmt.bind({ ":title": title, ":id": sessionId });
-      stmt.step();
-      stmt.reset();
+        stmt.bind({ ":title": title, ":id": sessionId });
+        stmt.step();
+        stmt.reset();
+      }
+      this.db.run("COMMIT");
+    } catch (e) {
+      this.db.run("ROLLBACK");
+      throw e;
+    } finally {
+      ensureSessionStmt.free();
+      stmt.free();
     }
-    ensureSessionStmt.free();
-    stmt.free();
   }
 
   // ── Sessions ────────────────────────────────────────

@@ -37,6 +37,15 @@ export interface CostTreeItem {
   iconColor?: string;
   hasChildren?: boolean;
   includeModelInTurns?: boolean;
+  /** Raw turn data for lazy tooltip computation via resolveTreeItem */
+  turnData?: {
+    modelFamily: string;
+    inputTokens: number;
+    outputTokens: number;
+    cachedTokens: number;
+    cacheWriteTokens: number;
+    credits: number;
+  };
 }
 
 const REFERENCE_MODELS: string[] = ["claude-opus-4.6", "claude-sonnet-4.6", "gpt-5.4"];
@@ -254,8 +263,6 @@ export function turnToTreeItem(
     duration: number;
   },
   includeModel: boolean,
-  pricing: PricingEngine,
-  referenceModels: string[],
 ): CostTreeItem {
   const time = new Date(turn.timestamp).toLocaleTimeString(undefined, {
     hour: "2-digit", minute: "2-digit", second: "2-digit",
@@ -267,7 +274,14 @@ export function turnToTreeItem(
     type: "turn",
     label: time,
     description: `${modelPrefix}${turn.credits.toFixed(1)} cr · ${duration}`,
-    tooltip: buildTurnTooltip(turn, pricing, referenceModels),
+    turnData: {
+      modelFamily: turn.modelFamily,
+      inputTokens: turn.inputTokens,
+      outputTokens: turn.outputTokens,
+      cachedTokens: turn.cachedTokens,
+      cacheWriteTokens: turn.cacheWriteTokens,
+      credits: turn.credits,
+    },
     iconId: "hubot",
   };
 }
@@ -317,7 +331,7 @@ function fmtUsd(amount: number): string {
   }
 }
 
-function buildTurnTooltip(
+export function buildTurnTooltip(
   turn: {
     modelFamily: string;
     inputTokens: number;

@@ -38,8 +38,9 @@ export class DashboardDataAssembler {
     // Synchronous database queries
     const insightMetrics = this.database.getInsightMetrics(30);
     const monthTotal = this.database.getCurrentMonthTotal();
-    const dailyCosts = this.database.getDailyCosts(30);
     const dailyCostsForRange = this.database.getDailyCosts(365);
+    const thirtyDaysAgo = new Date(sinceMs30d).toISOString().slice(0, 10);
+    const dailyCosts = dailyCostsForRange.filter(d => d.period >= thirtyDaysAgo);
     const insightMetricsFullRange = this.database.getInsightMetrics(365);
     const modelBreakdown = this.database.getModelBreakdown(30);
     const agentBreakdown = this.database.getAgentBreakdown(30);

@@ -22,38 +22,39 @@ export class LogParser {
   discoverLogDirectories(): string[] {
     const dirs: string[] = [];
 
-    if (!fs.existsSync(this.debugLogsBasePath)) {
+    let workspaces: fs.Dirent[];
+    try {
+      workspaces = fs.readdirSync(this.debugLogsBasePath, { withFileTypes: true });
+    } catch {
       return dirs;
     }
 
-    try {
-      const workspaces = fs.readdirSync(this.debugLogsBasePath);
+    for (const workspace of workspaces) {
+      if (!workspace.isDirectory()) continue;
+      const debugLogDir = path.join(
+        this.debugLogsBasePath,
+        workspace.name,
+        "GitHub.copilot-chat",
+        "debug-logs"
+      );
 
-      for (const workspace of workspaces) {
-        const debugLogDir = path.join(
-          this.debugLogsBasePath,
-          workspace,
-          "GitHub.copilot-chat",
-          "debug-logs"
-        );
+      let sessions: fs.Dirent[];
+      try {
+        sessions = fs.readdirSync(debugLogDir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
 
-        if (fs.existsSync(debugLogDir)) {
-          try {
-            const sessions = fs.readdirSync(debugLogDir);
-            for (const session of sessions) {
-              const sessionDir = path.join(debugLogDir, session);
-              const mainJsonl = path.join(sessionDir, "main.jsonl");
-              if (fs.existsSync(mainJsonl)) {
-                dirs.push(sessionDir);
-              }
-            }
-          } catch (err) {
-            console.warn(`[LogParser] Skipping inaccessible debug-log directory: ${debugLogDir}`, err);
-          }
+      for (const session of sessions) {
+        if (!session.isDirectory()) continue;
+        const sessionDir = path.join(debugLogDir, session.name);
+        try {
+          fs.accessSync(path.join(sessionDir, "main.jsonl"));
+          dirs.push(sessionDir);
+        } catch {
+          // main.jsonl doesn't exist, skip
         }
       }
-    } catch {
-      // Skip if base path is inaccessible
     }
 
     return dirs;

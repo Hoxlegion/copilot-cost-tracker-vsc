@@ -403,17 +403,23 @@ export function getSessionLastTimestamp(db: Database, sessionId: string): number
 export function getMostRecentSessionContext(db: Database, sinceMs: number): SessionContextInfo | null {
   const since = safeSinceMs(sinceMs);
   const stmt = db.prepare(`
-    SELECT 
+    WITH ranked AS (
+      SELECT
+        session_id,
+        timestamp,
+        input_tokens,
+        cached_tokens,
+        ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY timestamp DESC) AS rn
+      FROM turns
+      WHERE timestamp >= :since
+    )
+    SELECT
       session_id,
       COUNT(*) AS turn_count,
       MAX(timestamp) AS last_activity_ms,
       MIN(timestamp) AS first_activity_ms,
-      (SELECT input_tokens + cached_tokens 
-       FROM turns t2 
-       WHERE t2.session_id = t1.session_id 
-       ORDER BY timestamp DESC LIMIT 1) AS current_context_weight
-    FROM turns t1
-    WHERE timestamp >= :since
+      MAX(CASE WHEN rn = 1 THEN input_tokens + cached_tokens ELSE NULL END) AS current_context_weight
+    FROM ranked
     GROUP BY session_id
     ORDER BY last_activity_ms DESC
     LIMIT 1
@@ -467,22 +473,28 @@ export function getSessionContextTimeline(db: Database, sessionId: string): Cont
 export function getSessionContextDistribution(db: Database, sinceMs: number): SessionContextDistribution[] {
   const since = safeSinceMs(sinceMs);
   const stmt = db.prepare(`
-    SELECT 
+    WITH ranked AS (
+      SELECT
+        session_id,
+        timestamp,
+        input_tokens,
+        cached_tokens,
+        cost_usd,
+        workspace,
+        ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY timestamp DESC) AS rn_desc,
+        ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY timestamp ASC) AS rn_asc
+      FROM turns
+      WHERE timestamp >= :since
+    )
+    SELECT
       session_id,
-      (SELECT input_tokens + cached_tokens 
-       FROM turns t2 
-       WHERE t2.session_id = t1.session_id 
-       ORDER BY timestamp DESC LIMIT 1) AS current_context_weight,
-      (SELECT workspace 
-       FROM turns t3 
-       WHERE t3.session_id = t1.session_id 
-       ORDER BY timestamp ASC LIMIT 1) AS workspace,
+      MAX(CASE WHEN rn_desc = 1 THEN input_tokens + cached_tokens ELSE NULL END) AS current_context_weight,
+      MAX(CASE WHEN rn_asc = 1 THEN workspace ELSE NULL END) AS workspace,
       COUNT(*) AS turn_count,
       MIN(timestamp) AS start_ms,
       MAX(timestamp) AS last_ms,
       SUM(cost_usd) AS total_cost
-    FROM turns t1
-    WHERE timestamp >= :since
+    FROM ranked
     GROUP BY session_id
     HAVING COUNT(*) >= 2
     ORDER BY current_context_weight DESC
