@@ -45,8 +45,9 @@
     "views": {
       "copilot-cost-tracker": [
         {
+          "type": "webview",
           "id": "copilotCostTracker.overview",
-          "name": "Cost Overview",
+          "name": "Usage Stats",
           "icon": "media/icon.svg"
         }
       ]

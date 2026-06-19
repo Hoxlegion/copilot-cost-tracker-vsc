@@ -3,23 +3,21 @@ import { CostReader, CostMaintenance } from "./database";
 import { PricingEngine } from "./pricing";
 import { TracesDbReader } from "./parser";
 import { TracesIngester } from "./watcher";
-import { CostTreeProvider, DashboardPanel, StatusBarIndicator } from "./views";
+import { DashboardPanel, StatusBarIndicator } from "./views";
 
 interface CommandDeps {
   database: CostReader & CostMaintenance;
   pricing: PricingEngine;
   ingester: TracesIngester;
   reader: TracesDbReader;
-  treeProvider: CostTreeProvider;
   statusBar: StatusBarIndicator;
   extensionUri: vscode.Uri;
 }
 
 export function registerCommands(context: vscode.ExtensionContext, deps: CommandDeps): void {
-  const { database, pricing, ingester, reader, treeProvider, statusBar, extensionUri } = deps;
+  const { database, pricing, ingester, reader, statusBar, extensionUri } = deps;
 
   const refreshAndUpdate = () => {
-    treeProvider.refresh();
     statusBar.update();
   };
 

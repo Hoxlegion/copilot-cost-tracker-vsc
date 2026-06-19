@@ -4,7 +4,7 @@ import { TracesDbReader, LogParser } from "./parser";
 import { PricingEngine } from "./pricing";
 import { CostDatabase, setWasmPath } from "./database";
 import { TracesIngester } from "./watcher";
-import { CostTreeProvider, DashboardPanel, StatusBarIndicator, ContextTracker } from "./views";
+import { DashboardPanel, StatusBarIndicator, ContextTracker, SidebarPanel } from "./views";
 import { ConfigManager } from "./config";
 import { Logger } from "./logger";
 import { PromptCostIntelligenceProvider } from "./promptCostIntelligence";
@@ -82,15 +82,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // UI components
   const contextTracker = new ContextTracker(database, logger);
   contextTracker.setNotificationsEnabled(configManager.config.contextWeightNotifications);
-  const treeProvider = new CostTreeProvider(database, pricing);
   const statusBar = new StatusBarIndicator(database, pricing, configManager, logger, contextTracker);
   const promptIntelligence = new PromptCostIntelligenceProvider(configManager, logger);
+  const sidebarProvider = new SidebarPanel(database, pricing);
 
-  // Register TreeView, CodeLens, and Hover
-  const treeView = vscode.window.createTreeView("copilotCostTracker.overview", {
-    treeDataProvider: treeProvider,
-    showCollapseAll: true,
-  });
+  // Register sidebar webview, CodeLens, and Hover
+  const sidebarView = vscode.window.registerWebviewViewProvider(
+    SidebarPanel.viewType,
+    sidebarProvider,
+    { webviewOptions: { retainContextWhenHidden: true } },
+  );
 
   const promptCodeLens = vscode.languages.registerCodeLensProvider(
     [{ scheme: "file" }, { scheme: "untitled" }], promptIntelligence
@@ -101,7 +102,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // Event wiring
   const refreshAll = () => {
-    treeProvider.refresh();
+    sidebarProvider.refresh();
     contextTracker.update();
     statusBar.update();
     if (DashboardPanel.currentPanel) {
@@ -114,21 +115,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   configManager.onDidChange((cfg) => {
     contextTracker.setNotificationsEnabled(cfg.contextWeightNotifications);
     statusBar.updateVisibility();
-    treeProvider.refresh();
+    sidebarProvider.refresh();
     ingester.setTelemetrySource(cfg.telemetrySource);
     ingester.updateWatchOptions(cfg.refreshDebounceMs, cfg.pollIntervalMax);
   });
 
   // Commands
   registerCommands(context, {
-    database, pricing, ingester, reader, treeProvider, statusBar,
+    database, pricing, ingester, reader, statusBar,
     extensionUri: context.extensionUri,
   });
 
   // Initial ingest + start file watcher
   const initialScanSinceMs = Date.now() - configManager.config.initialScanDays * 24 * 60 * 60 * 1000;
   const initialCount = await ingester.ingest(initialScanSinceMs);
-  treeProvider.refresh();
+  sidebarProvider.refresh();
   contextTracker.update();
   statusBar.update();
   const tracesDbPath = reader.exists() ? reader.path : null;
@@ -176,7 +177,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // Disposables
   context.subscriptions.push(
-    configManager, logger, promptIntelligence, treeView,
+    configManager, logger, promptIntelligence, sidebarView,
     promptCodeLens, promptHover, statusBar, contextTracker, ingester,
   );
 }
