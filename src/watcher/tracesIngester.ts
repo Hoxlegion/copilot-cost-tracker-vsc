@@ -110,8 +110,8 @@ export class TracesIngester implements vscode.Disposable {
     return count;
   }
 
-  private shouldSkipSpan(span: TraceSpan): boolean {
-    if (span.startTimeMs <= this.lastProcessedTimestamp) return true;
+  private shouldSkipSpan(span: TraceSpan, skipWatermark: boolean = false): boolean {
+    if (!skipWatermark && span.startTimeMs <= this.lastProcessedTimestamp) return true;
 
     if (span.inputTokens === 0 && span.outputTokens === 0) {
       return true;
@@ -194,7 +194,10 @@ export class TracesIngester implements vscode.Disposable {
 
     this.sourceResolver.recordSuccessfulDbPoll();
 
-    const newCount = await this.processSpanBatch(spans);
+    // When doing a full re-scan (since=0), skip the watermark check so that
+    // existing estimated turns can be upgraded with real credit values.
+    const skipWatermark = since === 0;
+    const newCount = await this.processSpanBatch(spans, skipWatermark);
 
     if (newCount > 0 && !this.isDisposed) {
       const realCount = spans.filter(s => s.realCredits != null).length;
@@ -204,7 +207,7 @@ export class TracesIngester implements vscode.Disposable {
     return newCount;
   }
 
-  private async processSpanBatch(spans: TraceSpan[]): Promise<number> {
+  private async processSpanBatch(spans: TraceSpan[], skipWatermark: boolean = false): Promise<number> {
     let newCount = 0;
     let maxTimestamp = this.lastProcessedTimestamp;
 
@@ -212,7 +215,7 @@ export class TracesIngester implements vscode.Disposable {
     try {
       for (const span of spans) {
         if (this.isDisposed) break;
-        if (this.shouldSkipSpan(span)) continue;
+        if (this.shouldSkipSpan(span, skipWatermark)) continue;
 
         this.insertSpanAsTurn(span);
         newCount++;
@@ -270,6 +273,7 @@ export class TracesIngester implements vscode.Disposable {
           turn.cacheWriteTokens
         );
         const credits = this.pricing.costToCredits(costUsd);
+        turn.costSource = "estimated";
         this.database.insertTurn(turn, costUsd, credits, session.workspace ?? "unknown");
         newTurns++;
       }

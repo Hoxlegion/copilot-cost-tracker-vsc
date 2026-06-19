@@ -265,9 +265,14 @@ export class CostDatabase implements CostReader, CostWriter, CostMaintenance {
       return;
     }
     this.db.run(
-      `INSERT OR IGNORE INTO turns
+      `INSERT INTO turns
         (session_id, timestamp, duration, agent_name, model, model_family, input_tokens, output_tokens, cached_tokens, cache_write_tokens, total_tokens, cost_usd, credits, workspace, status, cost_source)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(session_id, timestamp, model) DO UPDATE SET
+         cost_usd = excluded.cost_usd,
+         credits = excluded.credits,
+         cost_source = excluded.cost_source
+       WHERE excluded.cost_source = 'real' AND cost_source != 'real'`,
       [
         turn.sessionId,
         turn.timestamp,
