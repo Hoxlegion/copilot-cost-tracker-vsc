@@ -1,6 +1,6 @@
 # Copilot Cost Tracker
 
-[![Version](https://img.shields.io/badge/version-0.5.0-blue.svg)](https://github.com/Hoxlegion/copilot-cost-tracker-vsc/releases)
+[![Version](https://img.shields.io/badge/version-0.5.2-blue.svg)](https://github.com/Hoxlegion/copilot-cost-tracker-vsc/releases)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![VS Code](https://img.shields.io/badge/VS%20Code-%5E1.85.0-blue.svg)](https://code.visualstudio.com/)
 
@@ -104,7 +104,7 @@ If VS Code policy/settings scope blocks automatic updates, set it manually.
 
 ### From VSIX (Manual)
 ```bash
-code --install-extension copilot-cost-tracker-0.4.0.vsix
+code --install-extension copilot-cost-tracker-0.5.2.vsix
 ```
 
 ### From Source
@@ -113,7 +113,7 @@ git clone https://github.com/Hoxlegion/copilot-cost-tracker-vsc.git
 cd copilot-cost-tracker
 npm install
 npm run package
-code --install-extension copilot-cost-tracker-0.4.0.vsix
+code --install-extension copilot-cost-tracker-0.5.2.vsix
 ```
 
 ---

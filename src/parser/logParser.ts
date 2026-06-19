@@ -1,6 +1,5 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as os from "node:os";
 import {
   BaseLogEntry,
   LogEntry,
@@ -8,42 +7,13 @@ import {
   ParsedSession,
   ParsedTurn,
 } from "./types";
+import { getVscodeUserDataPath } from "../shared/paths";
 
 export class LogParser {
   private readonly debugLogsBasePath: string;
 
   constructor() {
-    this.debugLogsBasePath = this.getDebugLogsBasePath();
-  }
-
-  /**
-   * Get the base path where VS Code stores workspace storage.
-   */
-  private getDebugLogsBasePath(): string {
-    const platform = os.platform();
-    const homeDir = os.homedir();
-
-    if (platform === "win32") {
-      return path.join(
-        homeDir,
-        "AppData",
-        "Roaming",
-        "Code",
-        "User",
-        "workspaceStorage"
-      );
-    } else if (platform === "darwin") {
-      return path.join(
-        homeDir,
-        "Library",
-        "Application Support",
-        "Code",
-        "User",
-        "workspaceStorage"
-      );
-    } else {
-      return path.join(homeDir, ".config", "Code", "User", "workspaceStorage");
-    }
+    this.debugLogsBasePath = path.join(getVscodeUserDataPath(), "workspaceStorage");
   }
 
   /**
@@ -308,45 +278,59 @@ export class LogParser {
 
     for (const file of files) {
       if (!file.startsWith("title-") || !file.endsWith(".jsonl")) continue;
+      this.extractTitlesFromFile(path.join(sessionDir, file), titles);
+    }
+  }
 
-      const filePath = path.join(sessionDir, file);
-      try {
-        const content = fs.readFileSync(filePath, "utf-8");
-        const lines = content.split("\n").filter((l) => l.trim());
+  private extractTitlesFromFile(filePath: string, titles: Map<string, string>): void {
+    let content: string;
+    try {
+      content = fs.readFileSync(filePath, "utf-8");
+    } catch {
+      return;
+    }
 
-        // The conversation ID is the sid of the title file entries
-        let conversationId: string | undefined;
-        // Parent debug session ID sometimes matches turns.session_id in traces mode
-        let parentSessionId: string | undefined;
+    const lines = content.split("\n").filter((l) => l.trim());
+    let conversationId: string | undefined;
+    let parentSessionId: string | undefined;
 
-        for (const line of lines) {
-          try {
-            const entry = JSON.parse(line) as BaseLogEntry;
+    for (const line of lines) {
+      const parsed = this.parseTitleEntry(line);
+      if (!parsed) continue;
 
-            if (!conversationId && entry.sid) {
-              conversationId = entry.sid;
-            }
+      conversationId ??= parsed.sid;
 
-            if (entry.type === "session_start" && entry.attrs?.parentSessionId) {
-              parentSessionId = entry.attrs.parentSessionId as string;
-            }
-
-            if (entry.type === "agent_response" && entry.attrs?.response) {
-              const title = this.extractTitleFromResponse(entry.attrs.response as string);
-              if (title) {
-                // Map by conversation ID when available.
-                if (conversationId) titles.set(conversationId, title);
-                // Also map by parent session ID, which is often the stats session ID.
-                if (parentSessionId) titles.set(parentSessionId, title);
-              }
-            }
-          } catch {
-            // Skip malformed lines
-          }
-        }
-      } catch {
-        // Skip unreadable files
+      if (parsed.type === "session_start" && parsed.parentSessionId) {
+        parentSessionId = parsed.parentSessionId;
       }
+
+      if (parsed.title) {
+        if (conversationId) titles.set(conversationId, parsed.title);
+        if (parentSessionId) titles.set(parentSessionId, parsed.title);
+      }
+    }
+  }
+
+  private parseTitleEntry(line: string): { sid?: string; type?: string; parentSessionId?: string; title?: string } | null {
+    try {
+      const entry = JSON.parse(line) as BaseLogEntry;
+      const result: { sid?: string; type?: string; parentSessionId?: string; title?: string } = {
+        sid: entry.sid,
+        type: entry.type,
+      };
+
+      if (entry.type === "session_start" && entry.attrs?.parentSessionId) {
+        result.parentSessionId = entry.attrs.parentSessionId as string;
+      }
+
+      if (entry.type === "agent_response" && entry.attrs?.response) {
+        const title = this.extractTitleFromResponse(entry.attrs.response as string);
+        if (title) result.title = title;
+      }
+
+      return result;
+    } catch {
+      return null;
     }
   }
 

@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { CostDatabase } from "../database";
+import { CostReader } from "../database";
 import { PricingEngine } from "../pricing";
 import { buildTree, turnToTreeItem, CostTreeItem, TreeItemType } from "./treeBuilder";
 
@@ -9,12 +9,12 @@ export class CostTreeProvider implements vscode.TreeDataProvider<CostTreeItem> {
   private readonly _onDidChangeTreeData = new vscode.EventEmitter<CostTreeItem | undefined | void>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
-  private readonly database: CostDatabase;
+  private readonly database: CostReader;
   private readonly pricing: PricingEngine;
   private workspaceFilter?: string;
   private referenceModels: string[] = [];
 
-  constructor(database: CostDatabase, pricing: PricingEngine) {
+  constructor(database: CostReader, pricing: PricingEngine) {
     this.database = database;
     this.pricing = pricing;
   }

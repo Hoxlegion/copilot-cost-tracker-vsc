@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { CostDatabase } from "../database";
+import { CostReader } from "../database";
 import { PricingEngine } from "../pricing";
 import { ConfigManager, ExtensionConfig } from "../config";
 import { assessBudgetPace, BudgetPaceAssessment, getBillingPeriodEndMs, getBillingPeriodStartMs } from "../billing";
@@ -8,7 +8,7 @@ import { ContextTracker } from "./contextTracker";
 
 export class StatusBarIndicator implements vscode.Disposable {
   private readonly statusBarItem: vscode.StatusBarItem;
-  private readonly database: CostDatabase;
+  private readonly database: CostReader;
   private readonly pricing: PricingEngine;
   private readonly configManager: ConfigManager;
   private readonly logger: Logger;
@@ -27,7 +27,7 @@ export class StatusBarIndicator implements vscode.Disposable {
   private lastStatusText: string = "";
 
   constructor(
-    database: CostDatabase,
+    database: CostReader,
     pricing: PricingEngine,
     configManager: ConfigManager,
     logger: Logger,

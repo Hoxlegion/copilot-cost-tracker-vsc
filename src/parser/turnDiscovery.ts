@@ -17,6 +17,67 @@ interface Accumulator {
 
 const TURN_GAP_MS = 20_000;
 
+function resolveTurnIndex(
+  rawTurnIndex: unknown,
+  chatSessionId: string,
+  startTimeMs: number,
+  sessionState: Map<string, { index: number; lastTs: number }>
+): number {
+  if (rawTurnIndex === null || rawTurnIndex === undefined || rawTurnIndex === "") {
+    const current = sessionState.get(chatSessionId);
+    if (!current) {
+      sessionState.set(chatSessionId, { index: 0, lastTs: startTimeMs });
+      return 0;
+    }
+    if (startTimeMs - current.lastTs > TURN_GAP_MS) {
+      current.index += 1;
+    }
+    current.lastTs = Math.max(current.lastTs, startTimeMs);
+    return current.index;
+  }
+
+  const turnIndex = Number(rawTurnIndex);
+  const current = sessionState.get(chatSessionId);
+  if (current) {
+    current.index = Math.max(current.index, turnIndex);
+    current.lastTs = Math.max(current.lastTs, startTimeMs);
+  } else {
+    sessionState.set(chatSessionId, { index: turnIndex, lastTs: startTimeMs });
+  }
+  return turnIndex;
+}
+
+function updateAccumulator(acc: Accumulator, row: unknown[]): void {
+  const startTimeMs = Number(row[2] ?? 0);
+  const endTimeMs = Number(row[3] ?? 0);
+  const agentName = (row[4] as string | null) ?? "unknown";
+  const requestModel = (row[5] as string | null) ?? "";
+  const responseModel = (row[6] as string | null) ?? "";
+  const inputTokens = Number(row[7] ?? 0);
+  const outputTokens = Number(row[8] ?? 0);
+  const cachedTokens = Number(row[9] ?? 0);
+  const toolName = (row[10] as string | null) ?? "";
+
+  acc.firstTimeMs = Math.min(acc.firstTimeMs, startTimeMs || acc.firstTimeMs);
+  acc.lastTimeMs = Math.max(acc.lastTimeMs, endTimeMs || startTimeMs || acc.lastTimeMs);
+  acc.inputTokens += inputTokens;
+  acc.outputTokens += outputTokens;
+  acc.cachedTokens += cachedTokens;
+
+  const model = responseModel || requestModel;
+  if (model) acc.models.add(model);
+  if (agentName) acc.agents.add(agentName);
+
+  if ((inputTokens + outputTokens + cachedTokens) > 0) {
+    acc.llmCalls += 1;
+  }
+
+  if (toolName) {
+    acc.toolCalls += 1;
+    acc.tools.add(toolName);
+  }
+}
+
 export function buildTurnDiscovery(rows: unknown[][]): TurnDiscoveryRow[] {
   const grouped = new Map<string, Accumulator>();
   const sessionState = new Map<string, { index: number; lastTs: number }>();
@@ -25,39 +86,8 @@ export function buildTurnDiscovery(rows: unknown[][]): TurnDiscoveryRow[] {
     const chatSessionId = (row[0] as string) || "";
     const startTimeMs = Number(row[2] ?? 0);
     const endTimeMs = Number(row[3] ?? 0);
-    const agentName = (row[4] as string | null) ?? "unknown";
-    const requestModel = (row[5] as string | null) ?? "";
-    const responseModel = (row[6] as string | null) ?? "";
-    const inputTokens = Number(row[7] ?? 0);
-    const outputTokens = Number(row[8] ?? 0);
-    const cachedTokens = Number(row[9] ?? 0);
-    const toolName = (row[10] as string | null) ?? "";
 
-    const rawTurnIndex = row[1];
-    let turnIndex: number;
-
-    if (rawTurnIndex === null || rawTurnIndex === undefined || rawTurnIndex === "") {
-      const current = sessionState.get(chatSessionId);
-      if (current) {
-        if (startTimeMs - current.lastTs > TURN_GAP_MS) {
-          current.index += 1;
-        }
-        current.lastTs = Math.max(current.lastTs, startTimeMs);
-        turnIndex = current.index;
-      } else {
-        sessionState.set(chatSessionId, { index: 0, lastTs: startTimeMs });
-        turnIndex = 0;
-      }
-    } else {
-      turnIndex = Number(rawTurnIndex);
-      const current = sessionState.get(chatSessionId);
-      if (current) {
-        current.index = Math.max(current.index, turnIndex);
-        current.lastTs = Math.max(current.lastTs, startTimeMs);
-      } else {
-        sessionState.set(chatSessionId, { index: turnIndex, lastTs: startTimeMs });
-      }
-    }
+    const turnIndex = resolveTurnIndex(row[1], chatSessionId, startTimeMs, sessionState);
 
     const key = `${chatSessionId}::${turnIndex}`;
     const acc = grouped.get(key) ?? {
@@ -75,30 +105,7 @@ export function buildTurnDiscovery(rows: unknown[][]): TurnDiscoveryRow[] {
       tools: new Set<string>(),
     };
 
-    acc.firstTimeMs = Math.min(acc.firstTimeMs, startTimeMs || acc.firstTimeMs);
-    acc.lastTimeMs = Math.max(acc.lastTimeMs, endTimeMs || startTimeMs || acc.lastTimeMs);
-    acc.inputTokens += inputTokens;
-    acc.outputTokens += outputTokens;
-    acc.cachedTokens += cachedTokens;
-
-    const model = responseModel || requestModel;
-    if (model) {
-      acc.models.add(model);
-    }
-    if (agentName) {
-      acc.agents.add(agentName);
-    }
-
-    const isLlmCall = (inputTokens + outputTokens + cachedTokens) > 0;
-    if (isLlmCall) {
-      acc.llmCalls += 1;
-    }
-
-    if (toolName) {
-      acc.toolCalls += 1;
-      acc.tools.add(toolName);
-    }
-
+    updateAccumulator(acc, row);
     grouped.set(key, acc);
   }
 

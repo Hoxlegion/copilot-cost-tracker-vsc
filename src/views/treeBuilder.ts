@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { CostDatabase } from "../database";
+import { CostReader } from "../database";
 import { PricingEngine } from "../pricing";
 import { getBillingPeriodStartMs } from "../billing";
 import { formatDuration, simplifyModelName } from "./treeViewFormatting";
@@ -44,7 +44,7 @@ const MODEL_LABELS: Record<string, string> = {
 };
 
 export function buildTree(
-  database: CostDatabase,
+  database: CostReader,
   pricing: PricingEngine,
   workspaceFilter?: string,
 ): { items: CostTreeItem[]; referenceModels: string[] } {
@@ -243,13 +243,13 @@ export function turnToTreeItem(
   };
 }
 
-function getTodayData(database: CostDatabase, workspaceFilter?: string): { costUsd: number; credits: number; turns: number } {
+function getTodayData(database: CostReader, workspaceFilter?: string): { costUsd: number; credits: number; turns: number } {
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   return database.getCostSince(todayStart, workspaceFilter);
 }
 
-function getWeekData(database: CostDatabase, workspaceFilter?: string): { costUsd: number; credits: number; turns: number } {
+function getWeekData(database: CostReader, workspaceFilter?: string): { costUsd: number; credits: number; turns: number } {
   const now = new Date();
   const dayOfWeek = now.getDay();
   const mondayOffset = dayOfWeek === 0 ? 6 : dayOfWeek - 1;

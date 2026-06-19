@@ -3,64 +3,15 @@
  * Separates data gathering from view-model transformation and rendering.
  */
 
-import { CostDatabase, InsightMetrics, CacheSavingsMetrics, SessionContextDistribution, ContextTimelinePoint } from "../database";
-import { TracesDbReader, SurfaceBreakdown, TurnDiscoveryRow } from "../parser";
+import { CostReader } from "../database";
+import { TracesDbReader } from "../parser";
 import { PricingEngine } from "../pricing";
 import { getBillingPeriodEndMs, getBillingPeriodStartMs } from "../billing";
-import { getAlerts, buildPlaybook, DashboardAlert, PlaybookRow } from "../insights";
+import { getAlerts, buildPlaybook } from "../insights";
 import { resolveWorkspaceName } from "./helpers/workspaceResolver";
+import type { DashboardRawData } from "../shared/dashboardTypes";
 
-export interface DashboardRawData {
-  insightMetrics: InsightMetrics;
-  alerts: DashboardAlert[];
-  playbook: PlaybookRow[];
-  surfaceData: SurfaceBreakdown[];
-  turnDiscovery: TurnDiscoveryRow[];
-  cacheSavings: CacheSavingsMetrics;
-  monthTotal: { costUsd: number; credits: number; turns: number };
-  dailyCosts: Array<{ period: string; totalCostUsd: number; totalCredits: number; turnCount: number }>;
-  dailyCostsForRange: Array<{ period: string; totalCostUsd: number; totalCredits: number; turnCount: number }>;
-  insightMetricsFullRange: InsightMetrics;
-  modelBreakdown: Array<{ model: string; totalCostUsd: number; totalCredits: number; turnCount: number; percentage: number }>;
-  agentBreakdown: Array<{ agentName: string; totalCostUsd: number; totalCredits: number; turnCount: number; percentage: number }>;
-  dailyAgentBreakdown: Array<{ period: string; agentName: string; totalCostUsd: number; totalCredits: number; turnCount: number }>;
-  allSessions: Array<{
-    sessionId: string;
-    workspace: string;
-    startTimestamp: number;
-    lastTimestamp: number;
-    turnCount: number;
-    totalInputTokens: number;
-    totalOutputTokens: number;
-    totalCachedTokens: number;
-    totalCostUsd: number;
-    totalCredits: number;
-    primaryModel: string;
-    avgDurationMs: number;
-    modelBreakdown: Array<{
-      model: string;
-      turnCount: number;
-      totalInputTokens: number;
-      totalOutputTokens: number;
-      totalCachedTokens: number;
-      totalCostUsd: number;
-      totalCredits: number;
-    }>;
-  }>;
-  billingPeriodStartMs: number;
-  billingPeriodEndMs: number;
-  periodCredits: number;
-  periodAggregate: { costUsd: number; credits: number; turns: number };
-  budgetCredits: number;
-  lastUpdatedMs: number;
-  contextDistribution: SessionContextDistribution[];
-  contextTimelines: Array<{
-    sessionId: string;
-    workspace: string;
-    startMs: number;
-    turns: ContextTimelinePoint[];
-  }>;
-}
+export type { DashboardRawData };
 
 /**
  * Assembles all raw data needed by the dashboard from database, pricing, and parser.
@@ -68,7 +19,7 @@ export interface DashboardRawData {
  */
 export class DashboardDataAssembler {
   constructor(
-    private readonly database: CostDatabase,
+    private readonly database: CostReader,
     private readonly reader: TracesDbReader,
     private readonly pricing: PricingEngine,
   ) {}

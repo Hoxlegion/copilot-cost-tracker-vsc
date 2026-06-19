@@ -1,30 +1,28 @@
 import * as vscode from "vscode";
 import { TracesDbReader, TraceSpan, LogParser } from "../parser";
 import { PricingEngine } from "../pricing";
-import { CostDatabase } from "../database";
+import { CostWriter, CostMaintenance } from "../database";
 import { TelemetrySource, ConfigManager } from "../config";
 import { Logger } from "../logger";
 import { FileWatcherStrategy } from "./fileWatcherStrategy";
+import { TelemetrySourceResolver } from "./telemetrySourceResolver";
+
+type IngesterDatabase = CostWriter & CostMaintenance;
 
 export class TracesIngester implements vscode.Disposable {
   private readonly reader: TracesDbReader;
   private readonly logParser: LogParser;
   private readonly pricing: PricingEngine;
-  private readonly database: CostDatabase;
+  private readonly database: IngesterDatabase;
   private readonly configManager: ConfigManager;
   private readonly logger: Logger;
   private readonly workspaceId: string;
   private readonly onDataChanged: vscode.EventEmitter<void>;
+  private readonly sourceResolver: TelemetrySourceResolver;
   private watcher: FileWatcherStrategy | undefined;
   private isDisposed: boolean = false;
 
   private lastProcessedTimestamp: number = 0;
-  private telemetrySource: TelemetrySource = "auto";
-  private activeSource: "database" | "jsonl" = "database";
-  private consecutiveEmptyDbPolls: number = 0;
-  private static readonly FAILOVER_THRESHOLD_POLLS = 12;
-  private lastDbFailoverAtMs: number = 0;
-  private static readonly DB_RECOVERY_PROBE_MS = 60_000;
   private static readonly INGEST_BATCH_SIZE = 5_000;
 
   readonly onDidDataChange: vscode.Event<void>;
@@ -33,7 +31,7 @@ export class TracesIngester implements vscode.Disposable {
     reader: TracesDbReader,
     logParser: LogParser,
     pricing: PricingEngine,
-    database: CostDatabase,
+    database: IngesterDatabase,
     configManager: ConfigManager,
     logger: Logger,
     workspaceId: string = "unknown"
@@ -47,25 +45,19 @@ export class TracesIngester implements vscode.Disposable {
     this.workspaceId = workspaceId;
     this.onDataChanged = new vscode.EventEmitter<void>();
     this.onDidDataChange = this.onDataChanged.event;
+    this.sourceResolver = new TelemetrySourceResolver();
 
     this.lastProcessedTimestamp = database.getMaxTimestamp();
     this.logger.debug(`Recovered watermark: ${this.lastProcessedTimestamp}`);
   }
 
   setTelemetrySource(source: TelemetrySource): void {
-    this.telemetrySource = source;
-    if (source === "database") {
-      this.activeSource = "database";
-      this.consecutiveEmptyDbPolls = 0;
-      this.lastDbFailoverAtMs = 0;
-    } else if (source === "jsonl") {
-      this.activeSource = "jsonl";
-    }
+    this.sourceResolver.setTelemetrySource(source);
     this.logger.debug(`Telemetry source set to: ${source}`);
   }
 
   getActiveSource(): "database" | "jsonl" {
-    return this.activeSource;
+    return this.sourceResolver.getActiveSource();
   }
 
   startWatching(watchPath: string | null, debounceMs: number, fallbackIntervalMs: number): void {
@@ -94,7 +86,18 @@ export class TracesIngester implements vscode.Disposable {
   async ingest(sinceOverride?: number): Promise<number> {
     if (this.isDisposed) return 0;
 
-    const source = this.resolveSource();
+    const source = this.sourceResolver.resolve({
+      dbExists: () => this.reader.exists(),
+      onSwitchToJsonl: () => {
+        this.logger.info("Switching to JSONL fallback");
+        this.setWatchPath(null);
+      },
+      onRecoverToDb: () => {
+        this.logger.info("Probing traces DB for recovery after JSONL failover");
+        this.setWatchPath(this.reader.path);
+      },
+    });
+
     let count: number;
     if (source === "database") {
       count = await this.ingestFromTracesDb(sinceOverride);
@@ -105,45 +108,6 @@ export class TracesIngester implements vscode.Disposable {
     this.syncSessionTitles();
 
     return count;
-  }
-
-  private resolveSource(): "database" | "jsonl" {
-    if (this.telemetrySource === "database") return "database";
-    if (this.telemetrySource === "jsonl") return "jsonl";
-
-    if (!this.reader.exists()) {
-      if (this.activeSource !== "jsonl") {
-        this.logger.info("Traces DB not found, falling back to JSONL");
-        this.activeSource = "jsonl";
-        this.lastDbFailoverAtMs = Date.now();
-        this.setWatchPath(null);
-      }
-      return "jsonl";
-    }
-
-    if (this.activeSource === "jsonl") {
-      const elapsedSinceFailoverMs = Date.now() - this.lastDbFailoverAtMs;
-      if (elapsedSinceFailoverMs < TracesIngester.DB_RECOVERY_PROBE_MS) {
-        return "jsonl";
-      }
-      this.logger.info("Probing traces DB for recovery after JSONL failover");
-      this.activeSource = "database";
-      this.consecutiveEmptyDbPolls = 0;
-      this.setWatchPath(this.reader.path);
-    }
-
-    if (this.consecutiveEmptyDbPolls >= TracesIngester.FAILOVER_THRESHOLD_POLLS) {
-      this.logger.warn(
-        `Traces DB has not produced data for ${this.consecutiveEmptyDbPolls} consecutive polls, falling back to JSONL`
-      );
-      this.activeSource = "jsonl";
-      this.lastDbFailoverAtMs = Date.now();
-      this.setWatchPath(null);
-      return "jsonl";
-    }
-
-    this.activeSource = "database";
-    return "database";
   }
 
   private shouldSkipSpan(span: TraceSpan): boolean {
@@ -164,14 +128,28 @@ export class TracesIngester implements vscode.Disposable {
 
   private insertSpanAsTurn(span: TraceSpan): void {
     const model = span.responseModel ?? span.requestModel ?? "unknown";
-    const costUsd = this.pricing.calculateCost(
-      model,
-      span.inputTokens,
-      span.outputTokens,
-      span.cachedTokens,
-      span.cacheWriteTokens
-    );
-    const credits = this.pricing.costToCredits(costUsd);
+
+    let costUsd: number;
+    let credits: number;
+    let costSource: "real" | "estimated";
+
+    if (span.realCredits != null) {
+      // Use actual billing credits recorded by GitHub
+      credits = span.realCredits;
+      costUsd = credits / 100; // 1 credit = $0.01
+      costSource = "real";
+    } else {
+      // Fall back to token-based estimate
+      costUsd = this.pricing.calculateCost(
+        model,
+        span.inputTokens,
+        span.outputTokens,
+        span.cachedTokens,
+        span.cacheWriteTokens
+      );
+      credits = this.pricing.costToCredits(costUsd);
+      costSource = "estimated";
+    }
 
     this.database.insertTurn(
       {
@@ -187,6 +165,7 @@ export class TracesIngester implements vscode.Disposable {
         cacheWriteTokens: span.cacheWriteTokens,
         totalTokens: span.inputTokens + span.outputTokens + span.cachedTokens + span.cacheWriteTokens,
         status: span.statusCode === 0 ? "ok" : "error",
+        costSource,
       },
       costUsd,
       credits,
@@ -204,17 +183,28 @@ export class TracesIngester implements vscode.Disposable {
       spans = await this.reader.querySpans(since > 0 ? since : undefined);
     } catch (err) {
       this.logger.error("Failed to query traces DB, will trigger failover if this continues", err);
-      this.consecutiveEmptyDbPolls++;
+      this.sourceResolver.recordEmptyDbPoll();
       return 0;
     }
 
     if (spans.length === 0) {
-      this.consecutiveEmptyDbPolls++;
+      this.sourceResolver.recordEmptyDbPoll();
       return 0;
     }
 
-    this.consecutiveEmptyDbPolls = 0;
+    this.sourceResolver.recordSuccessfulDbPoll();
 
+    const newCount = await this.processSpanBatch(spans);
+
+    if (newCount > 0 && !this.isDisposed) {
+      const realCount = spans.filter(s => s.realCredits != null).length;
+      this.logger.debug(`Ingested ${newCount} spans (${realCount} with real credits, ${newCount - realCount} estimated)`);
+      this.onDataChanged.fire();
+    }
+    return newCount;
+  }
+
+  private async processSpanBatch(spans: TraceSpan[]): Promise<number> {
     let newCount = 0;
     let maxTimestamp = this.lastProcessedTimestamp;
 
@@ -250,9 +240,6 @@ export class TracesIngester implements vscode.Disposable {
       return 0;
     }
 
-    if (newCount > 0 && !this.isDisposed) {
-      this.onDataChanged.fire();
-    }
     return newCount;
   }
 

@@ -1,6 +1,6 @@
 import * as path from "node:path";
-import * as os from "node:os";
 import * as fs from "node:fs";
+import { getVscodeUserDataPath } from "../../shared/paths";
 
 function shortenWorkspaceName(workspace: string): string {
   if (!workspace) return "unknown";
@@ -20,15 +20,7 @@ export function resolveWorkspaceName(hash: string): string {
   if (!SAFE_HASH_RE.test(hash)) return hash.slice(0, 12) + "…";
 
   try {
-    const platform = os.platform();
-    let storagePath: string;
-    if (platform === "win32") {
-      storagePath = path.join(os.homedir(), "AppData", "Roaming", "Code", "User", "workspaceStorage", hash, "workspace.json");
-    } else if (platform === "darwin") {
-      storagePath = path.join(os.homedir(), "Library", "Application Support", "Code", "User", "workspaceStorage", hash, "workspace.json");
-    } else {
-      storagePath = path.join(os.homedir(), ".config", "Code", "User", "workspaceStorage", hash, "workspace.json");
-    }
+    const storagePath = path.join(getVscodeUserDataPath(), "workspaceStorage", hash, "workspace.json");
 
     if (!fs.existsSync(storagePath)) return hash.slice(0, 12) + "…";
 

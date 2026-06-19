@@ -1,4 +1,4 @@
-import { CostDatabase, AlertMetrics } from "../database";
+import { CostReader, AlertMetrics } from "../database";
 
 export interface DashboardAlert {
   id: string;
@@ -145,7 +145,7 @@ function checkMassiveContextTurn(metrics: AlertMetrics): DashboardAlert | null {
   };
 }
 
-export function getAlerts(database: CostDatabase, thresholds?: AlertThresholds): DashboardAlert[] {
+export function getAlerts(database: CostReader, thresholds?: AlertThresholds): DashboardAlert[] {
   const sinceMs = Date.now() - 24 * 60 * 60 * 1000; // last 24 hours
   const metrics = database.getAlertMetrics(sinceMs, thresholds ? {
     microTurnGapMs: thresholds.microTurnGapMs,

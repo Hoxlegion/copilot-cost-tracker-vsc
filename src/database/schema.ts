@@ -65,6 +65,7 @@ function ensureTurnsSchema(db: Database): void {
   addTurnsColumnIfMissing(existingColumns, db, "agent_name", "TEXT NOT NULL DEFAULT 'unknown'");
   addTurnsColumnIfMissing(existingColumns, db, "cache_write_tokens", "INTEGER NOT NULL DEFAULT 0");
   addTurnsColumnIfMissing(existingColumns, db, "model_family", "TEXT NOT NULL DEFAULT 'unknown'");
+  addTurnsColumnIfMissing(existingColumns, db, "cost_source", "TEXT NOT NULL DEFAULT 'estimated'");
 }
 
 function getTurnsColumnNames(db: Database): Set<string> {

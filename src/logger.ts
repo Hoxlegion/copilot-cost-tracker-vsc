@@ -68,7 +68,7 @@ export class Logger implements vscode.Disposable {
 
   private formatArg(a: unknown): string {
     if (a === null || typeof a !== "object") return String(a);
-    try { return JSON.stringify(a); } catch { return String(a); }
+    try { return JSON.stringify(a); } catch { return "[Circular]"; }
   }
 
   /** Show the OutputChannel in the editor. */

@@ -15,6 +15,7 @@ declare module "sql.js" {
   export interface Statement {
     bind(params?: Record<string, any> | any[]): boolean;
     step(): boolean;
+    reset(): void;
     get(): any[];
     getAsObject(): Record<string, any>;
     free(): boolean;

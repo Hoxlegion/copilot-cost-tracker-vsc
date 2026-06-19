@@ -1,12 +1,12 @@
 import * as vscode from "vscode";
-import { CostDatabase } from "./database";
+import { CostReader } from "./database";
 import { PricingEngine } from "./pricing";
 import { TracesDbReader } from "./parser";
 import { TracesIngester } from "./watcher";
 import { CostTreeProvider, DashboardPanel, StatusBarIndicator } from "./views";
 
 interface CommandDeps {
-  database: CostDatabase;
+  database: CostReader;
   pricing: PricingEngine;
   ingester: TracesIngester;
   reader: TracesDbReader;

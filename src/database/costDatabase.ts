@@ -6,6 +6,9 @@ import { createTables } from "./schema";
 import * as queries from "./queries";
 import * as metrics from "./metrics";
 import type {
+  CostReader,
+  CostWriter,
+  CostMaintenance,
   StoredTurn,
   SessionSummary,
   SessionModelBreakdownRow,
@@ -24,6 +27,9 @@ import type {
 } from "./types";
 
 export type {
+  CostReader,
+  CostWriter,
+  CostMaintenance,
   StoredTurn,
   SessionSummary,
   SessionModelBreakdownRow,
@@ -46,7 +52,7 @@ export function setWasmPath(p: string): void {
   wasmPath = p;
 }
 
-export class CostDatabase {
+export class CostDatabase implements CostReader, CostWriter, CostMaintenance {
   private db: Database | null = null;
   private readonly dbPath: string;
   private saving: boolean = false;
@@ -260,8 +266,8 @@ export class CostDatabase {
     }
     this.db.run(
       `INSERT OR IGNORE INTO turns
-        (session_id, timestamp, duration, agent_name, model, model_family, input_tokens, output_tokens, cached_tokens, cache_write_tokens, total_tokens, cost_usd, credits, workspace, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (session_id, timestamp, duration, agent_name, model, model_family, input_tokens, output_tokens, cached_tokens, cache_write_tokens, total_tokens, cost_usd, credits, workspace, status, cost_source)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         turn.sessionId,
         turn.timestamp,
@@ -278,6 +284,7 @@ export class CostDatabase {
         credits,
         workspace,
         turn.status,
+        turn.costSource ?? "estimated",
       ]
     );
   }

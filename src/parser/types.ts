@@ -53,6 +53,8 @@ export interface ParsedTurn {
   cacheWriteTokens: number;
   totalTokens: number;
   status: string;
+  /** Whether credits are from real billing data or token-based estimates. */
+  costSource?: "real" | "estimated";
 }
 
 export interface ParsedSession {
@@ -107,6 +109,8 @@ export interface TraceSpan {
   chatSessionId: string | null;
   turnIndex: number | null;
   ttftMs: number | null;
+  /** Real credits from GitHub billing (nano AIU ÷ 1e9). Undefined when not recorded. */
+  realCredits: number | undefined;
 }
 
 export interface SurfaceBreakdown {

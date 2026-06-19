@@ -44,7 +44,7 @@ describe("TracesDbReader", () => {
     mockExistsSync.mockReset();
     mockReadFileSync.mockReset();
     mockExistsSync.mockReturnValue(true);
-    mockReadFileSync.mockReturnValue(Buffer.from("db"));
+    mockReadFileSync.mockReturnValue(new Uint8Array([100, 98]));
   });
 
   it("reads spans from DB and defaults cacheWriteTokens to 0 (column removed from schema)", async () => {
@@ -84,6 +84,7 @@ describe("TracesDbReader", () => {
         chat_session_id: "session-1",
         turn_index: 1,
         ttft_ms: 42,
+        nano_aiu: null,
       })),
       free: vi.fn(),
     };
@@ -93,10 +94,62 @@ describe("TracesDbReader", () => {
     const reader = new TracesDbReader();
     const spans = await reader.querySpans();
 
-    expect(mockPrepare).not.toHaveBeenCalledWith(expect.stringContaining("cache_write_tokens"));
+    expect(mockPrepare).toHaveBeenCalledWith(expect.stringContaining("copilot_chat.copilot_usage_nano_aiu"));
     expect(spans).toHaveLength(1);
     expect(spans[0].cacheWriteTokens).toBe(0); // always 0 since column was removed
     expect(spans[0].cachedTokens).toBe(25);
     expect(spans[0].inputTokens).toBe(100);
+    expect(spans[0].realCredits).toBeUndefined(); // no nano_aiu recorded
+  });
+
+  it("reads real credits from nano_aiu attribute", async () => {
+    mockExec.mockReturnValue([
+      {
+        values: [
+          [0, "span_id"],
+          [1, "cache_write_tokens"],
+        ],
+      },
+    ]);
+
+    const statement = {
+      bind: vi.fn(),
+      step: vi.fn()
+        .mockReturnValueOnce(true)
+        .mockReturnValueOnce(false),
+      getAsObject: vi.fn(() => ({
+        span_id: "span-2",
+        trace_id: "trace-2",
+        parent_span_id: null,
+        name: "llm_call",
+        start_time_ms: 2000,
+        end_time_ms: 2200,
+        status_code: 0,
+        operation_name: null,
+        provider_name: "anthropic",
+        agent_name: "GitHub Copilot Chat",
+        conversation_id: "conv-2",
+        request_model: "claude-opus-4.6",
+        response_model: "claude-opus-4.6",
+        input_tokens: 50000,
+        output_tokens: 500,
+        cached_tokens: 10000,
+        reasoning_tokens: 0,
+        tool_name: null,
+        chat_session_id: "session-2",
+        turn_index: 1,
+        ttft_ms: 100,
+        nano_aiu: "4745675000",
+      })),
+      free: vi.fn(),
+    };
+
+    mockPrepare.mockReturnValue(statement);
+
+    const reader = new TracesDbReader();
+    const spans = await reader.querySpans();
+
+    expect(spans).toHaveLength(1);
+    expect(spans[0].realCredits).toBeCloseTo(4.7457, 3);
   });
 });

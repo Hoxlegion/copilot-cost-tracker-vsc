@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { CostDatabase } from "./database";
+import { CostMaintenance } from "./database";
 import { PricingEngine } from "./pricing";
 import { ConfigManager } from "./config";
 import { Logger } from "./logger";
@@ -17,7 +17,7 @@ export interface TimerOptions {
 
 export function setupTimers(
   context: vscode.ExtensionContext,
-  database: CostDatabase,
+  database: CostMaintenance,
   pricing: PricingEngine,
   configManager: ConfigManager,
   logger: Logger,

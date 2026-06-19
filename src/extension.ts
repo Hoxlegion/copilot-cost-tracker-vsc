@@ -27,10 +27,8 @@ async function ensureCopilotDbSpanExporterEnabled(logger: Logger): Promise<void>
     logger.info(`Auto-enabled setting: ${COPILOT_DB_SPAN_EXPORTER_KEY}`);
   } catch (error) {
     logger.warn(`Failed to auto-enable setting: ${COPILOT_DB_SPAN_EXPORTER_KEY}`, error);
-    void vscode.window.showWarningMessage(
-      "Copilot Cost Tracker could not auto-enable Copilot DB telemetry export. "
-      + `Please set ${COPILOT_DB_SPAN_EXPORTER_KEY} to true in your settings.`
-    );
+    // Don't alarm the user — the JSONL fallback will handle it silently.
+    // Only show a message if the user opens the cost tracker and has no data.
   }
 }
 
@@ -126,12 +124,37 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // Initial ingest + start file watcher
   const initialScanSinceMs = Date.now() - configManager.config.initialScanDays * 24 * 60 * 60 * 1000;
-  await ingester.ingest(initialScanSinceMs);
+  const initialCount = await ingester.ingest(initialScanSinceMs);
   treeProvider.refresh();
   contextTracker.update();
   statusBar.update();
   const tracesDbPath = reader.exists() ? reader.path : null;
   ingester.startWatching(tracesDbPath, configManager.config.refreshDebounceMs, configManager.config.pollIntervalMax);
+
+  // Show setup guidance only when no data at all after initial ingest
+  if (initialCount === 0 && !reader.exists()) {
+    const config = vscode.workspace.getConfiguration();
+    const isEnabled = config.get<boolean>(COPILOT_DB_SPAN_EXPORTER_KEY, false);
+    if (!isEnabled) {
+      const action = await vscode.window.showInformationMessage(
+        "Copilot Cost Tracker: No usage data found. Enable Copilot telemetry to start tracking costs.",
+        "Enable Now"
+      );
+      if (action === "Enable Now") {
+        try {
+          await config.update(COPILOT_DB_SPAN_EXPORTER_KEY, true, vscode.ConfigurationTarget.Global);
+          logger.info("User enabled Copilot DB span exporter via prompt");
+          void vscode.window.showInformationMessage(
+            "Copilot telemetry enabled. Usage data will appear after your next Copilot interaction."
+          );
+        } catch {
+          void vscode.window.showWarningMessage(
+            `Please set "${COPILOT_DB_SPAN_EXPORTER_KEY}" to true in your settings manually.`
+          );
+        }
+      }
+    }
+  }
 
   // Startup prune
   const pruned = database.pruneOldTurns(configManager.config.retentionDays);
