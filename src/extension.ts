@@ -58,6 +58,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const storagePath = context.globalStorageUri.fsPath;
   database = new CostDatabase(storagePath);
   await database.initialize();
+  // Persist schema migrations (e.g. new columns) to disk immediately
+  // so they survive window reloads before the periodic 60s save.
+  await database.save();
 
   if (database.didRecoverFromCorruption) {
     logger.warn("Database was corrupted and has been reset");

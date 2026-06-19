@@ -4,6 +4,7 @@ import { PricingEngine } from "../pricing";
 import { getBillingPeriodStartMs } from "../billing";
 import { formatDuration, simplifyModelName } from "./treeViewFormatting";
 import { formatAgentName } from "../parser/surfaceLabels";
+import { resolveWorkspaceName } from "./helpers/workspaceResolver";
 
 export type TreeItemType =
   | "budget"
@@ -19,6 +20,8 @@ export type TreeItemType =
   | "agentGroup"
   | "agent"
   | "sessionsGroup"
+  | "workspaceGroup"
+  | "workspace"
   | "empty";
 
 export interface CostTreeItem {
@@ -183,6 +186,32 @@ export function buildTree(
 
   // Sessions
   const sessions = database.getSessionSummaries(workspaceFilter, 30);
+
+  // Workspaces (this period)
+  const workspaces = database.getWorkspaces();
+  if (workspaces.length > 1) {
+    const wsBreakdown = workspaces.map((ws) => {
+      const wsData = database.getCostSince(periodStartMs, ws);
+      return { hash: ws, name: resolveWorkspaceName(ws), ...wsData };
+    }).filter((ws) => ws.turns > 0).sort((a, b) => b.credits - a.credits);
+
+    if (wsBreakdown.length > 1) {
+      items.push({
+        type: "workspaceGroup",
+        label: "Workspaces (This Period)",
+        description: `${wsBreakdown.length} repos`,
+        iconId: "folder-library",
+        hasChildren: true,
+        children: wsBreakdown.map((ws) => ({
+          type: "workspace" as const,
+          label: ws.name,
+          description: `${ws.credits.toFixed(0)} cr · ${fmtUsd(ws.costUsd)} · ${ws.turns} turns`,
+          iconId: "folder",
+        })),
+      });
+    }
+  }
+
   if (sessions.length > 0) {
     items.push({
       type: "sessionsGroup",

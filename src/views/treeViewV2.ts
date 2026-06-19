@@ -70,6 +70,7 @@ export class CostTreeProvider implements vscode.TreeDataProvider<CostTreeItem> {
         return vscode.TreeItemCollapsibleState.Expanded;
       case "modelGroup":
       case "agentGroup":
+      case "workspaceGroup":
       case "sessionsGroup":
       case "session":
         return vscode.TreeItemCollapsibleState.Collapsed;
@@ -92,6 +93,8 @@ export class CostTreeProvider implements vscode.TreeDataProvider<CostTreeItem> {
       case "model": return "symbol-method";
       case "agentGroup": return "organization";
       case "agent": return "symbol-key";
+      case "workspaceGroup": return "folder-library";
+      case "workspace": return "folder";
       case "sessionsGroup": return "history";
       case "empty": return "info";
     }

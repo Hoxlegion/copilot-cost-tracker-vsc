@@ -75,6 +75,12 @@
         "title": "Scan Full History",
         "category": "Copilot Cost Tracker",
         "icon": "$(history)"
+      },
+      {
+        "command": "copilotCostTracker.setMonthlyBudget",
+        "title": "Set Monthly Budget",
+        "category": "Copilot Cost Tracker",
+        "icon": "$(credit-card)"
       }
     ],
     "menus": {
@@ -104,12 +110,19 @@
             "business",
             "enterprise"
           ],
-          "description": "Your GitHub Copilot plan type."
+          "description": "Your GitHub Copilot plan type. Changing this auto-sets the budget credits.",
+          "enumDescriptions": [
+            "Pro — 300 credits/month",
+            "Pro+ — 1,500 credits/month",
+            "Max — custom limit",
+            "Business — 300 credits/month",
+            "Enterprise — 1,000 credits/month"
+          ]
         },
         "copilotCostTracker.budgetCredits": {
           "type": "number",
           "default": 0,
-          "description": "Total credit budget for the billing period. Used for threshold alerting."
+          "description": "Total credit budget for the billing period. Set via 'Set Monthly Budget' command or manually."
         },
         "copilotCostTracker.budgetWarningThresholds": {
           "type": "array",

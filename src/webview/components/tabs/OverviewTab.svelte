@@ -31,22 +31,41 @@
   $: usageColor = usagePct >= 100 ? '#e57373' : usagePct >= 80 ? '#ffb74d' : '#81c784';
   
   $: topWorkspace = (() => {
-    const workspaceMap = new Map<string, { costUsd: number; sessions: number }>();
+    const workspaceMap = new Map<string, { costUsd: number; credits: number; sessions: number; turns: number }>();
     
     filteredSessions.forEach(s => {
-      const current = workspaceMap.get(s.workspace) ?? { costUsd: 0, sessions: 0 };
+      const current = workspaceMap.get(s.workspace) ?? { costUsd: 0, credits: 0, sessions: 0, turns: 0 };
       current.costUsd += s.totalCostUsd;
+      current.credits += s.totalCredits;
       current.sessions += 1;
+      current.turns += s.turnCount;
       workspaceMap.set(s.workspace, current);
     });
     
     const sorted = Array.from(workspaceMap.entries())
       .sort((a, b) => b[1].costUsd - a[1].costUsd);
     
-    if (sorted.length === 0) return { label: '—', costUsd: 0, sessions: 0 };
+    if (sorted.length === 0) return { label: '—', costUsd: 0, credits: 0, sessions: 0 };
     
     const [workspace, stats] = sorted[0];
     return { label: workspace, ...stats };
+  })();
+
+  $: workspaceLeaderboard = (() => {
+    const workspaceMap = new Map<string, { costUsd: number; credits: number; sessions: number; turns: number }>();
+    
+    filteredSessions.forEach(s => {
+      const current = workspaceMap.get(s.workspace) ?? { costUsd: 0, credits: 0, sessions: 0, turns: 0 };
+      current.costUsd += s.totalCostUsd;
+      current.credits += s.totalCredits;
+      current.sessions += 1;
+      current.turns += s.turnCount;
+      workspaceMap.set(s.workspace, current);
+    });
+    
+    return Array.from(workspaceMap.entries())
+      .map(([name, stats]) => ({ name, ...stats }))
+      .sort((a, b) => b.credits - a.credits);
   })();
   
   $: avgResponseMs = (() => {
@@ -171,6 +190,36 @@
       valueColor={cacheSavingsValue > 0 ? '#81c784' : ''}
     />
   </div>
+
+  {#if workspaceLeaderboard.length > 1}
+    <div class="workspace-breakdown">
+      <details>
+        <summary>Workspace Breakdown ({workspaceLeaderboard.length} repos)</summary>
+        <table class="workspace-table">
+          <thead>
+            <tr>
+              <th>Workspace</th>
+              <th>Credits</th>
+              <th>Cost</th>
+              <th>Sessions</th>
+              <th>Turns</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each workspaceLeaderboard as ws}
+              <tr>
+                <td class="ws-name" title={ws.name}>{ws.name}</td>
+                <td>{ws.credits.toFixed(1)}</td>
+                <td>${ws.costUsd.toFixed(2)}</td>
+                <td>{ws.sessions}</td>
+                <td>{ws.turns}</td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </details>
+    </div>
+  {/if}
   
   <div class="charts-section">
     <div class="chart-with-help">
@@ -229,5 +278,49 @@
   
   .help-button:hover {
     background: var(--vscode-button-secondaryHoverBackground);
+  }
+
+  .workspace-breakdown {
+    margin-bottom: 16px;
+  }
+
+  .workspace-breakdown summary {
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 12px;
+    color: var(--vscode-foreground);
+    padding: 6px 0;
+    user-select: none;
+  }
+
+  .workspace-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    margin-top: 6px;
+  }
+
+  .workspace-table th {
+    text-align: left;
+    padding: 4px 8px;
+    color: var(--vscode-descriptionForeground);
+    border-bottom: 1px solid var(--vscode-widget-border);
+    font-weight: 600;
+  }
+
+  .workspace-table td {
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--vscode-widget-border, transparent);
+  }
+
+  .workspace-table tr:hover td {
+    background: var(--vscode-list-hoverBackground);
+  }
+
+  .ws-name {
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 </style>
