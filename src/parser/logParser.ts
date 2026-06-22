@@ -293,29 +293,30 @@ export class LogParser {
   private extractTitlesFromFile(filePath: string, titles: Map<string, string>): void {
     // Skip re-reading/re-parsing unchanged title files: this runs on every ingest
     // poll, and title-*.jsonl files rarely change once a session has a title.
-    let mtimeMs: number | undefined;
+    // Open once and stat/read via the same descriptor to avoid a check-then-use
+    // race on the path (CodeQL TOCTOU).
+    let fd: number;
     try {
-      mtimeMs = fs.statSync(filePath).mtimeMs;
+      fd = fs.openSync(filePath, "r");
     } catch {
       return;
     }
-
-    const cached = this.titleFileCache.get(filePath);
-    if (cached?.mtimeMs === mtimeMs) {
-      for (const [id, title] of cached.entries) titles.set(id, title);
-      return;
-    }
-
-    let content: string;
     try {
-      content = fs.readFileSync(filePath, "utf-8");
+      const mtimeMs = fs.fstatSync(fd).mtimeMs;
+      const cached = this.titleFileCache.get(filePath);
+      if (cached?.mtimeMs === mtimeMs) {
+        for (const [id, title] of cached.entries) titles.set(id, title);
+        return;
+      }
+      const content = fs.readFileSync(fd, "utf-8");
+      const entries = this.parseTitleEntries(content);
+      this.titleFileCache.set(filePath, { mtimeMs, entries });
+      for (const [id, title] of entries) titles.set(id, title);
     } catch {
-      return;
+      // Unreadable file — skip it.
+    } finally {
+      fs.closeSync(fd);
     }
-
-    const entries = this.parseTitleEntries(content);
-    this.titleFileCache.set(filePath, { mtimeMs, entries });
-    for (const [id, title] of entries) titles.set(id, title);
   }
 
   private parseTitleEntries(content: string): Array<[string, string]> {

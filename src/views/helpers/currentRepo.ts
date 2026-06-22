@@ -32,17 +32,20 @@ export function getCurrentWorkspaceRepo(): string | null {
 /** Locate the git config file, handling worktrees/submodules where `.git` is a file. */
 function resolveGitConfigPath(folder: string): string | null {
   const gitPath = path.join(folder, ".git");
-  let stat: fs.Stats;
+  // Read `.git` directly and let the error tell us what it is, rather than
+  // stat-then-read (which CodeQL flags as a file-system race / TOCTOU).
+  let content: string;
   try {
-    stat = fs.statSync(gitPath);
-  } catch {
+    content = fs.readFileSync(gitPath, "utf-8");
+  } catch (err) {
+    // `.git` is a directory (standard repo layout) → config lives inside it.
+    if ((err as NodeJS.ErrnoException).code === "EISDIR") {
+      return path.join(gitPath, "config");
+    }
     return null;
   }
-  if (stat.isDirectory()) {
-    return path.join(gitPath, "config");
-  }
   // `.git` is a file: "gitdir: <path>" pointing at the real git dir.
-  const match = /^gitdir:\s*(.+)$/m.exec(fs.readFileSync(gitPath, "utf-8").trim());
+  const match = /^gitdir:\s*(.+)$/m.exec(content.trim());
   if (!match) {
     return null;
   }

@@ -108,13 +108,22 @@ export class TracesDbReader {
    * entire file on every call was a major source of disk I/O.
    */
   private async getDb(): Promise<Database> {
-    const stat = fs.statSync(this.dbPath);
-    if (this.cachedDb && stat.mtimeMs === this.cachedMtimeMs && stat.size === this.cachedSize) {
-      return this.cachedDb;
+    // Open once and stat/read via the same descriptor so the check (mtime/size)
+    // and the use (read) cannot race against a path swap (CodeQL TOCTOU).
+    const fd = fs.openSync(this.dbPath, "r");
+    let stat: fs.Stats;
+    let fileBuffer: Buffer;
+    try {
+      stat = fs.fstatSync(fd);
+      if (this.cachedDb && stat.mtimeMs === this.cachedMtimeMs && stat.size === this.cachedSize) {
+        return this.cachedDb;
+      }
+      fileBuffer = fs.readFileSync(fd);
+    } finally {
+      fs.closeSync(fd);
     }
     this.cachedDb?.close();
     this.cachedDb = undefined;
-    const fileBuffer = fs.readFileSync(this.dbPath);
     const SQL = await this.getSqlJs();
     this.cachedDb = new SQL.Database(fileBuffer);
     this.cachedMtimeMs = stat.mtimeMs;
