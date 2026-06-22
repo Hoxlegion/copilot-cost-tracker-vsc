@@ -4,7 +4,7 @@ import tseslint from 'typescript-eslint';
 export default [
   // Global ignores (replaces ignorePatterns)
   {
-    ignores: ['dist/**', 'node_modules/**', 'src/webview/**', '*.mjs', '*.js'],
+    ignores: ['dist/**', 'node_modules/**', 'src/webview/**', '**/*.mjs', '**/*.js'],
   },
 
   eslint.configs.recommended,

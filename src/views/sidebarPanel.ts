@@ -217,17 +217,22 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
     let sessionsHtml = "";
     if (d.sessions.length > 0) {
       sessionsHtml = d.sessions.map((s) => {
-        const time = new Date(s.startTimestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        const time = new Date(s.lastTimestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
         const model = simplifyModelName(s.primaryModel);
+        const wsName = resolveWorkspaceName(s.workspace);
         const isExpensive = s.totalCostUsd >= 50;
         const costClass = isExpensive ? "session-cost expensive" : "session-cost";
+        const titleLine = s.title
+          ? `<div class="session-title" title="${esc(s.title)}">${esc(s.title)}</div>`
+          : "";
         return `
           <div class="session-row${isExpensive ? " expensive" : ""}">
             <div class="session-top">
               <span class="session-time">${time}</span>
-              <span class="session-ws" title="${esc(s.workspace)}">${esc(s.workspace)}</span>
+              <span class="session-ws" title="${esc(s.workspace)}">${esc(wsName)}</span>
               <span class="${costClass}">${fmtUsd(s.totalCostUsd)}</span>
             </div>
+            ${titleLine}
             <div class="session-bottom">
               <span class="session-model">${esc(model)}</span>
               <span class="session-sep">·</span>
@@ -623,6 +628,15 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
         white-space: nowrap;
         flex: 1;
         min-width: 0;
+      }
+      .session-title {
+        font-size: 11px;
+        color: var(--vscode-descriptionForeground);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        margin-bottom: 2px;
+        font-style: italic;
       }
       .session-cost {
         font-size: 11px;
