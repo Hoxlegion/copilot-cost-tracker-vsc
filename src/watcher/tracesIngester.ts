@@ -211,7 +211,9 @@ export class TracesIngester implements vscode.Disposable {
       },
       costUsd,
       credits,
-      this.workspaceId
+      // Prefer the session's real repo (works across multiple VS Code windows
+      // sharing the global traces DB); fall back to this window's workspace.
+      span.workspaceRepo ?? this.workspaceId
     );
   }
 

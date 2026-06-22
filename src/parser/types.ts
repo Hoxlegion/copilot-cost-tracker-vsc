@@ -119,6 +119,13 @@ export interface TraceSpan {
   ttftMs: number | null;
   /** Real credits from GitHub billing (nano AIU ÷ 1e9). Undefined when not recorded. */
   realCredits: number | undefined;
+  /**
+   * Friendly "Org/Repo" workspace derived from the session's git repo attribute
+   * (e.g. `copilot_chat.repo.remote_url`). Null when the session has no repo
+   * signal. Used to attribute turns to the correct workspace regardless of which
+   * VS Code window ingested the shared, global traces DB.
+   */
+  workspaceRepo: string | null;
 }
 
 export interface SurfaceBreakdown {

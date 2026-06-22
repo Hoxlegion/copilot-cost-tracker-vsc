@@ -34,7 +34,7 @@ vi.mock("sql.js", () => ({
   })),
 }));
 
-import { TracesDbReader } from "../src/parser/tracesDbReader";
+import { TracesDbReader, repoUrlToName } from "../src/parser/tracesDbReader";
 
 describe("TracesDbReader", () => {
   beforeEach(() => {
@@ -193,5 +193,25 @@ describe("TracesDbReader", () => {
 
     expect(spans).toHaveLength(1);
     expect(spans[0].realCredits).toBe(0);
+  });
+});
+
+describe("repoUrlToName", () => {
+  it("normalizes https git URLs to Org/Repo and strips .git", () => {
+    expect(repoUrlToName("https://github.com/Hoxlegion/copilot-cost-tracker-vsc.git"))
+      .toBe("Hoxlegion/copilot-cost-tracker-vsc");
+    expect(repoUrlToName("https://github.com/Hoxlegion/copilot-cost-tracker-vsc"))
+      .toBe("Hoxlegion/copilot-cost-tracker-vsc");
+  });
+
+  it("normalizes ssh git URLs to Org/Repo", () => {
+    expect(repoUrlToName("git@github.com:Acme/HCP.Cloud.Core.git")).toBe("Acme/HCP.Cloud.Core");
+  });
+
+  it("returns null for empty/missing input", () => {
+    expect(repoUrlToName(null)).toBeNull();
+    expect(repoUrlToName(undefined)).toBeNull();
+    expect(repoUrlToName("")).toBeNull();
+    expect(repoUrlToName("   ")).toBeNull();
   });
 });

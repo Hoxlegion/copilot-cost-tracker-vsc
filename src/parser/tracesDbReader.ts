@@ -9,6 +9,22 @@ import { buildTurnDiscovery } from "./turnDiscovery";
 import { AGGREGATE_AGENT_NAME } from "./types";
 import { getVscodeUserDataPath } from "../shared/paths";
 
+/**
+ * Convert a git remote URL into a friendly "Org/Repo" workspace label.
+ * Handles https and ssh forms and strips a trailing `.git`. Returns the trimmed
+ * input unchanged if it doesn't look like a URL.
+ */
+export function repoUrlToName(url: string | null | undefined): string | null {
+  if (!url) return null;
+  let s = url.trim();
+  if (!s) return null;
+  s = s.replace(/\.git$/i, "");
+  s = s.replace(/^[a-z][a-z0-9+\-.]*:\/\//i, ""); // strip scheme://
+  s = s.replace(/^[^/@]+@/, ""); // strip user@ (ssh)
+  s = s.replace(/^[^/:]+[:/]/, ""); // strip host: or host/
+  return s || null;
+}
+
 export class TracesDbReader {
   private readonly dbPath: string;
   private wasmPath: string | undefined;
@@ -57,6 +73,7 @@ export class TracesDbReader {
       turnIndex: row.turn_index as number | null,
       ttftMs: row.ttft_ms as number | null,
       realCredits: nanoAiu != null && Number.isFinite(nanoAiu) && nanoAiu >= 0 ? nanoAiu / 1_000_000_000 : undefined,
+      workspaceRepo: null,
     };
   }
 
@@ -118,10 +135,50 @@ export class TracesDbReader {
         results.push(this.mapSpan(stmt.getAsObject() as Record<string, unknown>));
       }
       stmt.free();
+
+      // Attribute each span to its session's git repo (if any). The repo
+      // attribute is sparse per span but reliable per session, so we map
+      // chat_session_id -> repo once and apply it to every span in the batch.
+      const repoBySession = this.buildSessionRepoMap(db);
+      if (repoBySession.size > 0) {
+        for (const span of results) {
+          if (span.chatSessionId) {
+            span.workspaceRepo = repoBySession.get(span.chatSessionId) ?? null;
+          }
+        }
+      }
       return results;
     } finally {
       close();
     }
+  }
+
+  /** Map each chat session to a friendly "Org/Repo" label from its git repo attribute. */
+  private buildSessionRepoMap(db: Database): Map<string, string> {
+    const map = new Map<string, string>();
+    try {
+      const stmt = db.prepare(`
+        SELECT s.chat_session_id AS sid, MAX(a.value) AS repo
+        FROM span_attributes a
+        JOIN spans s ON s.span_id = a.span_id
+        WHERE a.key IN ('copilot_chat.repo.remote_url', 'github.copilot.git.repository')
+          AND s.chat_session_id IS NOT NULL
+          AND a.value IS NOT NULL AND a.value != ''
+        GROUP BY s.chat_session_id
+      `);
+      while (stmt.step()) {
+        const row = stmt.getAsObject() as Record<string, unknown>;
+        const sid = row.sid as string | null;
+        const name = repoUrlToName(row.repo as string | null);
+        if (sid && name) {
+          map.set(sid, name);
+        }
+      }
+      stmt.free();
+    } catch {
+      // Attribute table/keys may be absent on older Copilot versions; fall back silently.
+    }
+    return map;
   }
 
   async getSurfaceBreakdown(sinceMs?: number): Promise<SurfaceBreakdown[]> {

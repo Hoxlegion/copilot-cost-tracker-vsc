@@ -269,10 +269,12 @@ export class CostDatabase implements CostReader, CostWriter, CostMaintenance {
         (session_id, timestamp, duration, agent_name, model, model_family, input_tokens, output_tokens, cached_tokens, cache_write_tokens, total_tokens, cost_usd, credits, workspace, status, cost_source)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(session_id, timestamp, model) DO UPDATE SET
-         cost_usd = excluded.cost_usd,
-         credits = excluded.credits,
-         cost_source = excluded.cost_source
-       WHERE excluded.cost_source = 'real' AND cost_source != 'real'`,
+         cost_usd = CASE WHEN excluded.cost_source = 'real' AND cost_source != 'real' THEN excluded.cost_usd ELSE cost_usd END,
+         credits = CASE WHEN excluded.cost_source = 'real' AND cost_source != 'real' THEN excluded.credits ELSE credits END,
+         cost_source = CASE WHEN excluded.cost_source = 'real' AND cost_source != 'real' THEN excluded.cost_source ELSE cost_source END,
+         -- Self-heal workspace to an authoritative repo label ("Org/Repo") when a
+         -- later ingest provides one; never let a non-repo fallback overwrite it.
+         workspace = CASE WHEN instr(excluded.workspace, '/') > 0 THEN excluded.workspace ELSE workspace END`,
       [
         turn.sessionId,
         turn.timestamp,
