@@ -325,11 +325,10 @@ export class CostDatabase implements CostReader, CostWriter, CostMaintenance {
     db.run("BEGIN");
     try {
       // 1. Drop uncredited conversation-level roll-up/duplicate turns.
-      const delStmt = db.prepare(
-        "DELETE FROM turns WHERE agent_name = ? AND cost_source != 'real'"
+      db.run(
+        "DELETE FROM turns WHERE agent_name = ? AND cost_source != 'real'",
+        [AGGREGATE_AGENT_NAME]
       );
-      delStmt.run([AGGREGATE_AGENT_NAME]);
-      delStmt.free();
 
       // 2. `input_tokens` previously included `cached_tokens`; keep only the non-cached
       //    portion and recompute `total_tokens`. RHS uses the original row values.

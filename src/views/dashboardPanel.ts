@@ -1,6 +1,4 @@
 import * as vscode from 'vscode';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 import { CostReader } from '../database';
 import { PricingEngine } from '../pricing';
 import { TracesDbReader } from '../parser';
@@ -85,36 +83,7 @@ export class DashboardPanel {
   public async update(): Promise<void> {
     try {
       if (!this.htmlLoaded) {
-        const webviewPath = path.join(this.extensionUri.fsPath, 'dist', 'webview', 'index.html');
-        let html = fs.readFileSync(webviewPath, 'utf-8');
-        
-        const nonce = this.getNonce();
-        html = html
-          .replaceAll('{{CSP_SOURCE}}', this.panel.webview.cspSource)
-          .replaceAll('{{NONCE}}', nonce);
-        
-        const webviewUri = this.panel.webview.asWebviewUri(
-          vscode.Uri.joinPath(this.extensionUri, 'dist', 'webview')
-        );
-        
-        // Fix Vite-generated script tag: replace relative path with webview URI,
-        // add nonce, remove type="module" (bundle is IIFE format)
-        html = html.replace(
-          /<script[^>]*src="\.\/bundle\.js"[^>]*><\/script>/,
-          ''
-        );
-        
-        // Add script tag at the end of body (after #app div exists)
-        html = html.replace(
-          '</body>',
-          `<script nonce="${nonce}" src="${webviewUri}/bundle.js"></script></body>`
-        );
-        
-        // Also handle the original template script tag if present
-        html = html.replaceAll('src="./', `src="${webviewUri}/`);
-        html = html.replaceAll('href="./', `href="${webviewUri}/`);
-        
-        this.panel.webview.html = html;
+        this.panel.webview.html = this.buildHtml();
         this.htmlLoaded = true;
       }
 
@@ -134,6 +103,32 @@ export class DashboardPanel {
       const message = err instanceof Error ? err.message : String(err);
       console.error('Dashboard update failed:', message);
     }
+  }
+
+  private buildHtml(): string {
+    const nonce = this.getNonce();
+    const cspSource = this.panel.webview.cspSource;
+    const webviewUri = this.panel.webview.asWebviewUri(
+      vscode.Uri.joinPath(this.extensionUri, 'dist', 'webview')
+    );
+
+    // The Svelte build emits a single IIFE bundle with CSS inlined, so the host
+    // HTML is constructed directly here rather than reading and regex-rewriting
+    // Vite's generated index.html. Only the trusted bundle (matched by the CSP
+    // nonce) can execute; default-src 'none' blocks everything else.
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}' ${cspSource}; font-src ${cspSource};">
+  <title>Copilot Cost Dashboard</title>
+</head>
+<body>
+  <div id="app"></div>
+  <script nonce="${nonce}" src="${webviewUri}/bundle.js"></script>
+</body>
+</html>`;
   }
 
   private getNonce(): string {

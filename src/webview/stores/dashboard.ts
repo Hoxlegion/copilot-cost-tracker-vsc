@@ -22,10 +22,21 @@ export const formatUsd = derived(dashboardData, ($d) => {
   };
 });
 
-window.addEventListener('message', (event) => {
+window.addEventListener('message', (event: MessageEvent) => {
+  // Origin verification: VS Code delivers host→webview messages with a
+  // `vscode-webview://` origin that remote/web content cannot forge, and the
+  // panel CSP (`default-src 'none'`) sandboxes the webview. Reject anything else.
   if (!event.origin.startsWith('vscode-webview://')) return;
+
+  // Shape validation: only accept the well-formed dashboard payload.
   const message = event.data;
-  if (message.type === 'dashboardData') {
-    dashboardData.set(message.data);
+  if (
+    message &&
+    typeof message === 'object' &&
+    message.type === 'dashboardData' &&
+    message.data &&
+    typeof message.data === 'object'
+  ) {
+    dashboardData.set(message.data as DashboardRawData);
   }
 });

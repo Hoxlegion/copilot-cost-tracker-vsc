@@ -253,7 +253,8 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
   }
 
   private buildSparklineSection(values: number[]): string {
-    if (values.length === 0 || values.every((v) => v === 0)) return "";
+    // `every` already returns true for an empty array, so this covers "no data".
+    if (values.every((v) => v === 0)) return "";
     const W = 100;
     const H = 26;
     const max = Math.max(...values, 1);

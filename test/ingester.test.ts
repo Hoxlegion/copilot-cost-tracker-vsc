@@ -237,13 +237,17 @@ describe("Ingester Failover & Polling", () => {
   });
 
   describe("Data Flow", () => {
+    // Shared so the two cases below aren't identical implementations (S4144).
+    const collectIfNew = (events: number[], count: number) => {
+      if (count > 0) {
+        events.push(count);
+      }
+    };
+
     it("fires dataChanged event on new turns", () => {
       const events: number[] = [];
 
-      const newCount = 5;
-      if (newCount > 0) {
-        events.push(newCount);
-      }
+      collectIfNew(events, 5);
 
       expect(events.length).toBe(1);
       expect(events[0]).toBe(5);
@@ -252,10 +256,7 @@ describe("Ingester Failover & Polling", () => {
     it("doesn't fire event on zero new turns", () => {
       const events: number[] = [];
 
-      const newCount = 0;
-      if (newCount > 0) {
-        events.push(newCount);
-      }
+      collectIfNew(events, 0);
 
       expect(events.length).toBe(0);
     });

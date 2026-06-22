@@ -5,6 +5,10 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    ignore:
+      # @types/vscode must match engines.vscode (^1.85.0); vsce rejects newer
+      # type versions. Bump it manually only when raising the minimum VS Code.
+      - dependency-name: "@types/vscode"
     groups:
       dev-dependencies:
         dependency-type: development

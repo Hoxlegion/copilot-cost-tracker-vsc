@@ -325,7 +325,7 @@
     "@sveltejs/vite-plugin-svelte": "7.1.2",
     "@tsconfig/svelte": "5.0.8",
     "@types/node": "25.9.2",
-    "@types/vscode": "^1.125.0",
+    "@types/vscode": "1.85.0",
     "@vitest/coverage-v8": "4.1.9",
     "@vscode/vsce": "3.9.2",
     "chart.js": "4.5.1",
