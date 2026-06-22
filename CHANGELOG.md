@@ -4,6 +4,30 @@ All notable changes to the **Copilot Cost Tracker** extension will be documented
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] - 2026-06-22
+
+### Added
+- Efficiency Grade (A–F) with gauge, scoring cache reuse, context size, and input:output ratio
+- "Context Tax" hero visualization showing how much conversation history each turn resends
+- Cost Story digest — plain-language summary of spend, top model, priciest session, and cache health
+- Productivity metrics: cost per turn and cost per active hour
+- 14-day credit sparkline in the sidebar panel
+- Theme-aware brand palette (`utils/palette.ts`) shared across charts and components
+
+### Changed
+- Dashboard consolidated into 5 tabs (Dashboard, Activity, Models, Efficiency, Budget)
+- Charts, legends, and tooltips now derive colors from the active VS Code theme (fixes light-theme legibility)
+- Model cost is attributed via accurate per-model breakdown across multi-model sessions
+- Daily Activity chart shows Cost + Turns (replaced the redundant Credits line) and dropped the toggle
+- Tabular numerals applied across the dashboard and sidebar for aligned figures
+- Replaced emoji status indicators with Lucide icons (smart alerts, budget pacing)
+
+### Fixed
+- Chart legends were invisible on light themes (hardcoded white text)
+- Status bar context-cost estimate used a hardcoded fallback model and could leave a stale tooltip
+- "LLM Calls" column in the Activity workspace summary actually showed turn counts (relabeled "Turns")
+- "Tail (ms)" latency silently fell back to the median; now a true P90 shown only with ≥20 samples
+
 ## [0.5.2] - 2026-06-15
 
 ### Added

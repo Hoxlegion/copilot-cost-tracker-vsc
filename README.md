@@ -1,6 +1,6 @@
 # Copilot Cost Tracker
 
-[![Version](https://img.shields.io/badge/version-0.5.2-blue.svg)](https://github.com/Hoxlegion/copilot-cost-tracker-vsc/releases)
+[![Version](https://img.shields.io/badge/version-0.6.0-blue.svg)](https://github.com/Hoxlegion/copilot-cost-tracker-vsc/releases)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![VS Code](https://img.shields.io/badge/VS%20Code-%5E1.85.0-blue.svg)](https://code.visualstudio.com/)
 
@@ -37,12 +37,18 @@ Get live updates on AI credit consumption with an always-visible status bar, bud
 |---------|-------------|
 | Live status bar | Session delta (`+2.3 cr`) and period total (`42.5 cr`) updated as you work |
 | Budget threshold alerts | One-time VS Code notifications at configurable % thresholds (default: 75%, 90%, 100%) |
-| Cost tree view | Hierarchical sidebar: budget → today/week/month → models → sessions |
-| Dashboard webview | 6-tab Chart.js dashboard: Overview, Sessions, Models, Tokens, Insights, Estimates |
+| Rich sidebar panel | Styled overview: budget bar, 14-day sparkline, today/week, pace, model & workspace breakdowns, recent sessions |
+| Dashboard webview | 5-tab Chart.js dashboard: Dashboard, Activity, Models, Efficiency, Budget |
+| Efficiency Grade | A–F grade with gauge, scoring cache reuse, context size, and input:output ratio |
+| Context Tax visualization | Signature view of how much conversation history each turn resends, with average growth curve |
+| Cost Story digest | Plain-language summary of your spend, top model, priciest session, and cache health |
+| Productivity metrics | Cost per turn and cost per active hour, alongside cache savings and forecast |
+| Theme-aware UI | Charts, legends, and tooltips adapt to light and dark VS Code themes |
 | Global date filtering | Filter all dashboard tabs by custom date range (Today, 7d, 30d, This Period, or custom) |
 | Reactive dashboard | All tabs update instantly when filter changes, no page reload needed |
+| Accurate model attribution | Per-model cost split across multi-model sessions, not just the session's primary model |
 | Workspace focus insights | Top workspace card + workspace leaderboard for current range |
-| Discovery turn analytics | Turn-level discovery with LLM calls, tool calls, cache %, expand/collapse, and filters |
+| Turn Explorer analytics | Turn-level discovery with LLM calls, tool calls, cache %, expand/collapse, and filters |
 | Cache savings visibility | Range-level savings card with model breakdown |
 | Billing period tracking | Correct period boundaries for any `billingCycleStartDay`, including short months |
 | Multi-model prices | Built-in rates for all June 2026 GA models from OpenAI, Anthropic, Google, GitHub |
@@ -51,7 +57,7 @@ Get live updates on AI credit consumption with an always-visible status bar, bud
 | Context weight notifications | Warnings at 20K, 40K, 80K tokens when active sessions accumulate heavy context |
 | Context awareness alerts | Identifies patterns: micro-turn bloat, raw paste, premium model misallocation, agent sprawl |
 | File watcher strategy | Event-driven updates with 2s debounce for near-instant status bar refresh (sub-second after data arrival) |
-| Response latency metrics | Tracks model response times and displays avg latency per model and session |
+| Response latency metrics | Tracks model response times and displays avg latency and P90 per model |
 | DB + JSONL failover | Reads `agent-traces.db` directly; falls back to JSONL debug logs automatically |
 | Watermark recovery | On restart, resumes from the last processed timestamp — no duplicate counting |
 | Periodic persistence | In-memory SQLite flushed to disk every 60 seconds |
@@ -65,14 +71,14 @@ See session delta (+2.3 credits) and period total in real time.
 
 ![Live cost indicator in status bar](media/statusbar.png)
 
-### Cost Overview Tree
-Hierarchical breakdown: budget → period → models → sessions.
+### Cost Overview Sidebar
+Styled panel: budget bar, 14-day sparkline, today/week, pace, and model/workspace breakdowns.
 
-![Hierarchical cost breakdown in sidebar](media/costoverview.png)
+![Cost overview sidebar](media/sidetab.png)
 
-### Dashboard (6-tab analytics)
-Quick overview, Sessions list, model/token analytics, and curated Insights with discovery views.
-![6-tab Chart.js dashboard](media/DashboardModels.png)
+### Dashboard (5-tab analytics)
+Dashboard hero with Efficiency Grade and Context Tax, plus Activity, Models, Efficiency, and Budget tabs.
+![5-tab Chart.js dashboard](media/dashboard.png)
 
 Includes global date range filters, sorting, and detailed breakdowns.
 
@@ -81,13 +87,12 @@ Includes global date range filters, sorting, and detailed breakdowns.
 ## Requirements
 
 Copilot Chat must have this telemetry setting enabled so usage data is written for this extension to read:
+The extension attempts to enable this automatically on activation.
+If VS Code policy/settings scope blocks automatic updates, set it manually.
 
 ```jsonc
 "github.copilot.chat.otel.dbSpanExporter.enabled": true
 ```
-
-The extension now attempts to enable this automatically on activation.
-If VS Code policy/settings scope blocks automatic updates, set it manually.
 
 **That's it.** The extension reads data that Copilot Chat already creates - no external APIs or authentication needed.
 
@@ -104,7 +109,7 @@ If VS Code policy/settings scope blocks automatic updates, set it manually.
 
 ### From VSIX (Manual)
 ```bash
-code --install-extension copilot-cost-tracker-0.5.2.vsix
+code --install-extension copilot-cost-tracker-0.6.0.vsix
 ```
 
 ### From Source
@@ -113,7 +118,7 @@ git clone https://github.com/Hoxlegion/copilot-cost-tracker-vsc.git
 cd copilot-cost-tracker
 npm install
 npm run package
-code --install-extension copilot-cost-tracker-0.5.2.vsix
+code --install-extension copilot-cost-tracker-0.6.0.vsix
 ```
 
 ---
@@ -178,44 +183,45 @@ Accessible via the Command Palette (`Ctrl+Shift+P`) under the **Copilot Cost Tra
 ### Status Bar
 Displays at the bottom of VS Code:
 ```
-$(credit-card)  +2.3 | 42.5 cr | 35K
+$(credit-card) +$0.42 | $4.25 | $(brain) 35K
 ```
-- **`+2.3`** — Credits consumed in current session
-- **`42.5 cr`** — Total credits this billing period
-- **`Context: 35K tokens`** — Tokens used in current session
-- Color-coded: yellow at 75%, red at 90%, based on budget
+- **`+$0.42`** — USD spent in the current session (since activation)
+- **`$4.25`** — Total spend this billing period
+- **`$(brain) 35K`** — Active chat context weight (tokens)
+- Color-coded by budget thresholds and pacing (yellow when approaching, red when over)
+- Click for a quick menu: period summary, context, top models, dashboard, refresh, settings
 
-### Cost Overview Tree
-Hierarchical sidebar view:
-- Budget % and remaining
-- Today / This Week / This Month breakdowns
-- Models and sessions with turn counts
+### Cost Overview Sidebar
+Styled panel in the Activity Bar:
+- Budget bar with % used and reset date
+- 14-day credit sparkline
+- Today / This Week totals and projected pace
+- Model and workspace breakdowns
+- Recent sessions with cost, model, and turn counts
 
 ### Dashboard
-6-tab webview with Chart.js visualizations and global date range filtering:
-- **Overview**: Range cost/credits, budget usage (with "No budget set" handling), days remaining, forecast, cache savings, top workspace, avg response time
-- **Sessions**: Summary, table, and discovery views with expandable per-model breakdowns and turn-level analytics
-- **Models**: Cost breakdown by model with avg cost/turn, avg response time (latency), token usage, and cache %
-- **Tokens**: Input/output/cached token statistics and cache hit rates
-- **Insights**: Token savings playbook, action-type spend breakdown, range-specific alerts
-- **Estimates**: Time/cost heuristics (speculative)
+5-tab webview with Chart.js visualizations and global date range filtering:
+- **Dashboard**: Today/period hero cards, Efficiency Grade (A–F), Context Tax visualization, Cost Story digest, productivity metrics (cost/turn, cost/active hour), cache savings, forecast, daily activity chart, cost drivers, and smart alerts
+- **Activity**: Activity heatmap, workspace filter, recent sessions, sessions table, and a Turn Explorer with per-turn LLM/tool calls and cache %
+- **Models**: Per-model cost breakdown (accurate across multi-model sessions) with avg credits/turn, token usage, cache %, avg and P90 latency, plus bar/pie/token-flow charts
+- **Efficiency**: Optimization score, cache/context/IO metrics, context scatter & growth charts, surface breakdown, alerts, and a savings playbook
+- **Budget**: Budget gauge, pacing status, forecast, and timeline
 
 All tabs respond to the global date range filter for focused analysis.
 
-Discovery in Sessions includes:
+The Turn Explorer (Activity tab) includes:
 - `Expand all` / `Collapse all`
 - `Only rows with tools` filter
 - `Only anomalies` filter (cache hit < 40% or turn used tools)
 - Last Active timestamp for each turn
-- Click-through from discovery/session snapshots to the Sessions table
 
-Open via **Copilot Cost Tracker: Open Dashboard** command or the graph icon in the tree view.
+Open via **Copilot Cost Tracker: Open Dashboard** command or the graph icon in the sidebar.
 
 ---
 
 ## Troubleshooting
 
-**No data appears / tree view is empty**
+**No data appears / sidebar is empty**
 1. Verify the required VS Code setting is enabled (see [Requirements](#requirements))
 2. Restart VS Code
 3. Set `logLevel` to `"info"` in settings and check the **Copilot Cost Tracker** Output Channel
@@ -315,15 +321,16 @@ src/
   parser/             # Trace data parsing
   pricing/            # Cost calculation engine
   watcher/            # Data polling & ingestion
-  views/              # UI: status bar, tree, dashboard
+  views/              # UI: status bar, sidebar, dashboard
     helpers/          # View helper functions
-    tabs/             # Legacy HTML tab templates
   webview/            # Svelte dashboard application
     components/
-      charts/         # Chart.js wrappers (Daily, Heatmap, Model charts)
-      shared/         # Reusable components (StatCard, BudgetBar, DataTable, GlobalFilter)
-      tabs/           # Tab components (Overview, Sessions, Models, Tokens, Insights, Estimates)
+      charts/         # Chart.js wrappers (Daily, Heatmap, Model, Context charts)
+      shared/         # Reusable components (StatCard, BudgetBar, DataTable, GlobalFilter,
+                      #   EfficiencyGrade, ContextCostHero, CostStory)
+      tabs/           # Tab components (Dashboard, Activity, Models, Efficiency, Budget)
     stores/           # Svelte stores (dashboard data, filter state)
+    utils/            # Formatting, palette, chart styles, model aggregation
     types.ts          # TypeScript interfaces
 test/
   billing.test.ts     # Billing period calculation tests
