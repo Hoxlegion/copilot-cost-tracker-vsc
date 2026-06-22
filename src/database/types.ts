@@ -28,7 +28,7 @@ export interface CostReader {
     workspace?: string,
     calculateSavingsCost?: (modelFamily: string, writeTokens: number, readTokens: number) => number,
   ): CacheSavingsMetrics;
-  getMostRecentSessionContext(sinceMs: number): SessionContextInfo | null;
+  getMostRecentSessionContext(sinceMs: number, workspace?: string): SessionContextInfo | null;
   getSessionContextTimeline(sessionId: string): ContextTimelinePoint[];
   getSessionContextDistribution(sinceMs: number): SessionContextDistribution[];
 }
@@ -214,10 +214,13 @@ export interface AlertMetricAccumulator {
 
 export interface SessionContextInfo {
   sessionId: string;
+  workspace: string;
   turnCount: number;
   lastActivityMs: number;
   firstActivityMs: number;
   currentContextWeight: number;
+  costUsd: number;
+  credits: number;
 }
 
 export interface ContextTimelinePoint {

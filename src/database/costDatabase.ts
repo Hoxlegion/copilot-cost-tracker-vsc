@@ -575,9 +575,9 @@ export class CostDatabase implements CostReader, CostWriter, CostMaintenance {
 
   // ── Context Awareness ───────────────────────────────
 
-  getMostRecentSessionContext(sinceMs: number): SessionContextInfo | null {
+  getMostRecentSessionContext(sinceMs: number, workspace?: string): SessionContextInfo | null {
     if (!this.db) return null;
-    return queries.getMostRecentSessionContext(this.db, sinceMs);
+    return queries.getMostRecentSessionContext(this.db, sinceMs, workspace);
   }
 
   getSessionContextTimeline(sessionId: string): ContextTimelinePoint[] {

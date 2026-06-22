@@ -26,18 +26,23 @@ export class StatusBarIndicator implements vscode.Disposable {
   // Change detection: skip redundant tooltip rebuilds on timer ticks
   private lastStatusKey: string = "";
 
+  // When set, "since window opened" is scoped to this repo so windows stay independent.
+  private workspaceRepo: string | null = null;
+
   constructor(
     database: CostReader,
     pricing: PricingEngine,
     configManager: ConfigManager,
     logger: Logger,
-    contextTracker: ContextTracker
+    contextTracker: ContextTracker,
+    workspaceRepo: string | null = null
   ) {
     this.database = database;
     this.pricing = pricing;
     this.configManager = configManager;
     this.logger = logger;
     this.contextTracker = contextTracker;
+    this.workspaceRepo = workspaceRepo;
     this.activationTimestamp = Date.now();
 
     this.statusBarItem = vscode.window.createStatusBarItem(
@@ -53,6 +58,11 @@ export class StatusBarIndicator implements vscode.Disposable {
     );
 
     this.updateVisibility();
+  }
+
+  /** Update which repo "since window opened" is scoped to (current window's repo). */
+  setWorkspaceRepo(repo: string | null): void {
+    this.workspaceRepo = repo;
   }
 
   private async showQuickPick(): Promise<void> {
@@ -141,20 +151,25 @@ export class StatusBarIndicator implements vscode.Disposable {
     const periodStartMs = getBillingPeriodStartMs(cfg.billingCycleStartDay);
     const periodEndMs = getBillingPeriodEndMs(cfg.billingCycleStartDay);
 
-    // Session and period totals
-    const sessionTotals = this.database.getCostSince(this.activationTimestamp);
+    // "Since window opened" — scoped to this window's repo so windows stay independent.
+    const windowTotals = this.database.getCostSince(this.activationTimestamp, this.workspaceRepo ?? undefined);
+    // Period total stays global: budget is one plan across all repos.
     const periodTotals = this.database.getCostSince(periodStartMs);
-    const sessionUsd = sessionTotals.costUsd;
     const periodUsd = periodTotals.costUsd;
     const periodCredits = periodTotals.credits;
     const pace = assessBudgetPace(periodStartMs, periodEndMs, periodCredits, cfg.budgetCredits);
 
-    // Format: session USD | period total USD
+    // Active chat = the conversation you're in (most recent session for this repo).
+    // Its cost/context persist when you reopen the chat instead of resetting.
     const ctxWeight = this.contextTracker.getContextWeight();
+    const activeChatUsd = ctxWeight?.costUsd ?? 0;
+
+    // Format: active chat $ | period $ | context tokens
+    const activeSegment = ctxWeight ? `$(comment-discussion) $${activeChatUsd.toFixed(2)} | ` : "";
     const ctxSegment = ctxWeight && ctxWeight.tokens > 0
       ? ` | $(brain) ${(ctxWeight.tokens / 1000).toFixed(0)}K`
       : "";
-    const text = `$(credit-card) +$${sessionUsd.toFixed(2)} | $${periodUsd.toFixed(2)}${ctxSegment}`;
+    const text = `${activeSegment}$(credit-card) $${periodUsd.toFixed(2)}${ctxSegment}`;
 
     // Feature E: Context cost predictor (computed once and reused for the tooltip)
     const contextEstimate = this.estimateContextCost();
@@ -168,11 +183,11 @@ export class StatusBarIndicator implements vscode.Disposable {
       text,
       pace.level,
       pace.expectedCreditsNow.toFixed(1),
-      sessionTotals.credits.toFixed(2),
+      windowTotals.costUsd.toFixed(2),
       periodCredits.toFixed(2),
       pct,
       contextEstimate ? `${contextEstimate.tokens}:${contextEstimate.costUsd.toFixed(4)}` : "",
-      ctxWeight ? `${ctxWeight.tokens}:${ctxWeight.turnCount}:${ctxWeight.tier}` : "",
+      ctxWeight ? `${ctxWeight.tokens}:${ctxWeight.turnCount}:${ctxWeight.tier}:${ctxWeight.costUsd.toFixed(4)}:${ctxWeight.stale}` : "",
     ].join("|");
 
     // Skip expensive tooltip rebuild if nothing relevant changed since last update
@@ -189,8 +204,8 @@ export class StatusBarIndicator implements vscode.Disposable {
     this.checkThresholds(periodCredits, periodStartMs, cfg);
 
     this.statusBarItem.tooltip = this.buildTooltip({
-      sessionUsd,
-      sessionCredits: sessionTotals.credits,
+      windowUsd: windowTotals.costUsd,
+      windowCredits: windowTotals.credits,
       periodUsd,
       periodCredits,
       budget,
@@ -206,8 +221,8 @@ export class StatusBarIndicator implements vscode.Disposable {
    * Extracted from {@link update} to keep that method's complexity manageable.
    */
   private buildTooltip(params: {
-    sessionUsd: number;
-    sessionCredits: number;
+    windowUsd: number;
+    windowCredits: number;
     periodUsd: number;
     periodCredits: number;
     budget: number;
@@ -216,13 +231,22 @@ export class StatusBarIndicator implements vscode.Disposable {
     contextEstimate: { tokens: number; costUsd: number } | null;
     ctxWeight: ReturnType<ContextTracker["getContextWeight"]>;
   }): vscode.MarkdownString {
-    const { sessionUsd, sessionCredits, periodUsd, periodCredits, budget, pct, pace, contextEstimate, ctxWeight } = params;
+    const { windowUsd, windowCredits, periodUsd, periodCredits, budget, pct, pace, contextEstimate, ctxWeight } = params;
 
     const tooltip = new vscode.MarkdownString("", false);
     tooltip.isTrusted = false;
     tooltip.appendMarkdown(`**Copilot Cost Tracker**\n\n`);
-    tooltip.appendMarkdown(`Session: **+$${sessionUsd.toFixed(2)}** (${sessionCredits.toFixed(2)} credits)\n\n`);
+
+    // Active chat (the conversation you're in), persists across reopen.
+    if (ctxWeight) {
+      const staleNote = ctxWeight.stale ? " · _idle_" : "";
+      tooltip.appendMarkdown(`Active chat: **$${ctxWeight.costUsd.toFixed(2)}** (${ctxWeight.credits.toFixed(2)} credits · ${ctxWeight.turnCount} turn${ctxWeight.turnCount === 1 ? "" : "s"})${staleNote}\n\n`);
+    } else {
+      tooltip.appendMarkdown(`Active chat: **$0.00** — no recent activity\n\n`);
+    }
+
     tooltip.appendMarkdown(`Period: **$${periodUsd.toFixed(2)}** · ${periodCredits.toFixed(2)} / ${budget} credits (${pct}%)\n\n`);
+    tooltip.appendMarkdown(`Since window opened: **$${windowUsd.toFixed(2)}** (${windowCredits.toFixed(2)} credits)\n\n`);
     tooltip.appendMarkdown(`Pacing: **${this.getPaceDisplayLabel(pace)}** · expected by now ${pace.expectedCreditsNow.toFixed(1)} credits\n\n`);
 
     // Feature E: Context cost predictor
@@ -244,7 +268,6 @@ export class StatusBarIndicator implements vscode.Disposable {
       tooltip.appendMarkdown(`---\n\n`);
       tooltip.appendMarkdown(`**Active Chat Context**\n\n`);
       tooltip.appendMarkdown(`Weight: **${kTokens}K tokens** (${ctxWeight.humanLabel})\n\n`);
-      tooltip.appendMarkdown(`Session: ${ctxWeight.turnCount} turn${ctxWeight.turnCount === 1 ? "" : "s"} · ${ctxWeight.label}\n\n`);
       tooltip.appendMarkdown(`Impact: **${impactLabel}** — each turn resends this history\n\n`);
     }
 

@@ -4,6 +4,14 @@ All notable changes to the **Copilot Cost Tracker** extension will be documented
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.2] - 2026-06-22
+
+### Changed
+- Status bar now shows the **active chat** cost (the conversation you're in) instead of a "since activation" delta, so it persists when you reopen a chat instead of resetting to $0.00
+- Status bar cost and context are scoped to the current window's git repo, so multiple windows on different repos stay independent
+- Active chat context no longer disappears after 2 minutes of inactivity; it's kept and marked idle in the tooltip
+- Tooltip now breaks down Active chat, Period (global budget), and Since window opened (this repo)
+
 ## [0.6.1] - 2026-06-22
 
 ### Fixed

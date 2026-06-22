@@ -400,41 +400,51 @@ export function getSessionLastTimestamp(db: Database, sessionId: string): number
   return lastTimestamp;
 }
 
-export function getMostRecentSessionContext(db: Database, sinceMs: number): SessionContextInfo | null {
+export function getMostRecentSessionContext(db: Database, sinceMs: number, workspace?: string): SessionContextInfo | null {
   const since = safeSinceMs(sinceMs);
   const stmt = db.prepare(`
     WITH ranked AS (
       SELECT
         session_id,
+        workspace,
         timestamp,
         input_tokens,
         cached_tokens,
+        cost_usd,
+        credits,
         ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY timestamp DESC) AS rn
       FROM turns
       WHERE timestamp >= :since
+        AND (:workspace IS NULL OR workspace = :workspace)
     )
     SELECT
       session_id,
+      MAX(CASE WHEN rn = 1 THEN workspace ELSE NULL END) AS workspace,
       COUNT(*) AS turn_count,
       MAX(timestamp) AS last_activity_ms,
       MIN(timestamp) AS first_activity_ms,
-      MAX(CASE WHEN rn = 1 THEN input_tokens + cached_tokens ELSE NULL END) AS current_context_weight
+      MAX(CASE WHEN rn = 1 THEN input_tokens + cached_tokens ELSE NULL END) AS current_context_weight,
+      COALESCE(SUM(cost_usd), 0) AS total_cost,
+      COALESCE(SUM(credits), 0) AS total_credits
     FROM ranked
     GROUP BY session_id
     ORDER BY last_activity_ms DESC
     LIMIT 1
   `);
-  stmt.bind({ ":since": since });
+  stmt.bind(sinceWorkspaceBindings(since, workspace));
 
   let result: SessionContextInfo | null = null;
   if (stmt.step()) {
     const row = stmt.getAsObject();
     result = {
       sessionId: row.session_id as string,
+      workspace: (row.workspace as string) ?? "unknown",
       turnCount: row.turn_count as number,
       lastActivityMs: row.last_activity_ms as number,
       firstActivityMs: row.first_activity_ms as number,
       currentContextWeight: (row.current_context_weight as number) || 0,
+      costUsd: (row.total_cost as number) || 0,
+      credits: (row.total_credits as number) || 0,
     };
   }
   stmt.free();

@@ -4,7 +4,7 @@ import { TracesDbReader, LogParser } from "./parser";
 import { PricingEngine } from "./pricing";
 import { CostDatabase, setWasmPath } from "./database";
 import { TracesIngester } from "./watcher";
-import { DashboardPanel, StatusBarIndicator, ContextTracker, SidebarPanel } from "./views";
+import { DashboardPanel, StatusBarIndicator, ContextTracker, SidebarPanel, getCurrentWorkspaceRepo } from "./views";
 import { ConfigManager } from "./config";
 import { Logger } from "./logger";
 import { PromptCostIntelligenceProvider } from "./promptCostIntelligence";
@@ -80,9 +80,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   ingester.setTelemetrySource(configManager.config.telemetrySource);
 
   // UI components
-  const contextTracker = new ContextTracker(database, logger);
+  const contextTracker = new ContextTracker(database, logger, getCurrentWorkspaceRepo());
   contextTracker.setNotificationsEnabled(configManager.config.contextWeightNotifications);
-  const statusBar = new StatusBarIndicator(database, pricing, configManager, logger, contextTracker);
+  const statusBar = new StatusBarIndicator(database, pricing, configManager, logger, contextTracker, getCurrentWorkspaceRepo());
   const promptIntelligence = new PromptCostIntelligenceProvider(configManager, logger);
   const sidebarProvider = new SidebarPanel(database, pricing);
 

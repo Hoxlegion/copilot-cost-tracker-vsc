@@ -12,6 +12,12 @@ export interface ContextWeight {
   sessionId: string | null;
   turnCount: number;
   lastActivityMs: number;
+  /** Total cost of the active chat session so far (USD). */
+  costUsd: number;
+  /** Total credits of the active chat session so far. */
+  credits: number;
+  /** True when the active session has had no activity for a while (still shown, just stale). */
+  stale: boolean;
 }
 
 const TIER_THRESHOLDS = {
@@ -50,37 +56,42 @@ export class ContextTracker implements vscode.Disposable {
   private trackedSessionId: string | null = null;
   private readonly firedThresholds: Set<number> = new Set();
   private notificationsEnabled: boolean = true;
+  /** When set, context/cost is scoped to this repo so multiple windows stay independent. */
+  private workspaceRepo: string | null = null;
 
-  constructor(database: CostReader, logger: Logger) {
+  constructor(database: CostReader, logger: Logger, workspaceRepo: string | null = null) {
     this.database = database;
     this.logger = logger;
+    this.workspaceRepo = workspaceRepo;
   }
 
   setNotificationsEnabled(enabled: boolean): void {
     this.notificationsEnabled = enabled;
   }
 
-  // Consider context stale if no activity in the last 2 minutes.
-  // This prevents showing old session data after switching to a new/empty chat.
-  private static readonly STALENESS_THRESHOLD_MS = 2 * 60 * 1000;
+  /** Update which repo the active-session lookup is scoped to (current window's repo). */
+  setWorkspaceRepo(repo: string | null): void {
+    this.workspaceRepo = repo;
+  }
+
+  // Mark context as "stale" (rather than hiding it) after this much inactivity, so
+  // the active conversation's weight/cost persists when you step away or reopen it.
+  private static readonly STALENESS_THRESHOLD_MS = 30 * 60 * 1000;
 
   update(): ContextWeight | null {
     const sinceMs = Date.now() - 24 * 60 * 60 * 1000;
-    const info = this.database.getMostRecentSessionContext(sinceMs);
+    const info = this.database.getMostRecentSessionContext(sinceMs, this.workspaceRepo ?? undefined);
 
     if (!info) {
       this.currentWeight = null;
       return null;
     }
 
-    // If the most recent session hasn't had activity recently,
-    // treat the context as stale — the user likely switched to a new chat
-    // that hasn't generated any turns yet.
+    // Keep showing the most recent session for this repo even when idle; only
+    // flag it as stale so the UI can de-emphasize it. This means re-opening a
+    // chat shows its real accumulated context/cost instead of resetting.
     const age = Date.now() - info.lastActivityMs;
-    if (age > ContextTracker.STALENESS_THRESHOLD_MS) {
-      this.currentWeight = null;
-      return null;
-    }
+    const stale = age > ContextTracker.STALENESS_THRESHOLD_MS;
 
     const tier = classifyTier(info.currentContextWeight);
     this.currentWeight = {
@@ -91,6 +102,9 @@ export class ContextTracker implements vscode.Disposable {
       sessionId: info.sessionId,
       turnCount: info.turnCount,
       lastActivityMs: info.lastActivityMs,
+      costUsd: info.costUsd,
+      credits: info.credits,
+      stale,
     };
 
     if (info.sessionId !== this.trackedSessionId) {
