@@ -1,6 +1,6 @@
 import * as path from "node:path";
-import * as os from "node:os";
 import * as fs from "node:fs";
+import { getVscodeUserDataPath } from "../../shared/paths";
 
 function shortenWorkspaceName(workspace: string): string {
   if (!workspace) return "unknown";
@@ -11,24 +11,27 @@ function shortenWorkspaceName(workspace: string): string {
 }
 
 const SAFE_HASH_RE = /^[a-f0-9]{32,64}$/i;
+const workspaceNameCache = new Map<string, string>();
 
 export function resolveWorkspaceName(hash: string): string {
+  const cached = workspaceNameCache.get(hash);
+  if (cached !== undefined) return cached;
   if (!hash || hash === "unknown") return hash || "unknown";
-  if (hash.includes("/") || hash.includes("\\")) return shortenWorkspaceName(hash);
+  if (hash.includes("/") || hash.includes("\\")) {
+    const short = shortenWorkspaceName(hash);
+    workspaceNameCache.set(hash, short);
+    return short;
+  }
 
   // Reject hashes that don't look like hex digests to prevent path traversal
-  if (!SAFE_HASH_RE.test(hash)) return hash.slice(0, 12) + "…";
+  if (!SAFE_HASH_RE.test(hash)) {
+    const fallback = hash.slice(0, 12) + "…";
+    workspaceNameCache.set(hash, fallback);
+    return fallback;
+  }
 
   try {
-    const platform = os.platform();
-    let storagePath: string;
-    if (platform === "win32") {
-      storagePath = path.join(os.homedir(), "AppData", "Roaming", "Code", "User", "workspaceStorage", hash, "workspace.json");
-    } else if (platform === "darwin") {
-      storagePath = path.join(os.homedir(), "Library", "Application Support", "Code", "User", "workspaceStorage", hash, "workspace.json");
-    } else {
-      storagePath = path.join(os.homedir(), ".config", "Code", "User", "workspaceStorage", hash, "workspace.json");
-    }
+    const storagePath = path.join(getVscodeUserDataPath(), "workspaceStorage", hash, "workspace.json");
 
     if (!fs.existsSync(storagePath)) return hash.slice(0, 12) + "…";
 
@@ -41,8 +44,12 @@ export function resolveWorkspaceName(hash: string): string {
       .replaceAll("\\", "/");
     const parts = decoded.split("/").filter(Boolean);
     const tail = parts.slice(-2).join("/") || decoded;
-    return tail.length > 34 ? `${tail.slice(0, 31)}…` : tail;
+    const result = tail.length > 34 ? `${tail.slice(0, 31)}…` : tail;
+    workspaceNameCache.set(hash, result);
+    return result;
   } catch {
-    return hash.slice(0, 12) + "…";
+    const fallback = hash.slice(0, 12) + "…";
+    workspaceNameCache.set(hash, fallback);
+    return fallback;
   }
 }

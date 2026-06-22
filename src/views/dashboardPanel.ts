@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { CostDatabase } from '../database';
+import { CostReader } from '../database';
 import { PricingEngine } from '../pricing';
 import { TracesDbReader } from '../parser';
 import { DashboardDataAssembler } from './dashboardDataAssembler';
@@ -10,7 +10,7 @@ export class DashboardPanel {
   private static _currentPanel: DashboardPanel | undefined;
   private readonly panel: vscode.WebviewPanel;
   private readonly extensionUri: vscode.Uri;
-  private readonly database: CostDatabase;
+  private readonly database: CostReader;
   private readonly pricing: PricingEngine;
   private readonly assembler: DashboardDataAssembler;
   private disposables: vscode.Disposable[] = [];
@@ -27,7 +27,7 @@ export class DashboardPanel {
   private constructor(
     panel: vscode.WebviewPanel,
     extensionUri: vscode.Uri,
-    database: CostDatabase,
+    database: CostReader,
     pricing: PricingEngine,
     reader: TracesDbReader
   ) {
@@ -52,7 +52,7 @@ export class DashboardPanel {
 
   public static createOrShow(
     extensionUri: vscode.Uri,
-    database: CostDatabase,
+    database: CostReader,
     pricing: PricingEngine,
     reader: TracesDbReader
   ): void {
@@ -121,8 +121,10 @@ export class DashboardPanel {
       const config = vscode.workspace.getConfiguration('copilotCostTracker');
       const billingCycleStartDay = config.get<number>('billingCycleStartDay', 1);
       const budgetCredits = config.get<number>('budgetCredits', 180);
+      const currency = config.get<string>('currency', 'USD');
+      const exchangeRate = config.get<number>('exchangeRate', 1);
 
-      const rawData = await this.assembler.assemble(billingCycleStartDay, budgetCredits);
+      const rawData = await this.assembler.assemble(billingCycleStartDay, budgetCredits, currency, exchangeRate);
       
       this.panel.webview.postMessage({
         type: 'dashboardData',

@@ -1,43 +1,77 @@
 import type { Database } from "sql.js";
 import type { AggregatedCost, ModelBreakdown, AgentBreakdown, DailyAgentBreakdown, ModelLatencySample, SessionSummary, SessionModelBreakdownRow, StoredTurn, SessionContextInfo, ContextTimelinePoint, SessionContextDistribution } from "./types";
 
+type SqlBindings = Record<string, number | string | null>;
+
 export function clampInt(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
   return Math.min(max, Math.max(min, Math.floor(value)));
 }
 
-export function getModelLatencySamples(db: Database, days: number = 30, workspace?: string): ModelLatencySample[] {
-  const safeDays = clampInt(days, 1, 3650);
-  const since = Date.now() - safeDays * 24 * 60 * 60 * 1000;
-  const stmt = db.prepare(`
-    SELECT model_family, duration
-    FROM turns
-    WHERE timestamp >= :since
-      AND (:workspace IS NULL OR workspace = :workspace)
-    ORDER BY model_family, duration
-  `);
-  stmt.bind({ ":since": since, ":workspace": workspace ?? null });
-
-  const rows: ModelLatencySample[] = [];
+/**
+ * Execute a parameterized query and map each row to a typed result.
+ * Handles prepare → bind → step → getAsObject → free lifecycle.
+ */
+function queryRows<T>(db: Database, sql: string, bindings: SqlBindings, mapRow: (row: Record<string, unknown>) => T): T[] {
+  const stmt = db.prepare(sql);
+  stmt.bind(bindings);
+  const rows: T[] = [];
   while (stmt.step()) {
-    const row = stmt.getAsObject();
-    rows.push({ model: row.model_family as string, duration: row.duration as number });
+    rows.push(mapRow(stmt.getAsObject()));
   }
   stmt.free();
   return rows;
 }
 
-function resolveSince(daysOrSinceMs: number, isSinceMs: boolean): number {
-  if (isSinceMs) {
-    return Number.isFinite(daysOrSinceMs) ? Math.floor(daysOrSinceMs) : 0;
+/**
+ * Execute a parameterized query and return a single mapped result, or a fallback.
+ */
+function queryOne<T>(db: Database, sql: string, bindings: SqlBindings, mapRow: (row: Record<string, unknown>) => T, fallback: T): T {
+  const stmt = db.prepare(sql);
+  stmt.bind(bindings);
+  if (!stmt.step()) {
+    stmt.free();
+    return fallback;
   }
-  return Date.now() - clampInt(daysOrSinceMs, 1, 3650) * 24 * 60 * 60 * 1000;
+  const result = mapRow(stmt.getAsObject());
+  stmt.free();
+  return result;
 }
 
-export function getDailyCosts(db: Database, daysOrSinceMs: number = 30, workspace?: string, isSinceMs: boolean = false): AggregatedCost[] {
-  const since = resolveSince(daysOrSinceMs, isSinceMs);
+/** Standard workspace-filtered since bindings. */
+function sinceWorkspaceBindings(since: number, workspace?: string): SqlBindings {
+  return { ":since": since, ":workspace": workspace ?? null };
+}
 
-  const stmt = db.prepare(`
+export function getModelLatencySamples(db: Database, days: number = 30, workspace?: string): ModelLatencySample[] {
+  const since = daysToSinceMs(days);
+  return queryRows(db, `
+    SELECT model_family, duration
+    FROM turns
+    WHERE timestamp >= :since
+      AND (:workspace IS NULL OR workspace = :workspace)
+    ORDER BY model_family, duration
+  `, sinceWorkspaceBindings(since, workspace), (row) => ({
+    model: row.model_family as string,
+    duration: row.duration as number,
+  }));
+}
+
+function daysToSinceMs(days: number): number {
+  return Date.now() - clampInt(days, 1, 3650) * 24 * 60 * 60 * 1000;
+}
+
+function safeSinceMs(sinceMs: number): number {
+  return Number.isFinite(sinceMs) ? Math.floor(sinceMs) : 0;
+}
+
+export function getDailyCosts(db: Database, days: number = 30, workspace?: string): AggregatedCost[] {
+  return getDailyCostsSince(db, daysToSinceMs(days), workspace);
+}
+
+export function getDailyCostsSince(db: Database, sinceMs: number, workspace?: string): AggregatedCost[] {
+  const since = safeSinceMs(sinceMs);
+  return queryRows(db, `
     SELECT
       date(timestamp / 1000, 'unixepoch') as period,
       SUM(cost_usd) as total_cost_usd,
@@ -48,31 +82,21 @@ export function getDailyCosts(db: Database, daysOrSinceMs: number = 30, workspac
       AND (:workspace IS NULL OR workspace = :workspace)
     GROUP BY period
     ORDER BY period DESC
-  `);
-  stmt.bind({ ":since": since, ":workspace": workspace ?? null });
-
-  const rows: AggregatedCost[] = [];
-  while (stmt.step()) {
-    const row = stmt.getAsObject();
-    rows.push({
-      period: row.period as string,
-      totalCostUsd: row.total_cost_usd as number,
-      totalCredits: row.total_credits as number,
-      turnCount: row.turn_count as number,
-    });
-  }
-  stmt.free();
-  return rows;
+  `, sinceWorkspaceBindings(since, workspace), (row) => ({
+    period: row.period as string,
+    totalCostUsd: row.total_cost_usd as number,
+    totalCredits: row.total_credits as number,
+    turnCount: row.turn_count as number,
+  }));
 }
 
-export function getDailyCostsSince(db: Database, sinceMs: number, workspace?: string): AggregatedCost[] {
-  return getDailyCosts(db, sinceMs, workspace, true);
+export function getModelBreakdown(db: Database, days: number = 30, workspace?: string): ModelBreakdown[] {
+  return getModelBreakdownSince(db, daysToSinceMs(days), workspace);
 }
 
-export function getModelBreakdown(db: Database, daysOrSinceMs: number = 30, workspace?: string, isSinceMs: boolean = false): ModelBreakdown[] {
-  const since = resolveSince(daysOrSinceMs, isSinceMs);
-
-  const stmt = db.prepare(`
+export function getModelBreakdownSince(db: Database, sinceMs: number, workspace?: string): ModelBreakdown[] {
+  const since = safeSinceMs(sinceMs);
+  const rows = queryRows(db, `
     SELECT
       model_family,
       SUM(cost_usd) as total_cost_usd,
@@ -83,21 +107,13 @@ export function getModelBreakdown(db: Database, daysOrSinceMs: number = 30, work
       AND (:workspace IS NULL OR workspace = :workspace)
     GROUP BY model_family
     ORDER BY total_cost_usd DESC
-  `);
-  stmt.bind({ ":since": since, ":workspace": workspace ?? null });
-
-  const rows: ModelBreakdown[] = [];
-  while (stmt.step()) {
-    const row = stmt.getAsObject();
-    rows.push({
-      model: row.model_family as string,
-      totalCostUsd: row.total_cost_usd as number,
-      totalCredits: row.total_credits as number,
-      turnCount: row.turn_count as number,
-      percentage: 0,
-    });
-  }
-  stmt.free();
+  `, sinceWorkspaceBindings(since, workspace), (row): ModelBreakdown => ({
+    model: row.model_family as string,
+    totalCostUsd: row.total_cost_usd as number,
+    totalCredits: row.total_credits as number,
+    turnCount: row.turn_count as number,
+    percentage: 0,
+  }));
 
   const totalCost = rows.reduce((sum, r) => sum + r.totalCostUsd, 0);
   for (const row of rows) {
@@ -106,35 +122,26 @@ export function getModelBreakdown(db: Database, daysOrSinceMs: number = 30, work
   return rows;
 }
 
-export function getModelBreakdownSince(db: Database, sinceMs: number, workspace?: string): ModelBreakdown[] {
-  return getModelBreakdown(db, sinceMs, workspace, true);
+export function getAgentBreakdown(db: Database, days: number = 30, workspace?: string): AgentBreakdown[] {
+  return getAgentBreakdownSince(db, daysToSinceMs(days), workspace);
 }
 
-export function getAgentBreakdown(db: Database, daysOrSinceMs: number = 30, workspace?: string, isSinceMs: boolean = false): AgentBreakdown[] {
-  const since = resolveSince(daysOrSinceMs, isSinceMs);
-
-  const stmt = db.prepare(`
+export function getAgentBreakdownSince(db: Database, sinceMs: number, workspace?: string): AgentBreakdown[] {
+  const since = safeSinceMs(sinceMs);
+  const rows = queryRows(db, `
     SELECT agent_name, SUM(cost_usd) as total_cost_usd, SUM(credits) as total_credits, COUNT(*) as turn_count
     FROM turns
     WHERE timestamp >= :since
       AND (:workspace IS NULL OR workspace = :workspace)
     GROUP BY agent_name
     ORDER BY total_cost_usd DESC
-  `);
-  stmt.bind({ ":since": since, ":workspace": workspace ?? null });
-
-  const rows: AgentBreakdown[] = [];
-  while (stmt.step()) {
-    const row = stmt.getAsObject();
-    rows.push({
-      agentName: (row.agent_name as string) || "unknown",
-      totalCostUsd: row.total_cost_usd as number,
-      totalCredits: row.total_credits as number,
-      turnCount: row.turn_count as number,
-      percentage: 0,
-    });
-  }
-  stmt.free();
+  `, sinceWorkspaceBindings(since, workspace), (row): AgentBreakdown => ({
+    agentName: (row.agent_name as string) || "unknown",
+    totalCostUsd: row.total_cost_usd as number,
+    totalCredits: row.total_credits as number,
+    turnCount: row.turn_count as number,
+    percentage: 0,
+  }));
 
   const totalCost = rows.reduce((sum, r) => sum + r.totalCostUsd, 0);
   for (const row of rows) {
@@ -143,15 +150,9 @@ export function getAgentBreakdown(db: Database, daysOrSinceMs: number = 30, work
   return rows;
 }
 
-export function getAgentBreakdownSince(db: Database, sinceMs: number, workspace?: string): AgentBreakdown[] {
-  return getAgentBreakdown(db, sinceMs, workspace, true);
-}
-
 export function getDailyAgentBreakdown(db: Database, days: number = 365, workspace?: string): DailyAgentBreakdown[] {
-  const safeDays = clampInt(days, 1, 3650);
-  const since = Date.now() - safeDays * 24 * 60 * 60 * 1000;
-
-  const stmt = db.prepare(`
+  const since = daysToSinceMs(days);
+  return queryRows(db, `
     SELECT
       date(timestamp / 1000, 'unixepoch') as period,
       agent_name,
@@ -163,63 +164,37 @@ export function getDailyAgentBreakdown(db: Database, days: number = 365, workspa
       AND (:workspace IS NULL OR workspace = :workspace)
     GROUP BY period, agent_name
     ORDER BY period ASC, total_cost_usd DESC
-  `);
-  stmt.bind({ ":since": since, ":workspace": workspace ?? null });
-
-  const rows: DailyAgentBreakdown[] = [];
-  while (stmt.step()) {
-    const row = stmt.getAsObject();
-    rows.push({
-      period: row.period as string,
-      agentName: (row.agent_name as string) || "unknown",
-      totalCostUsd: row.total_cost_usd as number,
-      totalCredits: row.total_credits as number,
-      turnCount: row.turn_count as number,
-    });
-  }
-  stmt.free();
-  return rows;
+  `, sinceWorkspaceBindings(since, workspace), (row) => ({
+    period: row.period as string,
+    agentName: (row.agent_name as string) || "unknown",
+    totalCostUsd: row.total_cost_usd as number,
+    totalCredits: row.total_credits as number,
+    turnCount: row.turn_count as number,
+  }));
 }
 
 export function getCurrentMonthTotal(db: Database, workspace?: string): { costUsd: number; credits: number; turns: number } {
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-
-  const stmt = db.prepare(`
+  return queryOne(db, `
     SELECT
       COALESCE(SUM(cost_usd), 0) as total_cost,
       COALESCE(SUM(credits), 0) as total_credits,
       COUNT(*) as turn_count
     FROM turns
-    WHERE timestamp >= :monthStart
+    WHERE timestamp >= :since
       AND (:workspace IS NULL OR workspace = :workspace)
-  `);
-  stmt.bind({ ":monthStart": monthStart, ":workspace": workspace ?? null });
-
-  if (!stmt.step()) {
-    stmt.free();
-    return { costUsd: 0, credits: 0, turns: 0 };
-  }
-  const row = stmt.getAsObject();
-  stmt.free();
-  return {
+  `, sinceWorkspaceBindings(monthStart, workspace), (row) => ({
     costUsd: row.total_cost as number,
     credits: row.total_credits as number,
     turns: row.turn_count as number,
-  };
+  }), { costUsd: 0, credits: 0, turns: 0 });
 }
 
 export function getCreditsSince(db: Database, sinceMs: number): number {
-  const safeSince = Number.isFinite(sinceMs) ? Math.floor(sinceMs) : 0;
-  const stmt = db.prepare("SELECT COALESCE(SUM(credits), 0) as total_credits FROM turns WHERE timestamp >= :since");
-  stmt.bind({ ":since": safeSince });
-  if (!stmt.step()) {
-    stmt.free();
-    return 0;
-  }
-  const row = stmt.getAsObject();
-  stmt.free();
-  return row.total_credits as number;
+  const since = safeSinceMs(sinceMs);
+  return queryOne(db, "SELECT COALESCE(SUM(credits), 0) as total_credits FROM turns WHERE timestamp >= :since",
+    { ":since": since }, (row) => row.total_credits as number, 0);
 }
 
 export function getMostRecentModel(db: Database): string | null {
@@ -229,8 +204,8 @@ export function getMostRecentModel(db: Database): string | null {
 }
 
 export function getCostSince(db: Database, sinceMs: number, workspace?: string): { costUsd: number; credits: number; turns: number } {
-  const safeSince = Number.isFinite(sinceMs) ? Math.floor(sinceMs) : 0;
-  const stmt = db.prepare(`
+  const since = safeSinceMs(sinceMs);
+  return queryOne(db, `
     SELECT
       COALESCE(SUM(cost_usd), 0) as total_cost,
       COALESCE(SUM(credits), 0) as total_credits,
@@ -238,20 +213,11 @@ export function getCostSince(db: Database, sinceMs: number, workspace?: string):
     FROM turns
     WHERE timestamp >= :since
       AND (:workspace IS NULL OR workspace = :workspace)
-  `);
-  stmt.bind({ ":since": safeSince, ":workspace": workspace ?? null });
-
-  if (!stmt.step()) {
-    stmt.free();
-    return { costUsd: 0, credits: 0, turns: 0 };
-  }
-  const row = stmt.getAsObject();
-  stmt.free();
-  return {
+  `, sinceWorkspaceBindings(since, workspace), (row) => ({
     costUsd: row.total_cost as number,
     credits: row.total_credits as number,
     turns: row.turn_count as number,
-  };
+  }), { costUsd: 0, credits: 0, turns: 0 });
 }
 
 export function getWorkspaces(db: Database): string[] {
@@ -275,7 +241,8 @@ export function getSessionSummaries(db: Database, workspace?: string, limit: num
       SUM(t.cost_usd) as total_cost_usd,
       SUM(t.credits) as total_credits,
       AVG(t.duration) as avg_duration_ms,
-      pm.primary_model
+      pm.primary_model,
+      s.title
     FROM turns t
     LEFT JOIN (
       SELECT session_id, model_family AS primary_model,
@@ -283,6 +250,7 @@ export function getSessionSummaries(db: Database, workspace?: string, limit: num
       FROM turns
       GROUP BY session_id, model_family
     ) pm ON pm.session_id = t.session_id AND pm.rn = 1
+    LEFT JOIN sessions s ON s.session_id = t.session_id
     WHERE (:workspace IS NULL OR t.workspace = :workspace)
     GROUP BY t.session_id, t.workspace
     HAVING (total_cost_usd > 0 OR total_input_tokens > 0)
@@ -308,6 +276,7 @@ export function getSessionSummaries(db: Database, workspace?: string, limit: num
       totalCredits: row.total_credits as number,
       avgDurationMs: row.avg_duration_ms as number,
       primaryModel: row.primary_model as string,
+      title: (row.title as string) ?? null,
     });
   }
   stmt.free();
@@ -368,7 +337,7 @@ export function getSessionModelBreakdowns(db: Database, sessionIds: string[]): S
 
 export function getTurnsForSession(db: Database, sessionId: string, limit: number = 50): StoredTurn[] {
   const stmt = db.prepare(
-    `SELECT id, session_id, timestamp, duration, agent_name, model, model_family, input_tokens, output_tokens, cached_tokens, cache_write_tokens, total_tokens, cost_usd, credits, workspace, status
+    `SELECT id, session_id, timestamp, duration, agent_name, model, model_family, input_tokens, output_tokens, cached_tokens, cache_write_tokens, total_tokens, cost_usd, credits, workspace, status, cost_source
      FROM turns
      WHERE session_id = :sessionId
      ORDER BY timestamp DESC
@@ -396,6 +365,7 @@ export function getTurnsForSession(db: Database, sessionId: string, limit: numbe
       credits: row.credits as number,
       workspace: row.workspace as string,
       status: row.status as string,
+      costSource: (row.cost_source as "real" | "estimated") ?? "estimated",
     });
   }
   stmt.free();
@@ -431,24 +401,30 @@ export function getSessionLastTimestamp(db: Database, sessionId: string): number
 }
 
 export function getMostRecentSessionContext(db: Database, sinceMs: number): SessionContextInfo | null {
-  const safeSince = Number.isFinite(sinceMs) ? Math.floor(sinceMs) : 0;
+  const since = safeSinceMs(sinceMs);
   const stmt = db.prepare(`
-    SELECT 
+    WITH ranked AS (
+      SELECT
+        session_id,
+        timestamp,
+        input_tokens,
+        cached_tokens,
+        ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY timestamp DESC) AS rn
+      FROM turns
+      WHERE timestamp >= :since
+    )
+    SELECT
       session_id,
       COUNT(*) AS turn_count,
       MAX(timestamp) AS last_activity_ms,
       MIN(timestamp) AS first_activity_ms,
-      (SELECT input_tokens + cached_tokens 
-       FROM turns t2 
-       WHERE t2.session_id = t1.session_id 
-       ORDER BY timestamp DESC LIMIT 1) AS current_context_weight
-    FROM turns t1
-    WHERE timestamp >= :since
+      MAX(CASE WHEN rn = 1 THEN input_tokens + cached_tokens ELSE NULL END) AS current_context_weight
+    FROM ranked
     GROUP BY session_id
     ORDER BY last_activity_ms DESC
     LIMIT 1
   `);
-  stmt.bind({ ":since": safeSince });
+  stmt.bind({ ":since": since });
 
   let result: SessionContextInfo | null = null;
   if (stmt.step()) {
@@ -495,29 +471,35 @@ export function getSessionContextTimeline(db: Database, sessionId: string): Cont
 }
 
 export function getSessionContextDistribution(db: Database, sinceMs: number): SessionContextDistribution[] {
-  const safeSince = Number.isFinite(sinceMs) ? Math.floor(sinceMs) : 0;
+  const since = safeSinceMs(sinceMs);
   const stmt = db.prepare(`
-    SELECT 
+    WITH ranked AS (
+      SELECT
+        session_id,
+        timestamp,
+        input_tokens,
+        cached_tokens,
+        cost_usd,
+        workspace,
+        ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY timestamp DESC) AS rn_desc,
+        ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY timestamp ASC) AS rn_asc
+      FROM turns
+      WHERE timestamp >= :since
+    )
+    SELECT
       session_id,
-      (SELECT input_tokens + cached_tokens 
-       FROM turns t2 
-       WHERE t2.session_id = t1.session_id 
-       ORDER BY timestamp DESC LIMIT 1) AS current_context_weight,
-      (SELECT workspace 
-       FROM turns t3 
-       WHERE t3.session_id = t1.session_id 
-       ORDER BY timestamp ASC LIMIT 1) AS workspace,
+      MAX(CASE WHEN rn_desc = 1 THEN input_tokens + cached_tokens ELSE NULL END) AS current_context_weight,
+      MAX(CASE WHEN rn_asc = 1 THEN workspace ELSE NULL END) AS workspace,
       COUNT(*) AS turn_count,
       MIN(timestamp) AS start_ms,
       MAX(timestamp) AS last_ms,
       SUM(cost_usd) AS total_cost
-    FROM turns t1
-    WHERE timestamp >= :since
+    FROM ranked
     GROUP BY session_id
     HAVING COUNT(*) >= 2
     ORDER BY current_context_weight DESC
   `);
-  stmt.bind({ ":since": safeSince });
+  stmt.bind({ ":since": since });
 
   const rows: SessionContextDistribution[] = [];
   while (stmt.step()) {

@@ -1,6 +1,18 @@
-export const GRID_COLOR = 'rgba(255, 255, 255, 0.05)';
-export const TICK_COLOR = 'rgba(255, 255, 255, 0.5)';
+import { cssVar, withAlpha } from './palette';
+
+/**
+ * Theme-aware chart styling derived from VS Code color-theme variables.
+ * Resolved once at module load from the active theme, so grid lines, ticks, and
+ * tooltips read correctly on both light and dark themes (previously hardcoded to
+ * white-on-dark, which broke on light themes).
+ */
+
+export const GRID_COLOR = withAlpha(cssVar('--vscode-foreground', '#cccccc'), 0.08);
+export const TICK_COLOR = cssVar('--vscode-descriptionForeground', 'rgba(255, 255, 255, 0.5)');
 export const TICK_FONT_SIZE = 10;
+
+/** Theme-aware color for chart legend labels (previously hardcoded white). */
+export const LEGEND_COLOR = cssVar('--vscode-foreground', 'rgba(255, 255, 255, 0.7)');
 
 export function createGradient(
   ctx: CanvasRenderingContext2D,
@@ -28,10 +40,10 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
 }
 
 export const tooltipConfig = {
-  backgroundColor: 'rgba(30, 30, 30, 0.95)',
-  titleColor: '#fff',
-  bodyColor: 'rgba(255, 255, 255, 0.85)',
-  borderColor: 'rgba(255, 255, 255, 0.1)',
+  backgroundColor: cssVar('--vscode-editorHoverWidget-background', 'rgba(30, 30, 30, 0.95)'),
+  titleColor: cssVar('--vscode-editorHoverWidget-foreground', '#fff'),
+  bodyColor: cssVar('--vscode-editorHoverWidget-foreground', 'rgba(255, 255, 255, 0.85)'),
+  borderColor: cssVar('--vscode-editorHoverWidget-border', 'rgba(255, 255, 255, 0.1)'),
   borderWidth: 1,
   cornerRadius: 6,
   padding: 10,

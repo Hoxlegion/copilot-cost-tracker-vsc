@@ -129,7 +129,7 @@ function readConfig(): ExtensionConfig {
   const refreshDebounceMs = clamp(Math.round(cfg.get<number>("refreshDebounceMs") ?? 300), 100, 5000);
 
   const billingCycleStartDay = clamp(Math.round(cfg.get<number>("billingCycleStartDay") ?? 1), 1, 31);
-  const budgetCredits = Math.max(cfg.get<number>("budgetCredits") ?? 180, 0);
+  const budgetCredits = Math.max(cfg.get<number>("budgetCredits") ?? 0, 0);
 
   const rawThresholds = cfg.get<number[]>("budgetWarningThresholds") ?? [75, 90, 100];
   const budgetWarningThresholds = Array.isArray(rawThresholds)

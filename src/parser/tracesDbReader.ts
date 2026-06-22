@@ -1,5 +1,4 @@
 import * as path from "node:path";
-import * as os from "node:os";
 import * as fs from "node:fs";
 import initSqlJs from "sql.js";
 import type { Database } from "sql.js";
@@ -7,6 +6,8 @@ import type { TraceSpan, SurfaceBreakdown, TurnDiscoveryRow } from "./types";
 export type { TraceSpan, SurfaceBreakdown, TurnDiscoveryRow };
 import { formatAgentName } from "./surfaceLabels";
 import { buildTurnDiscovery } from "./turnDiscovery";
+import { AGGREGATE_AGENT_NAME } from "./types";
+import { getVscodeUserDataPath } from "../shared/paths";
 
 export class TracesDbReader {
   private readonly dbPath: string;
@@ -14,24 +15,8 @@ export class TracesDbReader {
   private cachedSqlPromise: ReturnType<typeof initSqlJs> | undefined;
 
   constructor(wasmPath?: string) {
-    this.dbPath = this.getTracesDbPath();
+    this.dbPath = path.join(getVscodeUserDataPath(), "globalStorage", "github.copilot-chat", "agent-traces.db");
     this.wasmPath = wasmPath;
-  }
-
-  private getTracesDbPath(): string {
-    const homeDir = os.homedir();
-    const platform = os.platform();
-
-    let basePath: string;
-    if (platform === "win32") {
-      basePath = path.join(homeDir, "AppData", "Roaming", "Code", "User");
-    } else if (platform === "darwin") {
-      basePath = path.join(homeDir, "Library", "Application Support", "Code", "User");
-    } else {
-      basePath = path.join(homeDir, ".config", "Code", "User");
-    }
-
-    return path.join(basePath, "globalStorage", "github.copilot-chat", "agent-traces.db");
   }
 
   get path(): string {
@@ -47,6 +32,7 @@ export class TracesDbReader {
   }
 
   private mapSpan(row: Record<string, unknown>): TraceSpan {
+    const nanoAiu = row.nano_aiu == null ? undefined : Number(row.nano_aiu);
     return {
       spanId: row.span_id as string,
       traceId: row.trace_id as string,
@@ -70,23 +56,23 @@ export class TracesDbReader {
       chatSessionId: row.chat_session_id as string | null,
       turnIndex: row.turn_index as number | null,
       ttftMs: row.ttft_ms as number | null,
+      realCredits: nanoAiu != null && Number.isFinite(nanoAiu) && nanoAiu >= 0 ? nanoAiu / 1_000_000_000 : undefined,
     };
   }
 
   private getSqlJs(): ReturnType<typeof initSqlJs> {
-    if (!this.cachedSqlPromise) {
-      this.cachedSqlPromise = initSqlJs({
-        locateFile: () => this.wasmPath ?? path.join(__dirname, "sql-wasm.wasm"),
-      });
-    }
+    this.cachedSqlPromise ??= initSqlJs({
+      locateFile: () => this.wasmPath ?? path.join(__dirname, "sql-wasm.wasm"),
+    });
     return this.cachedSqlPromise;
   }
 
-  private buildTokenFilter(sinceMs: number | undefined, extra?: string): { clause: string; params: unknown[] } {
-    const conditions = ["(input_tokens > 0 OR output_tokens > 0 OR cached_tokens > 0)"];
+  private buildTokenFilter(sinceMs: number | undefined, extra?: string, tableAlias?: string): { clause: string; params: unknown[] } {
+    const p = tableAlias ? `${tableAlias}.` : "";
+    const conditions = [`(${p}input_tokens > 0 OR ${p}output_tokens > 0 OR ${p}cached_tokens > 0)`];
     const params: unknown[] = [];
     if (sinceMs !== undefined) {
-      conditions.push("start_time_ms > ?");
+      conditions.push(`${p}start_time_ms > ?`);
       params.push(sinceMs);
     }
     if (extra) {
@@ -108,15 +94,19 @@ export class TracesDbReader {
     const { db, close } = await this.openDb();
 
     try {
-      const { clause, params } = this.buildTokenFilter(sinceMs);
+      const { clause, params } = this.buildTokenFilter(sinceMs, undefined, "s");
 
       const stmt = db.prepare(
-        `SELECT span_id, trace_id, parent_span_id, name, start_time_ms, end_time_ms,
-                status_code, operation_name, provider_name, agent_name, conversation_id,
-                request_model, response_model, input_tokens, output_tokens, cached_tokens,
-                reasoning_tokens, tool_name, chat_session_id, turn_index, ttft_ms
-         FROM spans ${clause}
-         ORDER BY start_time_ms ASC`
+        `SELECT s.span_id, s.trace_id, s.parent_span_id, s.name, s.start_time_ms, s.end_time_ms,
+                s.status_code, s.operation_name, s.provider_name, s.agent_name, s.conversation_id,
+                s.request_model, s.response_model, s.input_tokens, s.output_tokens, s.cached_tokens,
+                s.reasoning_tokens, s.tool_name, s.chat_session_id, s.turn_index, s.ttft_ms,
+                sa.value AS nano_aiu
+         FROM spans s
+         LEFT JOIN span_attributes sa
+           ON sa.span_id = s.span_id AND sa.key = 'copilot_chat.copilot_usage_nano_aiu'
+         ${clause}
+         ORDER BY s.start_time_ms ASC`
       );
 
       if (params.length > 0) {
@@ -140,12 +130,15 @@ export class TracesDbReader {
     const { db, close } = await this.openDb();
 
     try {
-      const { clause, params } = this.buildTokenFilter(sinceMs);
+      const { clause, params } = this.buildTokenFilter(
+        sinceMs,
+        `agent_name IS NOT '${AGGREGATE_AGENT_NAME}'`,
+      );
 
       const stmt = db.prepare(`
         SELECT agent_name,
                COUNT(*)            AS span_count,
-               SUM(input_tokens)   AS total_input,
+               SUM(MAX(input_tokens - cached_tokens, 0)) AS total_input,
                SUM(output_tokens)  AS total_output,
                SUM(cached_tokens)  AS total_cached
         FROM spans ${clause}
@@ -183,7 +176,7 @@ export class TracesDbReader {
     const { db, close } = await this.openDb();
 
     try {
-      const conditions = ["chat_session_id IS NOT NULL"];
+      const conditions = ["chat_session_id IS NOT NULL", `agent_name IS NOT '${AGGREGATE_AGENT_NAME}'`];
       const params: unknown[] = [];
       if (sinceMs !== undefined) {
         conditions.push("start_time_ms >= ?");

@@ -1,5 +1,8 @@
 export { CostDatabase, setWasmPath } from "./costDatabase";
 export type {
+  CostReader,
+  CostWriter,
+  CostMaintenance,
   StoredTurn,
   SessionSummary,
   SessionModelBreakdownRow,

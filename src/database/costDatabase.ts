@@ -1,11 +1,14 @@
 import * as path from "node:path";
 import * as fs from "node:fs";
 import initSqlJs, { Database } from "sql.js";
-import { ParsedTurn } from "../parser/types";
+import { ParsedTurn, AGGREGATE_AGENT_NAME } from "../parser/types";
 import { createTables } from "./schema";
 import * as queries from "./queries";
 import * as metrics from "./metrics";
 import type {
+  CostReader,
+  CostWriter,
+  CostMaintenance,
   StoredTurn,
   SessionSummary,
   SessionModelBreakdownRow,
@@ -24,6 +27,9 @@ import type {
 } from "./types";
 
 export type {
+  CostReader,
+  CostWriter,
+  CostMaintenance,
   StoredTurn,
   SessionSummary,
   SessionModelBreakdownRow,
@@ -46,7 +52,7 @@ export function setWasmPath(p: string): void {
   wasmPath = p;
 }
 
-export class CostDatabase {
+export class CostDatabase implements CostReader, CostWriter, CostMaintenance {
   private db: Database | null = null;
   private readonly dbPath: string;
   private saving: boolean = false;
@@ -81,13 +87,125 @@ export class CostDatabase {
 
     try {
       createTables(this.db);
+      this.runMigrations(this.db);
     } catch (err) {
       console.warn(`[CostDatabase] Failed to create tables, resetting database. Error: ${err}`);
       this.db.close();
       this.db = new SQL.Database();
       this.wasCorrupted = true;
       createTables(this.db);
+      this.runMigrations(this.db);
     }
+  }
+
+  private runMigrations(db: Database): void {
+    try {
+      this.mergeDuplicateSessionRecords(db);
+    } catch (err) {
+      console.warn(`[CostDatabase] Migration error (non-fatal), continuing: ${err}`);
+    }
+  }
+
+  runLegacySessionDedupMigration(): void {
+    if (!this.db) return;
+    try {
+      this.mergeDuplicateSessionRecords(this.db);
+    } catch (err) {
+      console.warn(`[CostDatabase] Legacy session dedupe failed (non-fatal): ${err}`);
+    }
+  }
+
+  private mergeDuplicateSessionRecords(db: Database): void {
+    // Check if migration already ran (marker stored as a pragmatic session record)
+    const marker = db.exec("SELECT 1 FROM sessions WHERE session_id = '__migration_merge_v2__'");
+    if (marker.length > 0 && marker[0].values.length > 0) return;
+
+    // Defer marking completion until title sync has happened at least once.
+    // Otherwise we may mark as done too early and miss legacy duplicates.
+    const titledCountStmt = db.prepare(
+      "SELECT COUNT(*) as c FROM sessions WHERE title IS NOT NULL AND TRIM(title) != ''"
+    );
+    let titledCount = 0;
+    if (titledCountStmt.step()) {
+      const row = titledCountStmt.getAsObject();
+      titledCount = Number(row.c ?? 0);
+    }
+    titledCountStmt.free();
+    if (titledCount === 0) return;
+
+    // Find sessions with the same title in the same workspace, created within 1 hour of each other
+    // This cleans up duplicates from the title mapping bug that mapped to both parent and conversation IDs
+    const stmt = db.prepare(`
+      SELECT 
+        s1.session_id as primary_id,
+        s2.session_id as duplicate_id,
+        s1.title
+      FROM sessions s1
+      JOIN sessions s2 ON 
+        s1.workspace = s2.workspace 
+        AND s1.title IS NOT NULL 
+        AND s1.title = s2.title 
+        AND s1.session_id < s2.session_id
+        AND ABS(s1.start_timestamp - s2.start_timestamp) < 3600000
+    `);
+
+    const duplicates: Array<{ primary_id: string; duplicate_id: string; title: string }> = [];
+    while (stmt.step()) {
+      const row = stmt.getAsObject();
+      duplicates.push({
+        primary_id: row.primary_id as string,
+        duplicate_id: row.duplicate_id as string,
+        title: row.title as string,
+      });
+    }
+    stmt.free();
+
+    if (duplicates.length > 0) {
+      console.info(`[CostDatabase] Found ${duplicates.length} duplicate session pair(s) to merge`);
+
+      for (const dup of duplicates) {
+        // Move turns that won't violate the UNIQUE(session_id, timestamp, model) constraint
+        db.run(
+          `UPDATE turns SET session_id = ?
+           WHERE session_id = ?
+             AND NOT EXISTS (
+               SELECT 1 FROM turns t2
+               WHERE t2.session_id = ?
+                 AND t2.timestamp = turns.timestamp
+                 AND t2.model = turns.model
+             )`,
+          [dup.primary_id, dup.duplicate_id, dup.primary_id]
+        );
+
+        // Delete any remaining duplicate turns that couldn't be moved (they already exist on the primary)
+        db.run(`DELETE FROM turns WHERE session_id = ?`, [dup.duplicate_id]);
+
+        // Update primary session's last_timestamp
+        const tsStmt = db.prepare(`SELECT MAX(timestamp) as max_ts FROM turns WHERE session_id = ?`);
+        tsStmt.bind([dup.primary_id]);
+        let newLastTs: number | undefined;
+        if (tsStmt.step()) {
+          const row = tsStmt.getAsObject();
+          newLastTs = row.max_ts as number | undefined;
+        }
+        tsStmt.free();
+
+        if (newLastTs !== undefined && newLastTs > 0) {
+          db.run(`UPDATE sessions SET last_timestamp = ? WHERE session_id = ?`, [newLastTs, dup.primary_id]);
+        }
+
+        // Delete the duplicate session record
+        db.run(`DELETE FROM sessions WHERE session_id = ?`, [dup.duplicate_id]);
+
+        console.info(`[CostDatabase] Merged duplicate session "${dup.title}" (${dup.duplicate_id} → ${dup.primary_id})`);
+      }
+    }
+
+    // Mark migration as done so it doesn't re-run
+    db.run(
+      `INSERT OR IGNORE INTO sessions (session_id, workspace, start_timestamp, last_timestamp, processed_at) VALUES ('__migration_merge_v2__', '', 0, 0, ?)`,
+      [Date.now()]
+    );
   }
 
   /** Returns true if the database was corrupted and had to be reset during initialization. */
@@ -147,9 +265,14 @@ export class CostDatabase {
       return;
     }
     this.db.run(
-      `INSERT OR IGNORE INTO turns
-        (session_id, timestamp, duration, agent_name, model, model_family, input_tokens, output_tokens, cached_tokens, cache_write_tokens, total_tokens, cost_usd, credits, workspace, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO turns
+        (session_id, timestamp, duration, agent_name, model, model_family, input_tokens, output_tokens, cached_tokens, cache_write_tokens, total_tokens, cost_usd, credits, workspace, status, cost_source)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(session_id, timestamp, model) DO UPDATE SET
+         cost_usd = excluded.cost_usd,
+         credits = excluded.credits,
+         cost_source = excluded.cost_source
+       WHERE excluded.cost_source = 'real' AND cost_source != 'real'`,
       [
         turn.sessionId,
         turn.timestamp,
@@ -166,8 +289,86 @@ export class CostDatabase {
         credits,
         workspace,
         turn.status,
+        turn.costSource ?? "estimated",
       ]
     );
+  }
+
+  /**
+   * One-time migration (data version 1) correcting cache-token semantics for turns that
+   * were ingested before the fix:
+   *  - removes uncredited "GitHub Copilot Chat" conversation roll-up/duplicate turns,
+   *  - rewrites `input_tokens` to the non-cached portion (it previously included
+   *    `cached_tokens`, double-counting cache reads),
+   *  - recomputes `total_tokens`, and
+   *  - recomputes `cost_usd`/`credits` for estimated turns via the supplied callback
+   *    (real-credit turns keep GitHub's authoritative value).
+   * Idempotent: guarded by `PRAGMA user_version`. Returns true only when it ran.
+   */
+  recomputeCacheTokenSemantics(
+    recost: (turn: {
+      modelFamily: string;
+      inputTokens: number;
+      outputTokens: number;
+      cachedTokens: number;
+      cacheWriteTokens: number;
+    }) => { costUsd: number; credits: number }
+  ): boolean {
+    if (!this.db) return false;
+    const db = this.db;
+    const CURRENT_DATA_VERSION = 1;
+
+    const versionResult = db.exec("PRAGMA user_version");
+    const version = Number(versionResult[0]?.values?.[0]?.[0] ?? 0);
+    if (version >= CURRENT_DATA_VERSION) return false;
+
+    db.run("BEGIN");
+    try {
+      // 1. Drop uncredited conversation-level roll-up/duplicate turns.
+      const delStmt = db.prepare(
+        "DELETE FROM turns WHERE agent_name = ? AND cost_source != 'real'"
+      );
+      delStmt.run([AGGREGATE_AGENT_NAME]);
+      delStmt.free();
+
+      // 2. `input_tokens` previously included `cached_tokens`; keep only the non-cached
+      //    portion and recompute `total_tokens`. RHS uses the original row values.
+      db.run(`
+        UPDATE turns SET
+          total_tokens = MAX(input_tokens - cached_tokens, 0) + output_tokens + cached_tokens + cache_write_tokens,
+          input_tokens = MAX(input_tokens - cached_tokens, 0)
+      `);
+
+      // 3. Recompute cost for estimated turns with the corrected formula (free models -> 0).
+      const sel = db.prepare(
+        `SELECT id, model_family, input_tokens, output_tokens, cached_tokens, cache_write_tokens
+         FROM turns WHERE cost_source != 'real'`
+      );
+      const upd = db.prepare("UPDATE turns SET cost_usd = ?, credits = ? WHERE id = ?");
+      while (sel.step()) {
+        const r = sel.getAsObject();
+        const { costUsd, credits } = recost({
+          modelFamily: String(r.model_family ?? "unknown"),
+          inputTokens: Number(r.input_tokens ?? 0),
+          outputTokens: Number(r.output_tokens ?? 0),
+          cachedTokens: Number(r.cached_tokens ?? 0),
+          cacheWriteTokens: Number(r.cache_write_tokens ?? 0),
+        });
+        upd.bind([costUsd, credits, r.id as number]);
+        upd.step();
+        upd.reset();
+      }
+      sel.free();
+      upd.free();
+
+      db.run(`PRAGMA user_version = ${CURRENT_DATA_VERSION}`);
+      db.run("COMMIT");
+      return true;
+    } catch (err) {
+      db.run("ROLLBACK");
+      console.warn(`[CostDatabase] cache-token semantics migration failed (non-fatal): ${err}`);
+      return false;
+    }
   }
 
   markSessionProcessed(
@@ -176,15 +377,71 @@ export class CostDatabase {
     startTimestamp: number,
     lastTimestamp: number,
     copilotVersion: string,
-    vscodeVersion: string
+    vscodeVersion: string,
+    title?: string
   ): void {
     if (!this.db) return;
     this.db.run(
       `INSERT OR REPLACE INTO sessions
-        (session_id, workspace, start_timestamp, last_timestamp, copilot_version, vscode_version, processed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [sessionId, workspace, startTimestamp, lastTimestamp, copilotVersion, vscodeVersion, Date.now()]
+        (session_id, workspace, start_timestamp, last_timestamp, copilot_version, vscode_version, processed_at, title)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [sessionId, workspace, startTimestamp, lastTimestamp, copilotVersion, vscodeVersion, Date.now(), title ?? null]
     );
+  }
+
+  updateSessionTitles(titles: Map<string, string>): void {
+    if (!this.db || titles.size === 0) return;
+
+    // Guard for legacy databases that may not have run schema migration yet.
+    const titleColCheck = this.db.exec("PRAGMA table_info(sessions)");
+    if (titleColCheck.length > 0) {
+      const hasTitle = titleColCheck[0].values.some((row) => row[1] === "title");
+      if (!hasTitle) {
+        this.db.run("ALTER TABLE sessions ADD COLUMN title TEXT");
+      }
+    }
+
+    // In traces-DB mode we may have turns without a matching sessions row.
+    // Create minimal session records so title updates can attach correctly.
+    const ensureSessionStmt = this.db.prepare(
+      `INSERT OR IGNORE INTO sessions
+        (session_id, workspace, start_timestamp, last_timestamp, copilot_version, vscode_version, processed_at, title)
+       SELECT
+         t.session_id,
+         MIN(t.workspace),
+         MIN(t.timestamp),
+         MAX(t.timestamp),
+         NULL,
+         NULL,
+         ?,
+         NULL
+       FROM turns t
+       WHERE t.session_id = ?
+       GROUP BY t.session_id`
+    );
+
+    const stmt = this.db.prepare(
+      `UPDATE sessions SET title = :title WHERE session_id = :id AND (title IS NULL OR title != :title)`
+    );
+    this.db.run("BEGIN");
+    try {
+      for (const [sessionId, title] of titles) {
+        ensureSessionStmt.bind([Date.now(), sessionId]);
+        ensureSessionStmt.step();
+        ensureSessionStmt.reset();
+
+        stmt.bind({ ":title": title, ":id": sessionId });
+        stmt.step();
+        stmt.reset();
+      }
+      this.db.run("COMMIT");
+    } catch (e) {
+      this.db.run("ROLLBACK");
+      throw e;
+    } finally {
+      ensureSessionStmt.free();
+      stmt.free();
+    }
   }
 
   // ── Sessions ────────────────────────────────────────

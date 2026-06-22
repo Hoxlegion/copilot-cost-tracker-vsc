@@ -31,11 +31,13 @@ export function createTables(db: Database): void {
       last_timestamp INTEGER NOT NULL,
       copilot_version TEXT,
       vscode_version TEXT,
-      processed_at INTEGER NOT NULL
+      processed_at INTEGER NOT NULL,
+      title TEXT
     )
   `);
 
   ensureTurnsSchema(db);
+  ensureSessionsSchema(db);
 
   db.run(`CREATE INDEX IF NOT EXISTS idx_turns_session ON turns(session_id)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_turns_timestamp ON turns(timestamp)`);
@@ -44,11 +46,26 @@ export function createTables(db: Database): void {
   db.run(`CREATE INDEX IF NOT EXISTS idx_turns_agent ON turns(agent_name)`);
 }
 
+function ensureSessionsSchema(db: Database): void {
+  const names = new Set<string>();
+  const result = db.exec("PRAGMA table_info(sessions)");
+  if (result.length > 0) {
+    for (const row of result[0].values) {
+      const col = row[1];
+      if (typeof col === "string") names.add(col);
+    }
+  }
+  if (!names.has("title")) {
+    db.run("ALTER TABLE sessions ADD COLUMN title TEXT");
+  }
+}
+
 function ensureTurnsSchema(db: Database): void {
   const existingColumns = getTurnsColumnNames(db);
   addTurnsColumnIfMissing(existingColumns, db, "agent_name", "TEXT NOT NULL DEFAULT 'unknown'");
   addTurnsColumnIfMissing(existingColumns, db, "cache_write_tokens", "INTEGER NOT NULL DEFAULT 0");
   addTurnsColumnIfMissing(existingColumns, db, "model_family", "TEXT NOT NULL DEFAULT 'unknown'");
+  addTurnsColumnIfMissing(existingColumns, db, "cost_source", "TEXT NOT NULL DEFAULT 'estimated'");
 }
 
 function getTurnsColumnNames(db: Database): Set<string> {

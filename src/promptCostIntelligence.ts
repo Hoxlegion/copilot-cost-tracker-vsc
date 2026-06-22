@@ -122,7 +122,7 @@ export class PromptCostIntelligenceProvider implements vscode.CodeLensProvider, 
 
     // Verify document is still open and unchanged after async work
     const openDoc = vscode.workspace.textDocuments.find((d) => d.uri.toString() === uriKey);
-    if (!openDoc || openDoc.version !== capturedVersion) {
+    if (openDoc?.version !== capturedVersion) {
       return;
     }
 

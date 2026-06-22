@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { dashboardData } from '../../stores/dashboard';
+  import { dashboardData, formatUsd } from '../../stores/dashboard';
   
   let heatmapMode: 'cost' | 'turns' = 'cost';
   let hoveredCell: { date: string; value: number } | null = null;
@@ -126,7 +126,7 @@
                 <div 
                   class="cell"
                   role="img"
-                  aria-label="{day.date}: {heatmapMode === 'cost' ? `$${value.toFixed(2)}` : `${value} turns`}"
+                  aria-label="{day.date}: {heatmapMode === 'cost' ? $formatUsd(value) : `${value} turns`}"
                   style="background: {getColorIntensity(value)}"
                   on:mouseenter={() => handleCellHover(day.date, value)}
                   on:mouseleave={handleCellLeave}
@@ -150,7 +150,7 @@
     
     {#if hoveredCell}
       <div class="tooltip">
-        {hoveredCell.date}: {heatmapMode === 'cost' ? `$${hoveredCell.value.toFixed(2)}` : `${hoveredCell.value} turns`}
+        {hoveredCell.date}: {heatmapMode === 'cost' ? $formatUsd(hoveredCell.value) : `${hoveredCell.value} turns`}
       </div>
     {/if}
   </div>

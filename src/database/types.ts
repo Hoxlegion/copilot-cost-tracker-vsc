@@ -1,3 +1,75 @@
+import type { ParsedTurn } from "../parser/types";
+
+// ── Role interfaces ───────────────────────────────────
+// Consumers import only the slice they need, reducing coupling.
+
+/** Read-only query access to cost data. */
+export interface CostReader {
+  getSessionSummaries(workspace?: string, limit?: number): SessionSummary[];
+  getSessionModelBreakdowns(sessionIds: string[]): SessionModelBreakdownRow[];
+  getTurnsForSession(sessionId: string, limit?: number): StoredTurn[];
+  getModelLatencySamples(days?: number, workspace?: string): ModelLatencySample[];
+  getDailyCosts(days?: number, workspace?: string): AggregatedCost[];
+  getDailyCostsSince(sinceMs: number, workspace?: string): AggregatedCost[];
+  getModelBreakdown(days?: number, workspace?: string): ModelBreakdown[];
+  getModelBreakdownSince(sinceMs: number, workspace?: string): ModelBreakdown[];
+  getAgentBreakdown(days?: number, workspace?: string): AgentBreakdown[];
+  getAgentBreakdownSince(sinceMs: number, workspace?: string): AgentBreakdown[];
+  getDailyAgentBreakdown(days?: number, workspace?: string): DailyAgentBreakdown[];
+  getCurrentMonthTotal(workspace?: string): { costUsd: number; credits: number; turns: number };
+  getCreditsSince(sinceMs: number): number;
+  getMostRecentModel(): string | null;
+  getCostSince(sinceMs: number, workspace?: string): { costUsd: number; credits: number; turns: number };
+  getWorkspaces(): string[];
+  getInsightMetrics(days?: number): InsightMetrics;
+  getAlertMetrics(sinceMs: number, thresholds?: Partial<AlertThresholdConfig>): AlertMetrics;
+  getCacheSavingsMetrics(
+    sinceMs: number,
+    workspace?: string,
+    calculateSavingsCost?: (modelFamily: string, writeTokens: number, readTokens: number) => number,
+  ): CacheSavingsMetrics;
+  getMostRecentSessionContext(sinceMs: number): SessionContextInfo | null;
+  getSessionContextTimeline(sessionId: string): ContextTimelinePoint[];
+  getSessionContextDistribution(sinceMs: number): SessionContextDistribution[];
+}
+
+/** Write access for ingestion and session management. */
+export interface CostWriter {
+  insertTurn(turn: ParsedTurn, costUsd: number, credits: number, workspace: string): void;
+  markSessionProcessed(
+    sessionId: string, workspace: string, startTimestamp: number, lastTimestamp: number,
+    copilotVersion: string, vscodeVersion: string, title?: string,
+  ): void;
+  updateSessionTitles(titles: Map<string, string>): void;
+  isSessionProcessed(sessionId: string): boolean;
+  getSessionLastTimestamp(sessionId: string): number | null;
+  getMaxTimestamp(): number;
+  beginTransaction(): void;
+  commitTransaction(): void;
+  rollbackTransaction(): void;
+  runLegacySessionDedupMigration(): void;
+}
+
+/** Lifecycle and maintenance operations. */
+export interface CostMaintenance {
+  initialize(): Promise<void>;
+  save(): Promise<void>;
+  pruneOldTurns(retentionDays: number): number;
+  recomputeCacheTokenSemantics(
+    recost: (turn: {
+      modelFamily: string;
+      inputTokens: number;
+      outputTokens: number;
+      cachedTokens: number;
+      cacheWriteTokens: number;
+    }) => { costUsd: number; credits: number }
+  ): boolean;
+  close(): void;
+  readonly didRecoverFromCorruption: boolean;
+}
+
+// ── Data types ────────────────────────────────────────
+
 export interface StoredTurn {
   id: number;
   sessionId: string;
@@ -15,6 +87,7 @@ export interface StoredTurn {
   credits: number;
   workspace: string;
   status: string;
+  costSource: "real" | "estimated";
 }
 
 export interface SessionSummary {
@@ -30,6 +103,7 @@ export interface SessionSummary {
   totalCredits: number;
   primaryModel: string;
   avgDurationMs: number;
+  title: string | null;
 }
 
 export interface SessionModelBreakdownRow {

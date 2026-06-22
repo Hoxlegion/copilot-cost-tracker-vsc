@@ -4,6 +4,14 @@
  * %APPDATA%/Code/User/workspaceStorage/<id>/GitHub.copilot-chat/debug-logs/<session>/main.jsonl
  */
 
+/**
+ * Agent name used by Copilot for the outer, conversation-level orchestration span.
+ * These spans are roll-ups/duplicates of the actual billed surface spans
+ * (e.g. `panel/editAgent`, `tool/runSubagent`) and never carry the `nano_aiu`
+ * billing attribute, so they must be excluded to avoid double counting.
+ */
+export const AGGREGATE_AGENT_NAME = "GitHub Copilot Chat";
+
 export interface BaseLogEntry {
   v: number; // version
   ts: number; // timestamp (ms since epoch)
@@ -53,6 +61,8 @@ export interface ParsedTurn {
   cacheWriteTokens: number;
   totalTokens: number;
   status: string;
+  /** Whether credits are from real billing data or token-based estimates. */
+  costSource?: "real" | "estimated";
 }
 
 export interface ParsedSession {
@@ -107,6 +117,8 @@ export interface TraceSpan {
   chatSessionId: string | null;
   turnIndex: number | null;
   ttftMs: number | null;
+  /** Real credits from GitHub billing (nano AIU ÷ 1e9). Undefined when not recorded. */
+  realCredits: number | undefined;
 }
 
 export interface SurfaceBreakdown {

@@ -2,7 +2,7 @@
   import { dashboardData } from '../../stores/dashboard';
   import { filterState } from '../../stores/filter';
   import ChartWrapper from '../shared/ChartWrapper.svelte';
-  import { tooltipConfig, baseScaleConfig } from '../../utils/chartStyles';
+  import { tooltipConfig, baseScaleConfig, LEGEND_COLOR } from '../../utils/chartStyles';
   import { formatSessionLabel } from '../../utils/format';
   
   const LINE_COLORS = [
@@ -23,6 +23,7 @@
   
   $: allTimelines = $dashboardData?.contextTimelines ?? [];
   $: contextDistribution = $dashboardData?.contextDistribution ?? [];
+  $: titleMap = new Map(($dashboardData?.allSessions ?? []).filter(s => s.title).map(s => [s.sessionId, s.title!]));
   
   $: filteredSessionIds = new Set(
     contextDistribution
@@ -39,7 +40,7 @@
   $: chartData = {
     labels: [],
     datasets: contextTimelines.slice(0, 5).map((timeline, i) => ({
-      label: formatSessionLabel(timeline.workspace, timeline.startMs, timeline.sessionId),
+      label: formatSessionLabel(timeline.workspace, timeline.startMs, timeline.sessionId, titleMap.get(timeline.sessionId)),
       data: timeline.turns.map(t => t.currentContextWeight),
       borderColor: LINE_COLORS[i % LINE_COLORS.length],
       backgroundColor: FILL_COLORS[i % FILL_COLORS.length],
@@ -102,7 +103,7 @@
         display: contextTimelines.length > 1,
         position: 'top' as const,
         labels: {
-          color: 'rgba(255, 255, 255, 0.7)',
+          color: LEGEND_COLOR,
           font: { size: 11 },
           usePointStyle: true,
           pointStyle: 'line',

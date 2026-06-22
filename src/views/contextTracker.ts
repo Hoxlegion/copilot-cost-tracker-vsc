@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { CostDatabase, SessionContextInfo } from "../database";
+import { CostReader, SessionContextInfo } from "../database";
 import { Logger } from "../logger";
 
 export type ContextTier = "light" | "moderate" | "heavy" | "critical";
@@ -44,14 +44,14 @@ function tokensToPages(tokens: number): string {
 }
 
 export class ContextTracker implements vscode.Disposable {
-  private readonly database: CostDatabase;
+  private readonly database: CostReader;
   private readonly logger: Logger;
   private currentWeight: ContextWeight | null = null;
   private trackedSessionId: string | null = null;
   private readonly firedThresholds: Set<number> = new Set();
   private notificationsEnabled: boolean = true;
 
-  constructor(database: CostDatabase, logger: Logger) {
+  constructor(database: CostReader, logger: Logger) {
     this.database = database;
     this.logger = logger;
   }

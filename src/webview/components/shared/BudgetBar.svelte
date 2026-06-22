@@ -11,7 +11,7 @@
   .budget-bar {
     width: 100%;
     height: 6px;
-    background: var(--vscode-panel-border);
+    background: rgba(255, 255, 255, 0.06);
     border-radius: 3px;
     margin-top: 6px;
     overflow: hidden;
@@ -20,6 +20,7 @@
   .budget-fill {
     height: 100%;
     border-radius: 3px;
-    transition: width 0.3s ease;
+    transition: width 0.4s ease;
+    box-shadow: 0 0 6px rgba(0, 0, 0, 0.2);
   }
 </style>

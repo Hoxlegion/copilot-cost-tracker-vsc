@@ -250,4 +250,49 @@ describe("Pricing Engine", () => {
       expect(creditsFromCost).toBe(500);
     });
   });
+
+  describe("Free models (no AI Credit consumption)", () => {
+    it("identifies inline-completion and NES models as free", () => {
+      const engine = new PricingEngine();
+      expect(engine.isFreeModel("copilot-nes-oct")).toBe(true);
+      expect(engine.isFreeModel("copilot-suggestions-himalia-001")).toBe(true);
+      expect(engine.isFreeModel("Copilot-NES-Whatever")).toBe(true);
+      expect(engine.isFreeModel("gpt-5.4")).toBe(false);
+      expect(engine.isFreeModel("claude-opus-4.8")).toBe(false);
+    });
+
+    it("prices free models at $0 regardless of token counts", () => {
+      const engine = new PricingEngine();
+      expect(engine.calculateCost("copilot-nes-oct", 3261, 100, 0)).toBe(0);
+      expect(engine.calculateCost("copilot-suggestions-himalia-001", 4712, 3, 0)).toBe(0);
+    });
+  });
+
+  describe("Cache savings (real savings vs input rate)", () => {
+    it("values cache reads at the difference between input and cached rates", () => {
+      const engine = new PricingEngine();
+      // gpt-5.4: input $2.5/1M, cached $0.25/1M -> savings $2.25 per 1M cache reads.
+      expect(engine.calculateCacheSavings("gpt-5.4", 0, 1_000_000)).toBeCloseTo(2.25, 6);
+    });
+
+    it("returns 0 savings for free models", () => {
+      const engine = new PricingEngine();
+      expect(engine.calculateCacheSavings("copilot-nes-oct", 0, 1_000_000)).toBe(0);
+    });
+  });
+
+  describe("Cache-aware cost (no double counting)", () => {
+    it("charges the input rate only on non-cached input and the cached rate on cache reads", () => {
+      const engine = new PricingEngine();
+      // claude-opus-4.8: input $5/1M, cached $0.5/1M, output $25/1M.
+      // A near-fully-cached turn: 1 non-cached input token, 43826 cache reads, 166 output.
+      // Correct cost = 1*5 + 43826*0.5 + 166*25 (per 1M) — NOT input-rate on all 43827 tokens.
+      const cost = engine.calculateCost("claude-opus-4.8", 1, 166, 43826);
+      const expected = (1 * 5 + 43826 * 0.5 + 166 * 25) / 1_000_000;
+      expect(cost).toBeCloseTo(expected, 9);
+      // Credits should be ~2.6, not the ~24.5 produced by the old double-counting formula.
+      expect(engine.costToCredits(cost)).toBeLessThan(3);
+    });
+  });
 });
+

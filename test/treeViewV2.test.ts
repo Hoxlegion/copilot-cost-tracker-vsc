@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { formatDuration, simplifyModelName } from "../src/views/treeViewFormatting";
 
-describe("treeViewV2 helpers", () => {
+describe("formatting helpers", () => {
   it("rounds sub-second durations in milliseconds", () => {
     expect(formatDuration(540.4)).toBe("540 ms");
     expect(formatDuration(540.9)).toBe("541 ms");

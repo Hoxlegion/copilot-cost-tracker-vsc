@@ -2,7 +2,7 @@
   "name": "copilot-cost-tracker",
   "displayName": "Copilot Cost Tracker",
   "description": "Track and visualize your GitHub Copilot usage costs.",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "publisher": "Hoxlegion",
   "license": "MIT",
   "repository": {
@@ -45,8 +45,9 @@
     "views": {
       "copilot-cost-tracker": [
         {
+          "type": "webview",
           "id": "copilotCostTracker.overview",
-          "name": "Cost Overview",
+          "name": "Usage Stats",
           "icon": "media/icon.svg"
         }
       ]
@@ -75,6 +76,12 @@
         "title": "Scan Full History",
         "category": "Copilot Cost Tracker",
         "icon": "$(history)"
+      },
+      {
+        "command": "copilotCostTracker.setMonthlyBudget",
+        "title": "Set Monthly Budget",
+        "category": "Copilot Cost Tracker",
+        "icon": "$(credit-card)"
       }
     ],
     "menus": {
@@ -104,12 +111,19 @@
             "business",
             "enterprise"
           ],
-          "description": "Your GitHub Copilot plan type."
+          "description": "Your GitHub Copilot plan type. Changing this auto-sets the budget credits.",
+          "enumDescriptions": [
+            "Pro — 300 credits/month",
+            "Pro+ — 1,500 credits/month",
+            "Max — custom limit",
+            "Business — 300 credits/month",
+            "Enterprise — 1,000 credits/month"
+          ]
         },
         "copilotCostTracker.budgetCredits": {
           "type": "number",
-          "default": 40000,
-          "description": "Total credit budget for the billing period. Used for threshold alerting."
+          "default": 0,
+          "description": "Total credit budget for the billing period. Set via 'Set Monthly Budget' command or manually."
         },
         "copilotCostTracker.budgetWarningThresholds": {
           "type": "array",
@@ -312,6 +326,7 @@
     "@tsconfig/svelte": "5.0.8",
     "@types/node": "25.9.2",
     "@types/vscode": "^1.85.0",
+    "@vitest/coverage-v8": "4.1.9",
     "@vscode/vsce": "3.9.2",
     "chart.js": "4.5.1",
     "esbuild": "0.28.1",
@@ -322,7 +337,7 @@
     "typescript": "6.0.3",
     "typescript-eslint": "8.60.1",
     "vite": "8.0.16",
-    "vitest": "4.1.8"
+    "vitest": "4.1.9"
   },
   "dependencies": {
     "sql.js": "1.14.1"

@@ -1,6 +1,5 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as os from "node:os";
 import {
   BaseLogEntry,
   LogEntry,
@@ -8,42 +7,13 @@ import {
   ParsedSession,
   ParsedTurn,
 } from "./types";
+import { getVscodeUserDataPath } from "../shared/paths";
 
 export class LogParser {
   private readonly debugLogsBasePath: string;
 
   constructor() {
-    this.debugLogsBasePath = this.getDebugLogsBasePath();
-  }
-
-  /**
-   * Get the base path where VS Code stores workspace storage.
-   */
-  private getDebugLogsBasePath(): string {
-    const platform = os.platform();
-    const homeDir = os.homedir();
-
-    if (platform === "win32") {
-      return path.join(
-        homeDir,
-        "AppData",
-        "Roaming",
-        "Code",
-        "User",
-        "workspaceStorage"
-      );
-    } else if (platform === "darwin") {
-      return path.join(
-        homeDir,
-        "Library",
-        "Application Support",
-        "Code",
-        "User",
-        "workspaceStorage"
-      );
-    } else {
-      return path.join(homeDir, ".config", "Code", "User", "workspaceStorage");
-    }
+    this.debugLogsBasePath = path.join(getVscodeUserDataPath(), "workspaceStorage");
   }
 
   /**
@@ -52,38 +22,39 @@ export class LogParser {
   discoverLogDirectories(): string[] {
     const dirs: string[] = [];
 
-    if (!fs.existsSync(this.debugLogsBasePath)) {
+    let workspaces: fs.Dirent[];
+    try {
+      workspaces = fs.readdirSync(this.debugLogsBasePath, { withFileTypes: true });
+    } catch {
       return dirs;
     }
 
-    try {
-      const workspaces = fs.readdirSync(this.debugLogsBasePath);
+    for (const workspace of workspaces) {
+      if (!workspace.isDirectory()) continue;
+      const debugLogDir = path.join(
+        this.debugLogsBasePath,
+        workspace.name,
+        "GitHub.copilot-chat",
+        "debug-logs"
+      );
 
-      for (const workspace of workspaces) {
-        const debugLogDir = path.join(
-          this.debugLogsBasePath,
-          workspace,
-          "GitHub.copilot-chat",
-          "debug-logs"
-        );
+      let sessions: fs.Dirent[];
+      try {
+        sessions = fs.readdirSync(debugLogDir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
 
-        if (fs.existsSync(debugLogDir)) {
-          try {
-            const sessions = fs.readdirSync(debugLogDir);
-            for (const session of sessions) {
-              const sessionDir = path.join(debugLogDir, session);
-              const mainJsonl = path.join(sessionDir, "main.jsonl");
-              if (fs.existsSync(mainJsonl)) {
-                dirs.push(sessionDir);
-              }
-            }
-          } catch (err) {
-            console.warn(`[LogParser] Skipping inaccessible debug-log directory: ${debugLogDir}`, err);
-          }
+      for (const session of sessions) {
+        if (!session.isDirectory()) continue;
+        const sessionDir = path.join(debugLogDir, session.name);
+        try {
+          fs.accessSync(path.join(sessionDir, "main.jsonl"));
+          dirs.push(sessionDir);
+        } catch {
+          // main.jsonl doesn't exist, skip
         }
       }
-    } catch {
-      // Skip if base path is inaccessible
     }
 
     return dirs;
@@ -196,7 +167,7 @@ export class LogParser {
       (attrs.surface as string) ??
       "unknown";
 
-    const inputTokens =
+    const rawInputTokens =
       (attrs.inputTokens as number) ??
       (attrs.input_tokens as number) ??
       (attrs.promptTokens as number) ??
@@ -219,6 +190,11 @@ export class LogParser {
       (attrs.cache_write_tokens as number) ??
       (attrs.cacheCreationInputTokens as number) ??
       0;
+
+    // Telemetry `input_tokens` includes `cached_tokens` (cache reads are a subset of
+    // the prompt). Store only the non-cached portion so that `inputTokens + cachedTokens`
+    // equals the full prompt and cost is not charged twice for cached tokens.
+    const inputTokens = Math.max(0, rawInputTokens - cachedTokens);
 
     const totalTokens =
       (attrs.totalTokens as number) ??
@@ -281,6 +257,108 @@ export class LogParser {
    */
   getActiveSessionPaths(): string[] {
     return this.discoverLogDirectories();
+  }
+
+  /**
+   * Scan all debug-log session directories for title-*.jsonl files and extract
+   * session titles. Returns a map of session/conversation ID → title string.
+   */
+  discoverSessionTitles(): Map<string, string> {
+    const titles = new Map<string, string>();
+    const dirs = this.discoverLogDirectories();
+
+    for (const dir of dirs) {
+      this.extractTitlesFromDir(dir, titles);
+    }
+
+    return titles;
+  }
+
+  private extractTitlesFromDir(sessionDir: string, titles: Map<string, string>): void {
+    let files: string[];
+    try {
+      files = fs.readdirSync(sessionDir);
+    } catch {
+      return;
+    }
+
+    for (const file of files) {
+      if (!file.startsWith("title-") || !file.endsWith(".jsonl")) continue;
+      this.extractTitlesFromFile(path.join(sessionDir, file), titles);
+    }
+  }
+
+  private extractTitlesFromFile(filePath: string, titles: Map<string, string>): void {
+    let content: string;
+    try {
+      content = fs.readFileSync(filePath, "utf-8");
+    } catch {
+      return;
+    }
+
+    const lines = content.split("\n").filter((l) => l.trim());
+    let conversationId: string | undefined;
+    let parentSessionId: string | undefined;
+
+    for (const line of lines) {
+      const parsed = this.parseTitleEntry(line);
+      if (!parsed) continue;
+
+      conversationId ??= parsed.sid;
+
+      if (parsed.type === "session_start" && parsed.parentSessionId) {
+        parentSessionId = parsed.parentSessionId;
+      }
+
+      if (parsed.title) {
+        if (conversationId) titles.set(conversationId, parsed.title);
+        if (parentSessionId) titles.set(parentSessionId, parsed.title);
+      }
+    }
+  }
+
+  private parseTitleEntry(line: string): { sid?: string; type?: string; parentSessionId?: string; title?: string } | null {
+    try {
+      const entry = JSON.parse(line) as BaseLogEntry;
+      const result: { sid?: string; type?: string; parentSessionId?: string; title?: string } = {
+        sid: entry.sid,
+        type: entry.type,
+      };
+
+      if (entry.type === "session_start" && entry.attrs?.parentSessionId) {
+        result.parentSessionId = entry.attrs.parentSessionId as string;
+      }
+
+      if (entry.type === "agent_response" && entry.attrs?.response) {
+        const title = this.extractTitleFromResponse(entry.attrs.response as string);
+        if (title) result.title = title;
+      }
+
+      return result;
+    } catch {
+      return null;
+    }
+  }
+
+  private extractTitleFromResponse(response: string): string | null {
+    try {
+      const parsed = JSON.parse(response) as Array<{
+        role?: string;
+        parts?: Array<{ type?: string; content?: string }>;
+      }>;
+      for (const msg of parsed) {
+        if (msg.role === "assistant" && Array.isArray(msg.parts)) {
+          for (const part of msg.parts) {
+            if (part.type === "text" && part.content) {
+              return part.content.trim();
+            }
+          }
+        }
+      }
+    } catch {
+      // Not valid JSON
+    }
+    return null;
   }
 
   get basePath(): string {

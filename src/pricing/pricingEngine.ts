@@ -11,6 +11,13 @@ const DEFAULT_FALLBACK_RATE: ModelPricing = {
   cacheWrite: 3.75, // 375 credits/1M → $3.75 USD (1.5× input)
 };
 
+// Models that are included in all Copilot plans and never consume AI Credits:
+// inline code completions and Next Edit Suggestions (NES). These carry no
+// `nano_aiu` billing attribute, so they must be priced at $0 rather than estimated.
+// Matched by normalized-name prefix because the codename suffix changes over time
+// (e.g. "copilot-nes-oct", "copilot-suggestions-himalia-001").
+const FREE_MODEL_PREFIXES = ["copilot-nes", "copilot-suggestions"];
+
 export interface UnknownModelDiagnostics {
   fallbackModelCount: number;
   fallbackModels: string[];
@@ -104,6 +111,15 @@ export class PricingEngine {
   }
 
   /**
+   * Whether a model is included for free in all Copilot plans (inline completions / NES)
+   * and therefore never consumes AI Credits.
+   */
+  isFreeModel(modelFamily: string): boolean {
+    const normalized = this.normalizeModelName(modelFamily);
+    return FREE_MODEL_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+  }
+
+  /**
   * Calculate cost in USD for a given token usage.
   * Uses custom rates for unknown models, with a built-in GPT-5.4 tier as final fallback.
    */
@@ -114,6 +130,11 @@ export class PricingEngine {
     cachedTokens: number,
     cacheWriteTokens: number = 0
   ): number {
+    // Free models (inline completions, Next Edit Suggestions) never consume AI Credits.
+    if (this.isFreeModel(modelFamily)) {
+      return 0;
+    }
+
     let pricing = this.getModelPricing(modelFamily);
 
     if (!pricing) {
@@ -159,6 +180,25 @@ export class PricingEngine {
   }
 
   /**
+   * Estimate the input-token cost in USD for a UI prediction (e.g. context-cost
+   * preview). Uses the given model's input rate when it is known or has a custom
+   * rate; otherwise falls back to the built-in default tier rate. Unlike
+   * {@link calculateCost}, this never logs warnings or records unknown-model
+   * diagnostics, since it is a best-effort estimate rather than a billed turn.
+   */
+  estimateInputCost(modelFamily: string | null | undefined, inputTokens: number): number {
+    let pricing: ModelPricing | undefined;
+    if (modelFamily) {
+      if (this.isFreeModel(modelFamily)) {
+        return 0;
+      }
+      pricing = this.getModelPricing(modelFamily) ?? this.getCustomRate(modelFamily);
+    }
+    const rate = pricing ?? DEFAULT_FALLBACK_RATE;
+    return (inputTokens / 1_000_000) * rate.input;
+  }
+
+  /**
    * Look up a custom rate from the config's customModelRates map.
    * Matches case-insensitively using exact or substring keys, as documented in settings.
    */
@@ -178,7 +218,7 @@ export class PricingEngine {
       return {
         input: rate.input * 0.01,
         output: rate.output * 0.01,
-        cached: (rate.input * 0.01) / 2, // assume cached is half of input
+        cached: (rate.input * 0.01) / 10, // cached input is ~1/10 of the input rate
       };
     }
     return undefined;
@@ -276,4 +316,23 @@ export class PricingEngine {
     const readTokensCost = (cacheReadTokens / 1_000_000) * pricing.cached;
     return writeTokensCost + readTokensCost;
   }
+
+  /**
+   * Calculate the real savings from cache reads: the difference between paying the full
+   * input rate and the (cheaper) cached rate for cache-read tokens. Returns USD.
+   * Free models save nothing (they are not billed).
+   */
+  calculateCacheSavings(
+    modelFamily: string,
+    _cacheWriteTokens: number,
+    cacheReadTokens: number
+  ): number {
+    if (this.isFreeModel(modelFamily)) return 0;
+    const pricing = this.getModelPricing(modelFamily)
+      ?? this.getCustomRate(modelFamily)
+      ?? DEFAULT_FALLBACK_RATE;
+    const perTokenSavings = Math.max(0, pricing.input - pricing.cached);
+    return (cacheReadTokens / 1_000_000) * perTokenSavings;
+  }
 }
+
