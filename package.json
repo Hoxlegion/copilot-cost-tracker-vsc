@@ -2,7 +2,7 @@
   "name": "copilot-cost-tracker",
   "displayName": "Copilot Cost Tracker",
   "description": "Track and visualize your GitHub Copilot usage costs.",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "publisher": "Hoxlegion",
   "license": "MIT",
   "repository": {

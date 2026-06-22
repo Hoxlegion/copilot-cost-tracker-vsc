@@ -4,6 +4,12 @@ All notable changes to the **Copilot Cost Tracker** extension will be documented
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.5] - 2026-06-22
+
+### Security
+- Resolved CodeQL "file-system race condition" (TOCTOU) findings: the traces-DB and session-title caches now stat and read through a single file descriptor (`open` → `fstat` → `read`), and git-config discovery reads `.git` directly (handling the directory case via `EISDIR`) instead of checking then reading the same path
+- CI now runs `npm audit --audit-level=high` after install, failing the build on any high/critical dependency vulnerability
+
 ## [0.6.4] - 2026-06-22
 
 ### Fixed
