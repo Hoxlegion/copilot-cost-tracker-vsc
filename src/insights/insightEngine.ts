@@ -13,6 +13,7 @@ export interface PlaybookRow {
   strategy: string;
   statusEmoji: string;
   statusLabel: string;
+  level: "ok" | "warning" | "critical";
   metricDesc: string;
   impact: string;
 }
@@ -180,12 +181,12 @@ export function getAlerts(database: CostReader, thresholds?: AlertThresholds): D
 export function buildPlaybook(alerts: DashboardAlert[]): PlaybookRow[] {
   const alertIds = new Set(alerts.map(a => a.id));
 
-  function status(id: string, greenLabel: string, warnLabel: string): { emoji: string; label: string } {
-    if (!alertIds.has(id)) { return { emoji: "🟢", label: greenLabel }; }
+  function status(id: string, greenLabel: string, warnLabel: string): { emoji: string; label: string; level: "ok" | "warning" | "critical" } {
+    if (!alertIds.has(id)) { return { emoji: "🟢", label: greenLabel, level: "ok" }; }
     const sev = alerts.find(a => a.id === id)?.severity ?? "warning";
     return sev === "info"
-      ? { emoji: "🟡", label: warnLabel }
-      : { emoji: "🔴", label: warnLabel };
+      ? { emoji: "🟡", label: warnLabel, level: "warning" }
+      : { emoji: "🔴", label: warnLabel, level: "critical" };
   }
 
   const verbosityAlert = alerts.find(a => a.id === "high_verbosity");
@@ -209,6 +210,7 @@ export function buildPlaybook(alerts: DashboardAlert[]): PlaybookRow[] {
       strategy: "Output Brevity",
       statusEmoji: verbosityStatus.emoji,
       statusLabel: verbosityStatus.label,
+      level: verbosityStatus.level,
       metricDesc: verbosityAlert
         ? `Avg ${verbosityAlert.metric.value} output/turn`
         : "Avg output tokens within normal range",
@@ -218,6 +220,7 @@ export function buildPlaybook(alerts: DashboardAlert[]): PlaybookRow[] {
       strategy: "Context Hygiene",
       statusEmoji: bloatStatus.emoji,
       statusLabel: bloatStatus.label,
+      level: bloatStatus.level,
       metricDesc: bloatAlert
         ? `Session hit ${bloatAlert.metric.value}`
         : "Session sizes are healthy",
@@ -227,6 +230,7 @@ export function buildPlaybook(alerts: DashboardAlert[]): PlaybookRow[] {
       strategy: "Cache Efficiency",
       statusEmoji: decayStatus.emoji,
       statusLabel: decayStatus.label,
+      level: decayStatus.level,
       metricDesc: decayAlert
         ? `${decayAlert.metric.value} idle gap detected`
         : "No cache decay events today",
@@ -236,6 +240,7 @@ export function buildPlaybook(alerts: DashboardAlert[]): PlaybookRow[] {
       strategy: "Prompt Batching",
       statusEmoji: microTurnStatus.emoji,
       statusLabel: microTurnStatus.label,
+      level: microTurnStatus.level,
       metricDesc: microTurnAlert
         ? `${microTurnAlert.metric.value} in one session`
         : "No rapid-fire sequences detected",
@@ -245,6 +250,7 @@ export function buildPlaybook(alerts: DashboardAlert[]): PlaybookRow[] {
       strategy: "Context Referencing",
       statusEmoji: rawPasteStatus.emoji,
       statusLabel: rawPasteStatus.label,
+      level: rawPasteStatus.level,
       metricDesc: rawPasteAlert
         ? `${rawPasteAlert.metric.value} uncached input spike`
         : "No uncached paste spikes detected",
@@ -254,6 +260,7 @@ export function buildPlaybook(alerts: DashboardAlert[]): PlaybookRow[] {
       strategy: "Model Routing",
       statusEmoji: premiumStatus.emoji,
       statusLabel: premiumStatus.label,
+      level: premiumStatus.level,
       metricDesc: premiumAlert
         ? `${premiumAlert.metric.value} high-cost trivial turns`
         : "No premium model misallocation today",
@@ -263,6 +270,7 @@ export function buildPlaybook(alerts: DashboardAlert[]): PlaybookRow[] {
       strategy: "Agent Scoping",
       statusEmoji: massiveStatus.emoji,
       statusLabel: massiveStatus.label,
+      level: massiveStatus.level,
       metricDesc: massiveAlert
         ? `${massiveAlert.metric.value} in one turn`
         : "No massive context turns today",

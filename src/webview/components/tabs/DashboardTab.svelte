@@ -114,24 +114,11 @@
     }));
   })();
   
-  // ── Smart alerts (top 3 from insight engine) ──
+  // ── Smart alerts (budget pacing + shared insight engine, top 3) ──
   $: smartAlerts = (() => {
     const a: Array<{ level: 'good' | 'warn' | 'bad' | 'info'; text: string; tip: string }> = [];
-    
-    // Cache alert
-    const totalCached = sessions.reduce((sum, s) => sum + s.totalCachedTokens, 0);
-    const totalInput = sessions.reduce((sum, s) => sum + s.totalInputTokens, 0);
-    const billable = totalInput + totalCached;
-    const cacheHitPct = billable > 0 ? (totalCached / billable) * 100 : 0;
-    if (cacheHitPct < 40 && billable > 5000) {
-      a.push({ level: 'bad', text: `Low cache hit: ${cacheHitPct.toFixed(1)}%`, tip: 'Break long chats to improve reuse' });
-    } else if (cacheHitPct >= 70) {
-      a.push({ level: 'good', text: `Cache hit: ${cacheHitPct.toFixed(1)}%`, tip: 'Excellent cache reuse' });
-    } else {
-      a.push({ level: 'warn', text: `Cache hit: ${cacheHitPct.toFixed(1)}%`, tip: 'Reuse files across sessions' });
-    }
 
-    // Burn rate alert  
+    // Burn rate — budget pacing signal (not part of the insight engine)
     if (budgetCredits > 0 && burnRate > 0) {
       const dailyBudget = budgetCredits / totalDaysInPeriod;
       if (burnRate > dailyBudget * 1.2) {
@@ -144,16 +131,13 @@
     } else if (burnRate > 0) {
       a.push({ level: 'info', text: `Burn rate: ${formatCompactNumber(burnRate)} cr/day`, tip: 'Set a budget to track pacing' });
     }
-    
-    // I:O ratio
-    const totalOutput = sessions.reduce((sum, s) => sum + s.totalOutputTokens, 0);
-    const ioRatio = totalOutput > 0 ? billable / totalOutput : 0;
-    if (ioRatio > 8 && totalOutput > 1000) {
-      a.push({ level: 'warn', text: `I:O ratio: ${ioRatio.toFixed(1)}:1`, tip: 'Consider tighter prompts' });
-    } else if (totalOutput > 1000) {
-      a.push({ level: 'good', text: `I:O ratio: ${ioRatio.toFixed(1)}:1`, tip: 'Healthy ratio' });
+
+    // Behavioral alerts from the shared insight engine (last 24h)
+    for (const al of alerts) {
+      const level = al.severity === 'critical' ? 'bad' : al.severity === 'warning' ? 'warn' : 'info';
+      a.push({ level, text: `${al.title}: ${al.metric.value}`, tip: al.tip });
     }
-    
+
     return a.slice(0, 3);
   })();
 

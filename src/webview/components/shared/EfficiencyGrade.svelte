@@ -3,6 +3,7 @@
   import { filteredSessions } from '../../stores/filteredSessions';
   import { filterState } from '../../stores/filter';
   import { scoreColor } from '../../utils/palette';
+  import { computeEfficiency } from '../../utils/efficiency';
 
   $: data = $dashboardData;
   $: sessions = $filteredSessions;
@@ -23,25 +24,20 @@
   $: totalOutput = sessions.reduce((s, x) => s + x.totalOutputTokens, 0);
   $: billableInput = totalInput + totalCached;
   $: cacheHitPct = billableInput > 0 ? (totalCached / billableInput) * 100 : 0;
-  $: ioRatio = totalOutput > 0 ? billableInput / totalOutput : 0;
   $: avgContext = contextDistribution.length > 0
     ? contextDistribution.reduce((s, d) => s + d.currentContextWeight, 0) / contextDistribution.length
     : 0;
 
-  // ── Composite score (cache 40 / context 30 / I:O 30) ──
-  $: cacheScore = cacheHitPct >= 70 ? 40 : cacheHitPct >= 40 ? ((cacheHitPct - 40) / 30) * 40 : 0;
-  $: ctxScore = avgContext <= 5000 ? 30
-    : avgContext <= 20000 ? 30 * (1 - (avgContext - 5000) / 15000)
-    : avgContext <= 40000 ? 30 * 0.2 * (1 - (avgContext - 20000) / 20000)
-    : 0;
-  $: ioScore = ioRatio <= 5 ? 30 : ioRatio <= 10 ? 30 * (1 - (ioRatio - 5) / 5) : 0;
-  $: score = Math.round(cacheScore + ctxScore + ioScore);
-
-  $: grade = score >= 90 ? 'A'
-    : score >= 80 ? 'B'
-    : score >= 70 ? 'C'
-    : score >= 55 ? 'D'
-    : 'F';
+  // ── Composite score (shared with the Optimization Score bar) ──
+  $: eff = computeEfficiency({
+    cacheHitPct,
+    avgContextTokens: avgContext,
+    netInputTokens: totalInput,
+    outputTokens: totalOutput,
+  });
+  $: score = eff.score;
+  $: ioRatio = eff.ioRatio;
+  $: grade = eff.grade;
   $: color = scoreColor(score);
 
   $: caption = (() => {
@@ -57,9 +53,9 @@
   $: dash = (Math.max(0, Math.min(100, score)) / 100) * C;
 
   $: components = [
-    { label: 'Cache reuse', value: `${cacheHitPct.toFixed(0)}%`, pct: (cacheScore / 40) * 100 },
-    { label: 'Context size', value: avgContext > 0 ? `${(avgContext / 1000).toFixed(1)}K` : '—', pct: (ctxScore / 30) * 100 },
-    { label: 'Input:Output', value: ioRatio > 0 ? `${ioRatio.toFixed(1)}:1` : '—', pct: (ioScore / 30) * 100 },
+    { label: 'Cache reuse', value: `${cacheHitPct.toFixed(0)}%`, pct: (eff.cacheScore / eff.weights.cache) * 100 },
+    { label: 'Context size', value: avgContext > 0 ? `${(avgContext / 1000).toFixed(1)}K` : '—', pct: (eff.contextScore / eff.weights.context) * 100 },
+    { label: 'Input:Output', value: ioRatio > 0 ? `${ioRatio.toFixed(1)}:1` : '—', pct: (eff.ioScore / eff.weights.io) * 100 },
   ];
 </script>
 

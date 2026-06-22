@@ -10,6 +10,7 @@
   import ContextGrowthChart from '../charts/ContextGrowthChart.svelte';
   import { formatCompactNumber, formatTokens, formatSessionLabel } from '../../utils/format';
   import { friendlyAgentName } from '../../utils/agentLabels';
+  import { computeEfficiency } from '../../utils/efficiency';
   
   $: data = $dashboardData;
   $: sessions = $filteredSessions;
@@ -21,107 +22,25 @@
   $: totalInput = sessions.reduce((sum, s) => sum + s.totalInputTokens, 0);
   $: totalCached = sessions.reduce((sum, s) => sum + s.totalCachedTokens, 0);
   $: totalOutput = sessions.reduce((sum, s) => sum + s.totalOutputTokens, 0);
-  $: totalTurns = sessions.reduce((sum, s) => sum + s.turnCount, 0);
   $: billableInput = totalInput + totalCached;
   $: cacheHitPct = billableInput > 0 ? (totalCached / billableInput) * 100 : 0;
-  $: ioRatio = totalOutput > 0 ? Math.round(billableInput / totalOutput) : 0;
-  $: avgInputPerTurnK = totalTurns > 0 ? Math.round((billableInput / totalTurns) / 100) / 10 : 0;
   
-  // ── Optimization score ──
-  $: optimizationScore = (() => {
-    let score = 0;
-    // Cache (40 weight): 70%+ = full, <40% = 0
-    const cacheScore = cacheHitPct >= 70 ? 40 : cacheHitPct >= 40 ? (cacheHitPct - 40) / 30 * 40 : 0;
-    score += cacheScore;
-    // Context (30 weight): avg < 5K = full, >40K = 0
-    const avgCtx = contextDistribution.length > 0
-      ? contextDistribution.reduce((s, d) => s + d.currentContextWeight, 0) / contextDistribution.length
-      : 0;
-    const ctxScore = avgCtx <= 5000 ? 30 : avgCtx <= 20000 ? 30 * (1 - (avgCtx - 5000) / 15000) : avgCtx <= 40000 ? 30 * 0.2 * (1 - (avgCtx - 20000) / 20000) : 0;
-    score += ctxScore;
-    // I:O (30 weight): <5 = full, >10 = 0  
-    const ioScore = ioRatio <= 5 ? 30 : ioRatio <= 10 ? 30 * (1 - (ioRatio - 5) / 5) : 0;
-    score += ioScore;
-    return Math.round(score);
-  })();
+  // ── Optimization score (shared with the Efficiency Grade card) ──
+  $: eff = computeEfficiency({
+    cacheHitPct,
+    avgContextTokens: avgContext,
+    netInputTokens: totalInput,
+    outputTokens: totalOutput,
+  });
+  $: optimizationScore = eff.score;
+  $: ioRatio = eff.ioRatio;
   
   $: scoreColor = optimizationScore >= 70 ? '#81c784' : optimizationScore >= 40 ? '#ffb74d' : '#e57373';
   $: cacheHitColor = cacheHitPct >= 70 ? '#81c784' : cacheHitPct >= 40 ? '#ffb74d' : '#e57373';
   
-  // ── Alerts ──
-  $: filteredAlerts = (() => {
-    const alerts: Array<{id: string; severity: 'info' | 'warning' | 'critical'; title: string; message: string; tip: string; metric: {label: string; value: string}}> = [];
-    const avgOutputPerTurn = totalTurns > 0 ? totalOutput / totalTurns : 0;
-    const maxSessionInput = sessions.reduce((max, s) => Math.max(max, s.totalInputTokens + s.totalCachedTokens), 0);
-    
-    if (avgOutputPerTurn > 600 && totalTurns >= 5) {
-      alerts.push({
-        id: 'high_verbosity', severity: 'warning',
-        title: 'High Output Verbosity',
-        message: `Averaging ${Math.round(avgOutputPerTurn).toLocaleString()} output tokens per turn.`,
-        tip: 'Try "Skip explanations, code only" to cut output tokens by up to 65%.',
-        metric: { label: 'Avg output / turn', value: `${Math.round(avgOutputPerTurn).toLocaleString()} tokens` },
-      });
-    }
-    if (maxSessionInput > 40000) {
-      const label = maxSessionInput >= 1000000 ? `${(maxSessionInput / 1000000).toFixed(1)}M tokens` : `${(maxSessionInput / 1000).toFixed(1)}K tokens`;
-      alerts.push({
-        id: 'context_bloat', severity: 'warning',
-        title: 'Stale Context',
-        message: `A session has accumulated ${label} of input.`,
-        tip: 'Run /compact or start a fresh chat.',
-        metric: { label: 'Peak session input', value: label },
-      });
-    }
-    if (cacheHitPct < 40 && billableInput > 5000) {
-      alerts.push({
-        id: 'cache_decay', severity: 'info',
-        title: 'Low Cache Hit',
-        message: `Cache hit rate is ${cacheHitPct.toFixed(1)}%.`,
-        tip: 'Keep related tasks in one session to improve reuse.',
-        metric: { label: 'Cache hit rate', value: `${cacheHitPct.toFixed(1)}%` },
-      });
-    }
-    if (maxSessionInput > 80000) {
-      const label = maxSessionInput >= 1000000 ? `${(maxSessionInput / 1000000).toFixed(1)}M` : `${(maxSessionInput / 1000).toFixed(1)}K`;
-      alerts.push({
-        id: 'massive_context', severity: 'critical',
-        title: 'Massive Context',
-        message: `A session has ${label} tokens of total input.`,
-        tip: "Constrain your agent's scope with explicit boundaries.",
-        metric: { label: 'Peak total input', value: `${label} tokens` },
-      });
-    }
-    return alerts;
-  })();
-  
-  // ── Playbook ──
-  $: filteredPlaybook = (() => {
-    const avgOutputPerTurn = totalTurns > 0 ? totalOutput / totalTurns : 0;
-    const maxSessionInput = sessions.reduce((max, s) => Math.max(max, s.totalInputTokens + s.totalCachedTokens), 0);
-    
-    const isVerbose = avgOutputPerTurn > 600 && totalTurns >= 5;
-    const isBloated = maxSessionInput > 40000;
-    const isLeaking = cacheHitPct < 40 && billableInput > 5000;
-    const isPingPong = avgInputPerTurnK > 20 && totalTurns >= 5;
-    const isSprawling = maxSessionInput > 80000;
-    
-    function row(strategy: string, isAlert: boolean, green: string, warn: string, metric: string, impact: string) {
-      return { strategy, statusEmoji: isAlert ? '🔴' : '🟢', statusLabel: isAlert ? warn : green, metricDesc: metric, impact };
-    }
-    return [
-      row('Output Brevity', isVerbose, 'Concise', 'Verbose',
-        isVerbose ? `Avg ${Math.round(avgOutputPerTurn).toLocaleString()} output tokens/turn` : 'Normal range', 'Up to 65% reduction'),
-      row('Context Hygiene', isBloated, 'Clean', 'Bloated',
-        isBloated ? `Session hit ${(maxSessionInput / 1000).toFixed(1)}K tokens` : 'Healthy', 'Prevents exponential scaling'),
-      row('Cache Efficiency', isLeaking, 'Optimal', 'Leaking',
-        `Cache hit rate ${cacheHitPct.toFixed(1)}%`, '10x cheaper reads'),
-      row('Prompt Batching', isPingPong, 'Good', 'High input/turn',
-        isPingPong ? `${avgInputPerTurnK.toFixed(1)}K avg input/turn` : 'Normal', 'Reduces resend overhead'),
-      row('Agent Scoping', isSprawling, 'Scoped', 'Sprawling',
-        isSprawling ? `${(maxSessionInput / 1000).toFixed(1)}K peak input` : 'No massive sessions', 'Eliminates wasted scans'),
-    ];
-  })();
+  // ── Alerts & Playbook (from the shared insight engine — last 24h) ──
+  $: filteredAlerts = data?.alerts ?? [];
+  $: filteredPlaybook = data?.playbook ?? [];
   
   // ── Agent breakdown for surface chart ──
   $: filteredAgentBreakdown = (() => {
@@ -257,7 +176,7 @@
     <div class="score-indicators">
       <span>Cache: <span style="color: {cacheHitColor}">{cacheHitPct.toFixed(0)}%</span></span>
       <span>Context: <span style="color: {avgContextColor}">{tierLabel(avgContext)}</span></span>
-      <span>I:O: <span style="color: {ioRatio <= 8 ? '#81c784' : '#ffb74d'}">{ioRatio}:1</span></span>
+      <span>I:O: <span style="color: {ioRatio <= 8 ? '#81c784' : '#ffb74d'}">{ioRatio.toFixed(1)}:1</span></span>
     </div>
   </div>
   
@@ -294,7 +213,7 @@
           {#each filteredPlaybook as row}
             <tr>
               <td><strong>{row.strategy}</strong></td>
-              <td>{row.statusEmoji} {row.statusLabel}</td>
+              <td><span class="status-dot status-{row.level}"></span> {row.statusLabel}</td>
               <td class="muted">{row.metricDesc}</td>
               <td class="muted">{row.impact}</td>
             </tr>
@@ -529,6 +448,17 @@
   .playbook-table th, .playbook-table td { padding: 8px; text-align: left; border-bottom: 1px solid var(--vscode-panel-border); }
   .playbook-table th { font-weight: 600; color: var(--vscode-descriptionForeground); }
   .playbook-table .muted { color: var(--vscode-descriptionForeground); }
+  .status-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  .status-dot.status-ok { background: #81c784; }
+  .status-dot.status-warning { background: #ffb74d; }
+  .status-dot.status-critical { background: #e57373; }
   
   /* ── Analysis grid ── */
   .analysis-grid {

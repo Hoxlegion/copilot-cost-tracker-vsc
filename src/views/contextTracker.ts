@@ -128,20 +128,21 @@ export class ContextTracker implements vscode.Disposable {
       if (info.currentContextWeight >= threshold && !this.firedThresholds.has(threshold)) {
         this.firedThresholds.add(threshold);
         const pages = tokensToPages(info.currentContextWeight);
+        const kTokens = (info.currentContextWeight / 1000).toFixed(0);
 
         let message: string;
-        if (threshold === 50_000) {
-          message = `Copilot Cost Tracker: Your active chat session is carrying ${pages} of context (~${(info.currentContextWeight / 1000).toFixed(0)}K tokens). Each new message resends all of it. Consider starting a fresh chat.`;
-        } else if (threshold === 100_000) {
-          message = `Copilot Cost Tracker: Your chat session context has reached ${pages} (~${(info.currentContextWeight / 1000).toFixed(0)}K tokens). Response quality may degrade and costs increase. Start a new chat for best results.`;
+        if (threshold >= 80_000) {
+          message = `Copilot Cost Tracker: Your chat session context is extremely heavy — ${pages} (~${kTokens}K tokens). Response quality may degrade and every new message re-sends all of it. Start a fresh chat to improve speed and cut costs.`;
+        } else if (threshold >= 40_000) {
+          message = `Copilot Cost Tracker: Your chat session context has reached ${pages} (~${kTokens}K tokens). Each new message re-sends all of it, so costs climb quickly. Consider starting a fresh chat or running /compact.`;
         } else {
-          message = `Copilot Cost Tracker: Your chat session context is ${pages} (~${(info.currentContextWeight / 1000).toFixed(0)}K tokens). This is extremely heavy. Starting a fresh chat will significantly improve speed and reduce costs.`;
+          message = `Copilot Cost Tracker: Your active chat session is carrying ${pages} of context (~${kTokens}K tokens). Each new message re-sends all of it. Consider starting a fresh chat for unrelated work.`;
         }
 
-        if (threshold >= 200_000) {
-          vscode.window.showErrorMessage(message);
-        } else {
+        if (threshold >= 80_000) {
           vscode.window.showWarningMessage(message);
+        } else {
+          vscode.window.showInformationMessage(message);
         }
         this.logger.warn(message);
       }

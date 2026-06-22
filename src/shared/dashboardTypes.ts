@@ -45,6 +45,7 @@ export interface PlaybookRow {
   strategy: string;
   statusEmoji: string;
   statusLabel: string;
+  level: "ok" | "warning" | "critical";
   metricDesc: string;
   impact: string;
 }

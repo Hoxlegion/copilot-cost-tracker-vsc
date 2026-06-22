@@ -4,6 +4,16 @@ All notable changes to the **Copilot Cost Tracker** extension will be documented
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.4] - 2026-06-22
+
+### Fixed
+- Context-size **pop-up notifications** now match their thresholds: the 20K warning no longer mislabels a moderate session as "extremely heavy", and the 40K/80K messages are scaled to their actual severity (previously every threshold fell through to the same alarming text)
+
+### Changed
+- **Efficiency alerts & playbook** are now driven by the single shared insight engine, so the Dashboard and Efficiency tabs surface the full set of signals — including micro-turn bloat, large uncached pastes, and premium-model misallocation — that were previously computed but never displayed
+- **Playbook** status now uses semantic colored indicators instead of emoji, consistent with the rest of the UI
+- **Efficiency Grade & Optimization Score** were recalibrated for realistic agentic usage: Input:Output now uses *net (non-cached)* input so cached context no longer unfairly tanks the score, the cache band only rewards the upper range where it actually varies, and the A–F bands span achievable values (a clean session can now reach an A instead of capping at C). Both readouts share one scoring function so they always agree.
+
 ## [0.6.3] - 2026-06-22
 
 ### Fixed
