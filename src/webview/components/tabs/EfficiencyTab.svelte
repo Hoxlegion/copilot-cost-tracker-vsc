@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { dashboardData } from '../../stores/dashboard';
+  import { dashboardData, formatUsd } from '../../stores/dashboard';
   import { filteredSessions } from '../../stores/filteredSessions';
   import { filterState } from '../../stores/filter';
   import StatCard from '../shared/StatCard.svelte';
@@ -163,18 +163,18 @@
     { key: 'turns', label: 'Turns', type: 'number' as const },
   ];
   $: surfaceRows = surfaceCostView.map(s => ({
-    surface: s.surface, pct: s.pct.toFixed(1), cost: `$${s.cost.toFixed(2)}`, credits: s.credits.toFixed(1), turns: s.turns,
+    surface: s.surface, pct: s.pct.toFixed(1), cost: $formatUsd(s.cost), credits: s.credits.toFixed(1), turns: s.turns,
   }));
   
   // ── Cache savings ──
   $: cacheSavingsValue = (() => {
-    const totalCachedTokens = sessions.reduce((sum, s) => sum + s.totalCachedTokens, 0);
-    const totalInputTokens = sessions.reduce((sum, s) => sum + s.totalInputTokens, 0);
-    const bi = totalInputTokens + totalCachedTokens;
-    if (bi === 0) return 0;
-    const rangeCost = sessions.reduce((sum, s) => sum + s.totalCostUsd, 0);
-    const avgInputCostPerToken = rangeCost / Math.max(1, bi);
-    return totalCachedTokens * avgInputCostPerToken * 0.9;
+    // Real per-cached-token savings (input rate − cached rate) from actual billing,
+    // applied to the cached tokens in the current range.
+    const cs = data?.cacheSavings;
+    if (!cs || cs.totalCacheReadTokens <= 0 || cs.totalSavingsCostUsd <= 0) return 0;
+    const savingsPerCachedToken = cs.totalSavingsCostUsd / cs.totalCacheReadTokens;
+    const rangeCachedTokens = sessions.reduce((sum, s) => sum + s.totalCachedTokens, 0);
+    return rangeCachedTokens * savingsPerCachedToken;
   })();
   $: cacheSavingsPct = (() => {
     const rangeCost = sessions.reduce((sum, s) => sum + s.totalCostUsd, 0);
@@ -224,7 +224,7 @@
     turns: d.turnCount,
     context: formatTokens(d.currentContextWeight),
     health: tierLabel(d.currentContextWeight),
-    cost: `$${d.totalCost.toFixed(3)}`,
+    cost: $formatUsd(d.totalCost),
   }));
   
   // ── Estimates (absorbed) ──
@@ -232,7 +232,7 @@
   $: monthCostUsd = data?.monthTotal.costUsd ?? 0;
   $: costPerOutputK = (() => {
     if (!insightMetrics || insightMetrics.totalOutputTokens < 1000) return '—';
-    return (monthCostUsd / (insightMetrics.totalOutputTokens / 1000)).toFixed(3);
+    return $formatUsd(monthCostUsd / (insightMetrics.totalOutputTokens / 1000));
   })();
   $: inputOverheadPct = (() => {
     if (!insightMetrics) return '0';
@@ -319,7 +319,7 @@
         </StatCard>
         <StatCard
           label="Cache Savings"
-          value={cacheSavingsValue > 0 ? `$${cacheSavingsValue.toFixed(2)}` : '—'}
+          value={cacheSavingsValue > 0 ? $formatUsd(cacheSavingsValue) : '—'}
           sub={cacheSavingsValue > 0 ? `${cacheSavingsPct.toFixed(1)}% of spend` : ''}
           valueColor="#81c784"
         />
@@ -385,7 +385,7 @@
       <div class="est-stats">
         <div class="est-stat">
           <span class="est-label">Cost per Output-K</span>
-          <span class="est-value">${costPerOutputK}</span>
+          <span class="est-value">{costPerOutputK}</span>
         </div>
         <div class="est-stat">
           <span class="est-label">Input Overhead</span>

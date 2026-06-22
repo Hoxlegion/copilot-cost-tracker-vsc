@@ -60,7 +60,10 @@ function updateAccumulator(acc: Accumulator, row: unknown[]): void {
 
   acc.firstTimeMs = Math.min(acc.firstTimeMs, startTimeMs || acc.firstTimeMs);
   acc.lastTimeMs = Math.max(acc.lastTimeMs, endTimeMs || startTimeMs || acc.lastTimeMs);
-  acc.inputTokens += inputTokens;
+  // `input_tokens` from telemetry includes `cached_tokens` (cache reads are a subset of
+  // the prompt). Store only the non-cached portion so `inputTokens + cachedTokens` equals
+  // the full prompt and cache-hit math stays correct.
+  acc.inputTokens += Math.max(0, inputTokens - cachedTokens);
   acc.outputTokens += outputTokens;
   acc.cachedTokens += cachedTokens;
 

@@ -55,6 +55,15 @@ export interface CostMaintenance {
   initialize(): Promise<void>;
   save(): Promise<void>;
   pruneOldTurns(retentionDays: number): number;
+  recomputeCacheTokenSemantics(
+    recost: (turn: {
+      modelFamily: string;
+      inputTokens: number;
+      outputTokens: number;
+      cachedTokens: number;
+      cacheWriteTokens: number;
+    }) => { costUsd: number; credits: number }
+  ): boolean;
   close(): void;
   readonly didRecoverFromCorruption: boolean;
 }

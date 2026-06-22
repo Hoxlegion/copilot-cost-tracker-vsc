@@ -167,7 +167,7 @@ export class LogParser {
       (attrs.surface as string) ??
       "unknown";
 
-    const inputTokens =
+    const rawInputTokens =
       (attrs.inputTokens as number) ??
       (attrs.input_tokens as number) ??
       (attrs.promptTokens as number) ??
@@ -190,6 +190,11 @@ export class LogParser {
       (attrs.cache_write_tokens as number) ??
       (attrs.cacheCreationInputTokens as number) ??
       0;
+
+    // Telemetry `input_tokens` includes `cached_tokens` (cache reads are a subset of
+    // the prompt). Store only the non-cached portion so that `inputTokens + cachedTokens`
+    // equals the full prompt and cost is not charged twice for cached tokens.
+    const inputTokens = Math.max(0, rawInputTokens - cachedTokens);
 
     const totalTokens =
       (attrs.totalTokens as number) ??

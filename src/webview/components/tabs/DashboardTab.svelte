@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { dashboardData } from '../../stores/dashboard';
+  import { dashboardData, formatUsd } from '../../stores/dashboard';
   import { filteredSessions } from '../../stores/filteredSessions';
   import StatCard from '../shared/StatCard.svelte';
   import BudgetBar from '../shared/BudgetBar.svelte';
@@ -58,12 +58,13 @@
 
   // Secondary stats
   $: cacheSavingsValue = (() => {
-    const totalCachedTokens = sessions.reduce((sum, s) => sum + s.totalCachedTokens, 0);
-    const totalInputTokens = sessions.reduce((sum, s) => sum + s.totalInputTokens, 0);
-    const billableInput = totalInputTokens + totalCachedTokens;
-    if (billableInput === 0) return 0;
-    const avgInputCostPerToken = rangeCost / Math.max(1, billableInput);
-    return totalCachedTokens * avgInputCostPerToken * 0.9;
+    // Use the real per-cached-token savings (input rate − cached rate) measured from
+    // actual billing, applied to the cached tokens in the current range.
+    const cs = data?.cacheSavings;
+    if (!cs || cs.totalCacheReadTokens <= 0 || cs.totalSavingsCostUsd <= 0) return 0;
+    const savingsPerCachedToken = cs.totalSavingsCostUsd / cs.totalCacheReadTokens;
+    const rangeCachedTokens = sessions.reduce((sum, s) => sum + s.totalCachedTokens, 0);
+    return rangeCachedTokens * savingsPerCachedToken;
   })();
   $: cacheSavingsPct = (() => {
     if (rangeCost === 0) return 0;
@@ -160,7 +161,7 @@
   <div class="hero-row">
     <div class="hero-card today">
       <div class="hero-label">Today</div>
-      <div class="hero-value">${todayCost.toFixed(2)}</div>
+      <div class="hero-value">{$formatUsd(todayCost)}</div>
       <div class="hero-sub">{formatCompactNumber(todayCredits)} cr · {todayTurns} turns</div>
       {#if todayCompareLabel}
         <div class="hero-compare" class:up={todayVsYesterday >= 0} class:down={todayVsYesterday < 0}>{todayCompareLabel}</div>
@@ -168,7 +169,7 @@
     </div>
     <div class="hero-card period">
       <div class="hero-label">This Period</div>
-      <div class="hero-value">${periodCost.toFixed(2)}</div>
+      <div class="hero-value">{$formatUsd(periodCost)}</div>
       <div class="hero-sub">{formatCompactNumber(periodCredits)} cr · {periodTurns} turns</div>
       <div class="hero-compare">{daysRemaining} days remaining</div>
     </div>
@@ -183,7 +184,7 @@
     />
     <StatCard 
       label="Cache Savings"
-      value={cacheSavingsValue > 0 ? `$${cacheSavingsValue.toFixed(2)}` : '—'}
+      value={cacheSavingsValue > 0 ? $formatUsd(cacheSavingsValue) : '—'}
       sub={cacheSavingsValue > 0 ? `${cacheSavingsPct.toFixed(1)}% of spend` : 'No cache data'}
       valueColor={cacheSavingsValue > 0 ? '#81c784' : ''}
     />
@@ -201,7 +202,7 @@
       <StatCard 
         label="Top Model"
         value={modelDrivers[0].model}
-        sub="${modelDrivers[0].costUsd.toFixed(2)} · {modelDrivers[0].pct.toFixed(0)}%"
+        sub="{$formatUsd(modelDrivers[0].costUsd)} · {modelDrivers[0].pct.toFixed(0)}%"
       />
     {/if}
   </div>
@@ -228,7 +229,7 @@
                 <div class="driver-bar" style="width: {m.pct}%; background: #4fc3f7;"></div>
               </div>
               <span class="driver-name" title={m.model}>{m.model}</span>
-              <span class="driver-value">${m.costUsd.toFixed(2)}</span>
+              <span class="driver-value">{$formatUsd(m.costUsd)}</span>
               <span class="driver-pct">{m.pct.toFixed(0)}%</span>
             </div>
           {/each}
@@ -244,7 +245,7 @@
                 <div class="driver-bar" style="width: {w.pct}%; background: #ba68c8;"></div>
               </div>
               <span class="driver-name" title={w.name}>{w.name}</span>
-              <span class="driver-value">${w.costUsd.toFixed(2)}</span>
+              <span class="driver-value">{$formatUsd(w.costUsd)}</span>
               <span class="driver-pct">{w.pct.toFixed(0)}%</span>
             </div>
           {/each}

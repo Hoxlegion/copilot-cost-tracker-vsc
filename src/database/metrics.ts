@@ -30,7 +30,9 @@ function applyAlertMetricRow(
     acc.massiveContextMaxInput = totalInput;
   }
 
-  const netInput = Math.max(0, inputTokens - cachedTokens);
+  // `inputTokens` is stored as the non-cached (net new) portion of the prompt, so it is
+  // already the uncached input used for raw-paste detection.
+  const netInput = Math.max(0, inputTokens);
   if (netInput >= cfg.rawPasteMinInputTokens && netInput > acc.rawPasteMaxNetInput) {
     acc.rawPasteMaxNetInput = netInput;
   }

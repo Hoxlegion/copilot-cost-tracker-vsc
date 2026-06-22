@@ -121,8 +121,10 @@ export class DashboardPanel {
       const config = vscode.workspace.getConfiguration('copilotCostTracker');
       const billingCycleStartDay = config.get<number>('billingCycleStartDay', 1);
       const budgetCredits = config.get<number>('budgetCredits', 180);
+      const currency = config.get<string>('currency', 'USD');
+      const exchangeRate = config.get<number>('exchangeRate', 1);
 
-      const rawData = await this.assembler.assemble(billingCycleStartDay, budgetCredits);
+      const rawData = await this.assembler.assemble(billingCycleStartDay, budgetCredits, currency, exchangeRate);
       
       this.panel.webview.postMessage({
         type: 'dashboardData',

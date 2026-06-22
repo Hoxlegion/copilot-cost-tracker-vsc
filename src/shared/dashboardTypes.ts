@@ -150,6 +150,8 @@ export interface DashboardRawData {
   lastUpdatedMs: number;
   contextDistribution: ContextDistributionItem[];
   contextTimelines: ContextTimelineData[];
+  currency: string;
+  exchangeRate: number;
 }
 
 export interface DashboardMessage {

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { dashboardData } from '../../stores/dashboard';
+  import { dashboardData, formatUsd } from '../../stores/dashboard';
   import { filteredSessions } from '../../stores/filteredSessions';
   import BudgetBar from '../shared/BudgetBar.svelte';
   import DailyChart from '../charts/DailyChart.svelte';
@@ -53,7 +53,7 @@
       <div class="period-summary">
         <div class="ps-item">
           <span class="ps-label">Period Spend</span>
-          <span class="ps-value">${periodCost.toFixed(2)}</span>
+          <span class="ps-value">{$formatUsd(periodCost)}</span>
         </div>
         <div class="ps-item">
           <span class="ps-label">Credits Used</span>
@@ -90,7 +90,7 @@
         <div class="gauge-details">
           <div class="gd-row">
             <span class="gd-label">Used</span>
-            <span class="gd-value">{formatCompactNumber(periodCredits)} cr · ${periodCost.toFixed(2)}</span>
+            <span class="gd-value">{formatCompactNumber(periodCredits)} cr · {$formatUsd(periodCost)}</span>
           </div>
           <div class="gd-row">
             <span class="gd-label">{remainingCredits >= 0 ? 'Remaining' : 'Over budget'}</span>

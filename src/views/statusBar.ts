@@ -24,7 +24,7 @@ export class StatusBarIndicator implements vscode.Disposable {
   private lastBillingPeriodStartMs: number = 0;
 
   // Change detection: skip redundant tooltip rebuilds on timer ticks
-  private lastStatusText: string = "";
+  private lastStatusKey: string = "";
 
   constructor(
     database: CostReader,
@@ -58,13 +58,19 @@ export class StatusBarIndicator implements vscode.Disposable {
   private async showQuickPick(): Promise<void> {
     const cfg = this.configManager.config;
     const periodStartMs = getBillingPeriodStartMs(cfg.billingCycleStartDay);
-    const periodCredits = this.database.getCreditsSince(periodStartMs);
+    // Use the same source as update() to avoid drift between the status bar text and this menu.
+    const periodCredits = this.database.getCostSince(periodStartMs).credits;
     const budget = cfg.budgetCredits;
     const pct = budget > 0 ? ((periodCredits / budget) * 100).toFixed(1) : "0";
 
     const models = this.database.getModelBreakdown(30);
 
-    const items: vscode.QuickPickItem[] = [
+    type QuickPickAction = "dashboard" | "refresh" | "settings" | "treeview";
+    interface ActionQuickPickItem extends vscode.QuickPickItem {
+      action?: QuickPickAction;
+    }
+
+    const items: ActionQuickPickItem[] = [
       {
         label: `$(graph) ${periodCredits.toFixed(1)}/${budget} credits (${pct}%)`,
         description: "This billing period",
@@ -87,17 +93,17 @@ export class StatusBarIndicator implements vscode.Disposable {
     for (const m of models.slice(0, 5)) {
       items.push({
         label: `$(hubot) ${m.model}`,
-        description: `${m.totalCredits.toFixed(1)} cr · $${m.totalCostUsd.toFixed(3)}`,
+        description: `${m.totalCredits.toFixed(1)} cr · $${m.totalCostUsd.toFixed(2)}`,
         detail: `  ${m.turnCount} turns · ${m.percentage.toFixed(0)}% of total`,
       });
     }
 
     items.push(
       { label: "", kind: vscode.QuickPickItemKind.Separator },
-      { label: "$(dashboard) Open Dashboard", description: "Full cost breakdown" },
-      { label: "$(refresh) Refresh Data", description: "Scan for new turns" },
-      { label: "$(gear) Settings", description: "Configure tracker" },
-      { label: "$(list-tree) Show TreeView", description: "Focus sidebar panel" }
+      { label: "$(dashboard) Open Dashboard", description: "Full cost breakdown", action: "dashboard" },
+      { label: "$(refresh) Refresh Data", description: "Scan for new turns", action: "refresh" },
+      { label: "$(gear) Settings", description: "Configure tracker", action: "settings" },
+      { label: "$(list-tree) Show TreeView", description: "Focus sidebar panel", action: "treeview" }
     );
 
     const picked = await vscode.window.showQuickPick(items, {
@@ -106,16 +112,21 @@ export class StatusBarIndicator implements vscode.Disposable {
       matchOnDetail: true,
     });
 
-    if (!picked) {return;}
+    if (!picked?.action) {return;}
 
-    if (picked.label.includes("Open Dashboard")) {
-      vscode.commands.executeCommand("copilotCostTracker.openDashboard");
-    } else if (picked.label.includes("Refresh Data")) {
-      vscode.commands.executeCommand("copilotCostTracker.refresh");
-    } else if (picked.label.includes("Settings")) {
-      vscode.commands.executeCommand("workbench.action.openSettings", "copilotCostTracker");
-    } else if (picked.label.includes("Show TreeView")) {
-      vscode.commands.executeCommand("copilotCostTracker.overview.focus");
+    switch (picked.action) {
+      case "dashboard":
+        vscode.commands.executeCommand("copilotCostTracker.openDashboard");
+        break;
+      case "refresh":
+        vscode.commands.executeCommand("copilotCostTracker.refresh");
+        break;
+      case "settings":
+        vscode.commands.executeCommand("workbench.action.openSettings", "copilotCostTracker");
+        break;
+      case "treeview":
+        vscode.commands.executeCommand("copilotCostTracker.overview.focus");
+        break;
     }
   }
 
@@ -145,11 +156,30 @@ export class StatusBarIndicator implements vscode.Disposable {
       : "";
     const text = `$(credit-card) +$${sessionUsd.toFixed(2)} | $${periodUsd.toFixed(2)}${ctxSegment}`;
 
-    // Skip expensive tooltip rebuild if nothing changed since last update
-    if (text === this.lastStatusText) {
+    // Feature E: Context cost predictor (computed once and reused for the tooltip)
+    const contextEstimate = this.estimateContextCost();
+
+    // Build a change-detection key covering every value rendered in the text AND
+    // the tooltip, so the tooltip is never left stale when the visible text is
+    // unchanged but the pacing, budget %, or context estimate has changed.
+    const budget = cfg.budgetCredits;
+    const pct = budget > 0 ? ((periodCredits / budget) * 100).toFixed(1) : "—";
+    const statusKey = [
+      text,
+      pace.level,
+      pace.expectedCreditsNow.toFixed(1),
+      sessionTotals.credits.toFixed(2),
+      periodCredits.toFixed(2),
+      pct,
+      contextEstimate ? `${contextEstimate.tokens}:${contextEstimate.costUsd.toFixed(4)}` : "",
+      ctxWeight ? `${ctxWeight.tokens}:${ctxWeight.turnCount}:${ctxWeight.tier}` : "",
+    ].join("|");
+
+    // Skip expensive tooltip rebuild if nothing relevant changed since last update
+    if (statusKey === this.lastStatusKey) {
       return;
     }
-    this.lastStatusText = text;
+    this.lastStatusKey = statusKey;
     this.statusBarItem.text = text;
 
     // Color coding based on budget thresholds (D8)
@@ -158,20 +188,47 @@ export class StatusBarIndicator implements vscode.Disposable {
     // Check and fire threshold notifications (D8)
     this.checkThresholds(periodCredits, periodStartMs, cfg);
 
-    // Tooltip
-    const budget = cfg.budgetCredits;
-    const pct = budget > 0 ? ((periodCredits / budget) * 100).toFixed(1) : "—";
+    this.statusBarItem.tooltip = this.buildTooltip({
+      sessionUsd,
+      sessionCredits: sessionTotals.credits,
+      periodUsd,
+      periodCredits,
+      budget,
+      pct,
+      pace,
+      contextEstimate,
+      ctxWeight,
+    });
+  }
+
+  /**
+   * Build the rich Markdown tooltip from already-computed status values.
+   * Extracted from {@link update} to keep that method's complexity manageable.
+   */
+  private buildTooltip(params: {
+    sessionUsd: number;
+    sessionCredits: number;
+    periodUsd: number;
+    periodCredits: number;
+    budget: number;
+    pct: string;
+    pace: BudgetPaceAssessment;
+    contextEstimate: { tokens: number; costUsd: number } | null;
+    ctxWeight: ReturnType<ContextTracker["getContextWeight"]>;
+  }): vscode.MarkdownString {
+    const { sessionUsd, sessionCredits, periodUsd, periodCredits, budget, pct, pace, contextEstimate, ctxWeight } = params;
+
     const tooltip = new vscode.MarkdownString("", false);
     tooltip.isTrusted = false;
     tooltip.appendMarkdown(`**Copilot Cost Tracker**\n\n`);
-    tooltip.appendMarkdown(`Session: **+$${sessionUsd.toFixed(2)}** (${sessionTotals.credits.toFixed(2)} credits)\n\n`);
+    tooltip.appendMarkdown(`Session: **+$${sessionUsd.toFixed(2)}** (${sessionCredits.toFixed(2)} credits)\n\n`);
     tooltip.appendMarkdown(`Period: **$${periodUsd.toFixed(2)}** · ${periodCredits.toFixed(2)} / ${budget} credits (${pct}%)\n\n`);
     tooltip.appendMarkdown(`Pacing: **${this.getPaceDisplayLabel(pace)}** · expected by now ${pace.expectedCreditsNow.toFixed(1)} credits\n\n`);
 
     // Feature E: Context cost predictor
-    const contextEstimate = this.estimateContextCost();
     if (contextEstimate !== null) {
-      tooltip.appendMarkdown(`Context: ~${contextEstimate.tokens.toLocaleString()} tokens → est. **$${contextEstimate.costUsd.toFixed(4)}** per call\n\n`);
+      const contextCredits = this.pricing.costToCredits(contextEstimate.costUsd);
+      tooltip.appendMarkdown(`Context: ~${contextEstimate.tokens.toLocaleString()} tokens → est. **${contextCredits.toFixed(1)} credits** per call\n\n`);
     }
 
     if (ctxWeight && ctxWeight.tokens > 0) {
@@ -192,7 +249,7 @@ export class StatusBarIndicator implements vscode.Disposable {
     }
 
     tooltip.appendMarkdown(`*Click for options*`);
-    this.statusBarItem.tooltip = tooltip;
+    return tooltip;
   }
 
   /**
@@ -219,11 +276,10 @@ export class StatusBarIndicator implements vscode.Disposable {
       // 4 characters ≈ 1 token (consistent with estimates tab)
       const tokens = Math.round(totalChars / 4);
 
-      // Get recent model from DB for cost calculation
+      // Estimate using the most recently observed model, falling back to the
+      // pricing engine's built-in default tier when no model is known yet.
       const recentModel = this.database.getMostRecentModel();
-      const costUsd = recentModel
-        ? this.pricing.calculateCost(recentModel, tokens, 0, 0)
-        : this.pricing.calculateCost("gpt-5.4", tokens, 0, 0);
+      const costUsd = this.pricing.estimateInputCost(recentModel, tokens);
 
       return { tokens, costUsd };
     } catch {

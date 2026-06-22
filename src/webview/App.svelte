@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { dashboardData } from './stores/dashboard';
+  import { dashboardData, formatUsd } from './stores/dashboard';
   import GlobalFilter from './components/shared/GlobalFilter.svelte';
   import DashboardTab from './components/tabs/DashboardTab.svelte';
   import ActivityTab from './components/tabs/ActivityTab.svelte';
@@ -32,8 +32,8 @@
     <h1>Copilot Cost Tracker</h1>
     <div class="stats">
       {#if data}
-        <span class="stat-chip today">${todayCost.toFixed(2)} <span class="stat-dim">today</span></span>
-        <span class="stat-chip period">${periodCost.toFixed(2)} <span class="stat-dim">period</span></span>
+        <span class="stat-chip today">{$formatUsd(todayCost)} <span class="stat-dim">today</span></span>
+        <span class="stat-chip period">{$formatUsd(periodCost)} <span class="stat-dim">period</span></span>
         {#if budgetCredits > 0}
           <span class="stat-chip budget" class:warn={budgetPct >= 80} class:over={budgetPct >= 100}>
             Budget {budgetPct.toFixed(0)}%

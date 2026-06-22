@@ -152,4 +152,46 @@ describe("TracesDbReader", () => {
     expect(spans).toHaveLength(1);
     expect(spans[0].realCredits).toBeCloseTo(4.7457, 3);
   });
+
+  it("preserves a recorded zero nano_aiu as real credits of 0 (free/unbilled turn)", async () => {
+    mockExec.mockReturnValue([{ values: [[0, "span_id"]] }]);
+
+    const statement = {
+      bind: vi.fn(),
+      step: vi.fn().mockReturnValueOnce(true).mockReturnValueOnce(false),
+      getAsObject: vi.fn(() => ({
+        span_id: "span-3",
+        trace_id: "trace-3",
+        parent_span_id: null,
+        name: "llm_call",
+        start_time_ms: 3000,
+        end_time_ms: 3100,
+        status_code: 0,
+        operation_name: null,
+        provider_name: "openai",
+        agent_name: "panel/editAgent",
+        conversation_id: "conv-3",
+        request_model: "gpt-5.4",
+        response_model: "gpt-5.4",
+        input_tokens: 1000,
+        output_tokens: 0,
+        cached_tokens: 1000,
+        reasoning_tokens: 0,
+        tool_name: null,
+        chat_session_id: "session-3",
+        turn_index: 1,
+        ttft_ms: 10,
+        nano_aiu: "0",
+      })),
+      free: vi.fn(),
+    };
+
+    mockPrepare.mockReturnValue(statement);
+
+    const reader = new TracesDbReader();
+    const spans = await reader.querySpans();
+
+    expect(spans).toHaveLength(1);
+    expect(spans[0].realCredits).toBe(0);
+  });
 });

@@ -6,6 +6,7 @@ import type { TraceSpan, SurfaceBreakdown, TurnDiscoveryRow } from "./types";
 export type { TraceSpan, SurfaceBreakdown, TurnDiscoveryRow };
 import { formatAgentName } from "./surfaceLabels";
 import { buildTurnDiscovery } from "./turnDiscovery";
+import { AGGREGATE_AGENT_NAME } from "./types";
 import { getVscodeUserDataPath } from "../shared/paths";
 
 export class TracesDbReader {
@@ -55,7 +56,7 @@ export class TracesDbReader {
       chatSessionId: row.chat_session_id as string | null,
       turnIndex: row.turn_index as number | null,
       ttftMs: row.ttft_ms as number | null,
-      realCredits: nanoAiu != null && nanoAiu > 0 ? nanoAiu / 1_000_000_000 : undefined,
+      realCredits: nanoAiu != null && Number.isFinite(nanoAiu) && nanoAiu >= 0 ? nanoAiu / 1_000_000_000 : undefined,
     };
   }
 
@@ -129,12 +130,15 @@ export class TracesDbReader {
     const { db, close } = await this.openDb();
 
     try {
-      const { clause, params } = this.buildTokenFilter(sinceMs);
+      const { clause, params } = this.buildTokenFilter(
+        sinceMs,
+        `agent_name IS NOT '${AGGREGATE_AGENT_NAME}'`,
+      );
 
       const stmt = db.prepare(`
         SELECT agent_name,
                COUNT(*)            AS span_count,
-               SUM(input_tokens)   AS total_input,
+               SUM(MAX(input_tokens - cached_tokens, 0)) AS total_input,
                SUM(output_tokens)  AS total_output,
                SUM(cached_tokens)  AS total_cached
         FROM spans ${clause}
@@ -172,7 +176,7 @@ export class TracesDbReader {
     const { db, close } = await this.openDb();
 
     try {
-      const conditions = ["chat_session_id IS NOT NULL"];
+      const conditions = ["chat_session_id IS NOT NULL", `agent_name IS NOT '${AGGREGATE_AGENT_NAME}'`];
       const params: unknown[] = [];
       if (sinceMs !== undefined) {
         conditions.push("start_time_ms >= ?");

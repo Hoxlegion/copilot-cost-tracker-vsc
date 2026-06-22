@@ -24,7 +24,7 @@ export class DashboardDataAssembler {
     private readonly pricing: PricingEngine,
   ) {}
 
-  async assemble(billingCycleStartDay: number, budgetCredits: number): Promise<DashboardRawData> {
+  async assemble(billingCycleStartDay: number, budgetCredits: number, currency: string = "USD", exchangeRate: number = 1): Promise<DashboardRawData> {
     const periodStartMs = getBillingPeriodStartMs(billingCycleStartDay);
     const periodEndMs = getBillingPeriodEndMs(billingCycleStartDay);
     const sinceMs30d = Date.now() - 30 * 24 * 60 * 60 * 1000;
@@ -51,7 +51,7 @@ export class DashboardDataAssembler {
     const cacheSavings = this.database.getCacheSavingsMetrics(
       periodStartMs,
       undefined,
-      (model, write, read) => this.pricing.calculateCacheSavingsCost(model, write, read),
+      (model, write, read) => this.pricing.calculateCacheSavings(model, write, read),
     );
     const contextDistribution = this.database.getSessionContextDistribution(sinceMs30d);
 
@@ -115,6 +115,8 @@ export class DashboardDataAssembler {
       lastUpdatedMs,
       contextDistribution,
       contextTimelines,
+      currency,
+      exchangeRate,
     };
   }
 }

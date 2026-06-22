@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { dashboardData } from '../../stores/dashboard';
+  import { dashboardData, formatUsd } from '../../stores/dashboard';
   import { filteredSessions } from '../../stores/filteredSessions';
   import { filterState } from '../../stores/filter';
   import StatCard from '../shared/StatCard.svelte';
@@ -80,7 +80,7 @@
     { key: 'model', label: 'Model', type: 'string' as const, primary: true },
     { key: 'turns', label: 'Turns', type: 'number' as const },
     { key: 'cost', label: 'Cost (USD)', type: 'number' as const, highlight: true },
-    { key: 'avgCost', label: 'Avg Cost/Turn', type: 'number' as const, muted: true },
+    { key: 'avgCost', label: 'Avg Cr/Turn', type: 'number' as const, muted: true },
     { key: 'pct', label: '%', type: 'number' as const, muted: true },
     { key: 'tokens', label: 'Tokens', type: 'number' as const, muted: true },
     { key: 'cachePct', label: 'Cache Hit', type: 'percentage' as const },
@@ -92,7 +92,7 @@
     const totalTokens = m.totalInputTokens + m.totalOutputTokens + m.totalCachedTokens;
     const cacheBase = m.totalInputTokens + m.totalCachedTokens;
     const mCachePct = cacheBase > 0 ? (m.totalCachedTokens / cacheBase) * 100 : 0;
-    const avgCost = m.turnCount > 0 ? m.totalCostUsd / m.turnCount : 0;
+    const avgCredits = m.turnCount > 0 ? m.totalCredits / m.turnCount : 0;
     const sessionDurations = sessions
       .filter(s => s.primaryModel === m.model)
       .map(s => s.avgDurationMs)
@@ -109,8 +109,8 @@
     return {
       model: m.model,
       turns: m.turnCount,
-      cost: m.totalCostUsd.toFixed(2),
-      avgCost: `$${avgCost.toFixed(4)}`,
+      cost: $formatUsd(m.totalCostUsd),
+      avgCost: `${avgCredits.toFixed(1)} cr`,
       pct: m.percentage.toFixed(1),
       tokens: totalTokens.toLocaleString(),
       cachePct: mCachePct.toFixed(1),
@@ -131,7 +131,7 @@
     agent: friendlyAgentName(a.agentName),
     turns: a.turnCount,
     credits: a.totalCredits.toFixed(1),
-    cost: a.totalCostUsd.toFixed(2),
+    cost: $formatUsd(a.totalCostUsd),
     pct: a.percentage.toFixed(1),
   }));
 </script>

@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { TracesDbReader, TraceSpan, LogParser } from "../parser";
+import { TracesDbReader, TraceSpan, LogParser, AGGREGATE_AGENT_NAME } from "../parser";
 import { PricingEngine } from "../pricing";
 import { CostWriter, CostMaintenance } from "../database";
 import { TelemetrySource, ConfigManager } from "../config";
@@ -23,6 +23,7 @@ export class TracesIngester implements vscode.Disposable {
   private isDisposed: boolean = false;
 
   private lastProcessedTimestamp: number = 0;
+  private migrationsApplied: boolean = false;
   private static readonly INGEST_BATCH_SIZE = 5_000;
 
   readonly onDidDataChange: vscode.Event<void>;
@@ -86,6 +87,8 @@ export class TracesIngester implements vscode.Disposable {
   async ingest(sinceOverride?: number): Promise<number> {
     if (this.isDisposed) return 0;
 
+    await this.applyDataMigrationsOnce();
+
     const source = this.sourceResolver.resolve({
       dbExists: () => this.reader.exists(),
       onSwitchToJsonl: () => {
@@ -110,10 +113,44 @@ export class TracesIngester implements vscode.Disposable {
     return count;
   }
 
+  /**
+   * Run one-time data migrations that correct previously ingested turns. Idempotent at the
+   * database level (guarded by a stored data version); this flag just avoids re-running per poll.
+   */
+  private async applyDataMigrationsOnce(): Promise<void> {
+    if (this.migrationsApplied) return;
+    this.migrationsApplied = true;
+    try {
+      const migrated = this.database.recomputeCacheTokenSemantics((t) => {
+        const costUsd = this.pricing.calculateCost(
+          t.modelFamily,
+          t.inputTokens,
+          t.outputTokens,
+          t.cachedTokens,
+          t.cacheWriteTokens
+        );
+        return { costUsd, credits: this.pricing.costToCredits(costUsd) };
+      });
+      if (migrated) {
+        await this.database.save();
+        this.logger.info("Applied cache-token semantics migration to existing turns");
+        if (!this.isDisposed) this.onDataChanged.fire();
+      }
+    } catch (err) {
+      this.logger.warn("Cache-token semantics migration failed (non-fatal)", err);
+    }
+  }
   private shouldSkipSpan(span: TraceSpan, skipWatermark: boolean = false): boolean {
     if (!skipWatermark && span.startTimeMs <= this.lastProcessedTimestamp) return true;
 
     if (span.inputTokens === 0 && span.outputTokens === 0) {
+      return true;
+    }
+
+    // The outer "GitHub Copilot Chat" span is a conversation-level roll-up/duplicate of the
+    // actual billed surface spans (e.g. panel/editAgent). It never carries real credits, so
+    // skipping it avoids double counting tokens and inflated cost estimates.
+    if (span.agentName === AGGREGATE_AGENT_NAME && span.realCredits == null) {
       return true;
     }
 
@@ -129,26 +166,31 @@ export class TracesIngester implements vscode.Disposable {
   private insertSpanAsTurn(span: TraceSpan): void {
     const model = span.responseModel ?? span.requestModel ?? "unknown";
 
+    // Telemetry `input_tokens` includes `cached_tokens` (cache reads are a subset of the
+    // prompt). Store only the non-cached portion so `inputTokens + cachedTokens` is the full
+    // prompt and cached tokens are billed once at the cached rate rather than the input rate.
+    const inputTokens = Math.max(0, span.inputTokens - span.cachedTokens);
+
     let costUsd: number;
     let credits: number;
     let costSource: "real" | "estimated";
 
-    if (span.realCredits != null) {
-      // Use actual billing credits recorded by GitHub
-      credits = span.realCredits;
-      costUsd = credits / 100; // 1 credit = $0.01
-      costSource = "real";
-    } else {
+    if (span.realCredits == null) {
       // Fall back to token-based estimate
       costUsd = this.pricing.calculateCost(
         model,
-        span.inputTokens,
+        inputTokens,
         span.outputTokens,
         span.cachedTokens,
         span.cacheWriteTokens
       );
       credits = this.pricing.costToCredits(costUsd);
       costSource = "estimated";
+    } else {
+      // Use actual billing credits recorded by GitHub
+      credits = span.realCredits;
+      costUsd = credits / 100; // 1 credit = $0.01
+      costSource = "real";
     }
 
     this.database.insertTurn(
@@ -159,11 +201,11 @@ export class TracesIngester implements vscode.Disposable {
         agentName: span.agentName ?? "unknown",
         model,
         modelFamily: model,
-        inputTokens: span.inputTokens,
+        inputTokens,
         outputTokens: span.outputTokens,
         cachedTokens: span.cachedTokens,
         cacheWriteTokens: span.cacheWriteTokens,
-        totalTokens: span.inputTokens + span.outputTokens + span.cachedTokens + span.cacheWriteTokens,
+        totalTokens: inputTokens + span.outputTokens + span.cachedTokens + span.cacheWriteTokens,
         status: span.statusCode === 0 ? "ok" : "error",
         costSource,
       },

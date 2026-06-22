@@ -1,7 +1,7 @@
 import * as path from "node:path";
 import * as fs from "node:fs";
 import initSqlJs, { Database } from "sql.js";
-import { ParsedTurn } from "../parser/types";
+import { ParsedTurn, AGGREGATE_AGENT_NAME } from "../parser/types";
 import { createTables } from "./schema";
 import * as queries from "./queries";
 import * as metrics from "./metrics";
@@ -292,6 +292,83 @@ export class CostDatabase implements CostReader, CostWriter, CostMaintenance {
         turn.costSource ?? "estimated",
       ]
     );
+  }
+
+  /**
+   * One-time migration (data version 1) correcting cache-token semantics for turns that
+   * were ingested before the fix:
+   *  - removes uncredited "GitHub Copilot Chat" conversation roll-up/duplicate turns,
+   *  - rewrites `input_tokens` to the non-cached portion (it previously included
+   *    `cached_tokens`, double-counting cache reads),
+   *  - recomputes `total_tokens`, and
+   *  - recomputes `cost_usd`/`credits` for estimated turns via the supplied callback
+   *    (real-credit turns keep GitHub's authoritative value).
+   * Idempotent: guarded by `PRAGMA user_version`. Returns true only when it ran.
+   */
+  recomputeCacheTokenSemantics(
+    recost: (turn: {
+      modelFamily: string;
+      inputTokens: number;
+      outputTokens: number;
+      cachedTokens: number;
+      cacheWriteTokens: number;
+    }) => { costUsd: number; credits: number }
+  ): boolean {
+    if (!this.db) return false;
+    const db = this.db;
+    const CURRENT_DATA_VERSION = 1;
+
+    const versionResult = db.exec("PRAGMA user_version");
+    const version = Number(versionResult[0]?.values?.[0]?.[0] ?? 0);
+    if (version >= CURRENT_DATA_VERSION) return false;
+
+    db.run("BEGIN");
+    try {
+      // 1. Drop uncredited conversation-level roll-up/duplicate turns.
+      const delStmt = db.prepare(
+        "DELETE FROM turns WHERE agent_name = ? AND cost_source != 'real'"
+      );
+      delStmt.run([AGGREGATE_AGENT_NAME]);
+      delStmt.free();
+
+      // 2. `input_tokens` previously included `cached_tokens`; keep only the non-cached
+      //    portion and recompute `total_tokens`. RHS uses the original row values.
+      db.run(`
+        UPDATE turns SET
+          total_tokens = MAX(input_tokens - cached_tokens, 0) + output_tokens + cached_tokens + cache_write_tokens,
+          input_tokens = MAX(input_tokens - cached_tokens, 0)
+      `);
+
+      // 3. Recompute cost for estimated turns with the corrected formula (free models -> 0).
+      const sel = db.prepare(
+        `SELECT id, model_family, input_tokens, output_tokens, cached_tokens, cache_write_tokens
+         FROM turns WHERE cost_source != 'real'`
+      );
+      const upd = db.prepare("UPDATE turns SET cost_usd = ?, credits = ? WHERE id = ?");
+      while (sel.step()) {
+        const r = sel.getAsObject();
+        const { costUsd, credits } = recost({
+          modelFamily: String(r.model_family ?? "unknown"),
+          inputTokens: Number(r.input_tokens ?? 0),
+          outputTokens: Number(r.output_tokens ?? 0),
+          cachedTokens: Number(r.cached_tokens ?? 0),
+          cacheWriteTokens: Number(r.cache_write_tokens ?? 0),
+        });
+        upd.bind([costUsd, credits, r.id as number]);
+        upd.step();
+        upd.reset();
+      }
+      sel.free();
+      upd.free();
+
+      db.run(`PRAGMA user_version = ${CURRENT_DATA_VERSION}`);
+      db.run("COMMIT");
+      return true;
+    } catch (err) {
+      db.run("ROLLBACK");
+      console.warn(`[CostDatabase] cache-token semantics migration failed (non-fatal): ${err}`);
+      return false;
+    }
   }
 
   markSessionProcessed(

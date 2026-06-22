@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { dashboardData } from '../../stores/dashboard';
+  import { dashboardData, formatUsd } from '../../stores/dashboard';
   import { filteredSessions } from '../../stores/filteredSessions';
   import { filterState } from '../../stores/filter';
   import DataTable from '../shared/DataTable.svelte';
@@ -80,7 +80,7 @@
       date: s.title ? `${s.title} · ${date}` : date,
       model: s.primaryModel,
       turns: s.turnCount,
-      cost: s.totalCostUsd.toFixed(2),
+      cost: $formatUsd(s.totalCostUsd),
       credits: s.totalCredits.toFixed(1),
       tokens: totalTokens.toLocaleString(),
       cachePct: cachePct.toFixed(1),
@@ -187,7 +187,7 @@
               <span class="sc-sep">·</span>
               <span>{cacheHitPct.toFixed(0)}% cache</span>
               <span class="sc-sep">·</span>
-              <span class="sc-cost" class:highlight={isExpensive}>${s.totalCostUsd.toFixed(2)}</span>
+              <span class="sc-cost" class:highlight={isExpensive}>{$formatUsd(s.totalCostUsd)}</span>
             </div>
           </div>
         {/each}
@@ -209,7 +209,7 @@
             {#each workspaceSummary as ws}
               <tr>
                 <td title={ws.workspace}>{ws.workspace}</td>
-                <td class="num">${ws.costUsd.toFixed(2)}</td>
+                <td class="num">{$formatUsd(ws.costUsd)}</td>
                 <td class="num">{ws.credits.toFixed(1)}</td>
                 <td class="num">{ws.sessions}</td>
                 <td class="num">{ws.turns}</td>
@@ -245,7 +245,7 @@
                     <tr>
                       <td>{model.model}</td>
                       <td class="num">{model.turnCount}</td>
-                      <td class="num">${model.totalCostUsd.toFixed(2)}</td>
+                      <td class="num">{$formatUsd(model.totalCostUsd)}</td>
                       <td class="num">{model.totalCredits.toFixed(1)}</td>
                       <td class="num">{formatCompactNumber(modelTotalTokens)}</td>
                       <td class="num">{modelCachePct.toFixed(1)}%</td>
