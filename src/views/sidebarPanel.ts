@@ -76,6 +76,8 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
         }).filter((ws) => ws.turns > 0).sort((a, b) => b.credits - a.credits)
       : [];
 
+    const daily14 = this.getDailySeries(14);
+
     return {
       budgetCredits,
       billingCycleStartDay,
@@ -92,7 +94,23 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
       burnRate,
       projected,
       wsBreakdown,
+      daily14,
     };
+  }
+
+  /**
+   * Daily credit totals for the last `days` calendar days (UTC, oldest → newest),
+   * with missing days filled as 0. Used to render the sidebar sparkline.
+   */
+  private getDailySeries(days: number): number[] {
+    const rows = this.database.getDailyCosts(days + 1);
+    const map = new Map(rows.map((r) => [r.period, r.totalCredits]));
+    const out: number[] = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const key = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+      out.push(map.get(key) ?? 0);
+    }
+    return out;
   }
 
   private getToday() {
@@ -196,6 +214,8 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
       </div>
     </div>
 
+    ${this.buildSparklineSection(d.daily14)}
+
     ${paceHtml}
 
     ${breakdownHtml}
@@ -230,6 +250,32 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
       return `<span class="trend down">↓ vs yesterday</span>`;
     }
     return "";
+  }
+
+  private buildSparklineSection(values: number[]): string {
+    if (values.length === 0 || values.every((v) => v === 0)) return "";
+    const W = 100;
+    const H = 26;
+    const max = Math.max(...values, 1);
+    const pts = values.map((v, i) => {
+      const x = values.length > 1 ? (i / (values.length - 1)) * W : 0;
+      const y = H - (v / max) * (H - 3) - 1.5;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    });
+    const line = "M" + pts.join(" L");
+    const area = `${line} L${W},${H} L0,${H} Z`;
+    const total = values.reduce((s, v) => s + v, 0);
+    return `
+      <div class="spark-section">
+        <div class="spark-header">
+          <span class="section-label">LAST 14 DAYS</span>
+          <span class="spark-total">${fmtNum(total)} cr</span>
+        </div>
+        <svg class="sparkline" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+          <path d="${area}" class="spark-area" />
+          <path d="${line}" class="spark-line" />
+        </svg>
+      </div>`;
   }
 
   private buildPaceSection(turns: number, budgetCredits: number, projected: number): string {
@@ -377,6 +423,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
         color: var(--vscode-foreground);
         background: var(--vscode-sideBar-background, var(--vscode-editor-background));
         overflow-y: auto;
+        font-variant-numeric: tabular-nums;
       }
       .sidebar { padding: 12px 14px; }
 
@@ -496,6 +543,37 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
       }
       .trend.up { color: #e57373; }
       .trend.down { color: #81c784; }
+
+      /* ── Sparkline ── */
+      .spark-section { margin-bottom: 14px; }
+      .spark-header {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        margin-bottom: 6px;
+      }
+      .spark-header .section-label { margin-bottom: 0; }
+      .spark-total {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--vscode-foreground);
+      }
+      .sparkline {
+        width: 100%;
+        height: 30px;
+        display: block;
+      }
+      .spark-line {
+        fill: none;
+        stroke: #4fc3f7;
+        stroke-width: 1.5;
+        vector-effect: non-scaling-stroke;
+        stroke-linejoin: round;
+      }
+      .spark-area {
+        fill: rgba(79, 195, 247, 0.14);
+        stroke: none;
+      }
 
       /* ── Pace ── */
       .pace-section { margin-bottom: 4px; }

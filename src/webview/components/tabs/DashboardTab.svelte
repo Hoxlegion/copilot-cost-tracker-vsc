@@ -5,7 +5,12 @@
   import BudgetBar from '../shared/BudgetBar.svelte';
   import DailyChart from '../charts/DailyChart.svelte';
   import HelpModal from '../shared/HelpModal.svelte';
+  import EfficiencyGrade from '../shared/EfficiencyGrade.svelte';
+  import ContextCostHero from '../shared/ContextCostHero.svelte';
+  import CostStory from '../shared/CostStory.svelte';
   import { formatCompactNumber } from '../../utils/format';
+  import { PALETTE } from '../../utils/palette';
+  import { CircleCheck, TriangleAlert, CircleAlert, Info } from '@lucide/svelte';
   
   let showHelpModal = false;
   
@@ -111,7 +116,7 @@
   
   // ── Smart alerts (top 3 from insight engine) ──
   $: smartAlerts = (() => {
-    const a: Array<{ icon: string; color: string; text: string; tip: string }> = [];
+    const a: Array<{ level: 'good' | 'warn' | 'bad' | 'info'; text: string; tip: string }> = [];
     
     // Cache alert
     const totalCached = sessions.reduce((sum, s) => sum + s.totalCachedTokens, 0);
@@ -119,38 +124,51 @@
     const billable = totalInput + totalCached;
     const cacheHitPct = billable > 0 ? (totalCached / billable) * 100 : 0;
     if (cacheHitPct < 40 && billable > 5000) {
-      a.push({ icon: '🔴', color: '#e57373', text: `Low cache hit: ${cacheHitPct.toFixed(1)}%`, tip: 'Break long chats to improve reuse' });
+      a.push({ level: 'bad', text: `Low cache hit: ${cacheHitPct.toFixed(1)}%`, tip: 'Break long chats to improve reuse' });
     } else if (cacheHitPct >= 70) {
-      a.push({ icon: '🟢', color: '#81c784', text: `Cache hit: ${cacheHitPct.toFixed(1)}%`, tip: 'Excellent cache reuse' });
+      a.push({ level: 'good', text: `Cache hit: ${cacheHitPct.toFixed(1)}%`, tip: 'Excellent cache reuse' });
     } else {
-      a.push({ icon: '🟡', color: '#ffb74d', text: `Cache hit: ${cacheHitPct.toFixed(1)}%`, tip: 'Reuse files across sessions' });
+      a.push({ level: 'warn', text: `Cache hit: ${cacheHitPct.toFixed(1)}%`, tip: 'Reuse files across sessions' });
     }
 
     // Burn rate alert  
     if (budgetCredits > 0 && burnRate > 0) {
       const dailyBudget = budgetCredits / totalDaysInPeriod;
       if (burnRate > dailyBudget * 1.2) {
-        a.push({ icon: '🔴', color: '#e57373', text: `Burn rate: ${formatCompactNumber(burnRate)} cr/day`, tip: `On pace for ${formatCompactNumber(projectedPeriodCredits)} cr` });
+        a.push({ level: 'bad', text: `Burn rate: ${formatCompactNumber(burnRate)} cr/day`, tip: `On pace for ${formatCompactNumber(projectedPeriodCredits)} cr` });
       } else if (burnRate > dailyBudget * 0.9) {
-        a.push({ icon: '🟡', color: '#ffb74d', text: `Burn rate: ${formatCompactNumber(burnRate)} cr/day`, tip: 'Close to daily budget' });
+        a.push({ level: 'warn', text: `Burn rate: ${formatCompactNumber(burnRate)} cr/day`, tip: 'Close to daily budget' });
       } else {
-        a.push({ icon: '🟢', color: '#81c784', text: `Burn rate: ${formatCompactNumber(burnRate)} cr/day`, tip: 'On track' });
+        a.push({ level: 'good', text: `Burn rate: ${formatCompactNumber(burnRate)} cr/day`, tip: 'On track' });
       }
     } else if (burnRate > 0) {
-      a.push({ icon: '📊', color: '#4fc3f7', text: `Burn rate: ${formatCompactNumber(burnRate)} cr/day`, tip: 'Set a budget to track pacing' });
+      a.push({ level: 'info', text: `Burn rate: ${formatCompactNumber(burnRate)} cr/day`, tip: 'Set a budget to track pacing' });
     }
     
     // I:O ratio
     const totalOutput = sessions.reduce((sum, s) => sum + s.totalOutputTokens, 0);
     const ioRatio = totalOutput > 0 ? billable / totalOutput : 0;
     if (ioRatio > 8 && totalOutput > 1000) {
-      a.push({ icon: '🟡', color: '#ffb74d', text: `I:O ratio: ${ioRatio.toFixed(1)}:1`, tip: 'Consider tighter prompts' });
+      a.push({ level: 'warn', text: `I:O ratio: ${ioRatio.toFixed(1)}:1`, tip: 'Consider tighter prompts' });
     } else if (totalOutput > 1000) {
-      a.push({ icon: '🟢', color: '#81c784', text: `I:O ratio: ${ioRatio.toFixed(1)}:1`, tip: 'Healthy ratio' });
+      a.push({ level: 'good', text: `I:O ratio: ${ioRatio.toFixed(1)}:1`, tip: 'Healthy ratio' });
     }
     
     return a.slice(0, 3);
   })();
+
+  // ── Alert visual mapping (Lucide icon + brand color per level) ──
+  const ALERT_STYLE = {
+    good: { icon: CircleCheck, color: PALETTE.success },
+    warn: { icon: TriangleAlert, color: PALETTE.warning },
+    bad: { icon: CircleAlert, color: PALETTE.danger },
+    info: { icon: Info, color: PALETTE.accent },
+  } as const;
+
+  // ── Productivity-relative metrics ──
+  $: costPerTurn = rangeTurns > 0 ? rangeCost / rangeTurns : 0;
+  $: activeHours = sessions.reduce((sum, s) => sum + (s.avgDurationMs * s.turnCount), 0) / 3_600_000;
+  $: costPerHour = activeHours > 0.01 ? rangeCost / activeHours : 0;
   
   // Forecast
   $: forecastVisible = rangeTurns >= 50 || periodCredits >= 0.5;
@@ -175,6 +193,12 @@
     </div>
   </div>
 
+  <!-- Signature row: efficiency grade + context tax -->
+  <div class="signature-row">
+    <EfficiencyGrade />
+    <ContextCostHero />
+  </div>
+
   <!-- Secondary stat cards -->
   <div class="stat-row">
     <StatCard 
@@ -186,14 +210,24 @@
       label="Cache Savings"
       value={cacheSavingsValue > 0 ? $formatUsd(cacheSavingsValue) : '—'}
       sub={cacheSavingsValue > 0 ? `${cacheSavingsPct.toFixed(1)}% of spend` : 'No cache data'}
-      valueColor={cacheSavingsValue > 0 ? '#81c784' : ''}
+      valueColor={cacheSavingsValue > 0 ? PALETTE.success : ''}
+    />
+    <StatCard
+      label="Cost / Turn"
+      value={costPerTurn > 0 ? $formatUsd(costPerTurn) : '—'}
+      sub={rangeTurns > 0 ? `${rangeTurns.toLocaleString()} turns` : 'No turns'}
+    />
+    <StatCard
+      label="Cost / Active Hour"
+      value={costPerHour > 0 ? $formatUsd(costPerHour) : '—'}
+      sub={activeHours > 0.01 ? `${activeHours.toFixed(1)} h active` : 'Not enough data'}
     />
     {#if forecastVisible}
       <StatCard 
         label="Forecast"
         value="{formatCompactNumber(projectedPeriodCredits)} cr"
         sub="Burn: {burnRate.toFixed(0)} cr/day"
-        valueColor={budgetCredits > 0 && projectedPeriodCredits > budgetCredits ? '#e57373' : '#81c784'}
+        valueColor={budgetCredits > 0 && projectedPeriodCredits > budgetCredits ? PALETTE.danger : PALETTE.success}
       />
     {:else}
       <StatCard label="Forecast" value="—" sub="Need more data" />
@@ -205,6 +239,11 @@
         sub="{$formatUsd(modelDrivers[0].costUsd)} · {modelDrivers[0].pct.toFixed(0)}%"
       />
     {/if}
+  </div>
+
+  <!-- Cost story -->
+  <div class="story-section">
+    <CostStory />
   </div>
   
   <!-- Daily chart -->
@@ -226,7 +265,7 @@
           {#each modelDrivers as m}
             <div class="driver-item">
               <div class="driver-bar-container">
-                <div class="driver-bar" style="width: {m.pct}%; background: #4fc3f7;"></div>
+                <div class="driver-bar" style="width: {m.pct}%; background: {PALETTE.accent};"></div>
               </div>
               <span class="driver-name" title={m.model}>{m.model}</span>
               <span class="driver-value">{$formatUsd(m.costUsd)}</span>
@@ -242,7 +281,7 @@
           {#each workspaceDrivers as w}
             <div class="driver-item">
               <div class="driver-bar-container">
-                <div class="driver-bar" style="width: {w.pct}%; background: #ba68c8;"></div>
+                <div class="driver-bar" style="width: {w.pct}%; background: {PALETTE.purple};"></div>
               </div>
               <span class="driver-name" title={w.name}>{w.name}</span>
               <span class="driver-value">{$formatUsd(w.costUsd)}</span>
@@ -257,10 +296,12 @@
       <h3 class="section-title">Smart Alerts</h3>
       {#if smartAlerts.length > 0}
         {#each smartAlerts as alert}
+          {@const style = ALERT_STYLE[alert.level]}
           <div class="smart-alert">
-            <span class="alert-icon">{alert.icon}</span>
+            <span class="alert-dot" style="background: {style.color}"></span>
+            <svelte:component this={style.icon} size={15} color={style.color} />
             <div class="alert-body">
-              <div class="alert-text" style="color: {alert.color}">{alert.text}</div>
+              <div class="alert-text" style="color: {style.color}">{alert.text}</div>
               <div class="alert-tip">{alert.tip}</div>
             </div>
           </div>
@@ -362,6 +403,24 @@
     color: #81c784;
   }
   
+  /* ── Signature row (efficiency grade + context tax) ── */
+  .signature-row {
+    display: grid;
+    grid-template-columns: minmax(280px, 1fr) minmax(320px, 1.3fr);
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+
+  @media (max-width: 720px) {
+    .signature-row {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .story-section {
+    margin-bottom: 14px;
+  }
+
   /* ── Stat row ── */
   .stat-row {
     display: grid;
@@ -500,19 +559,20 @@
   /* ── Smart alerts ── */
   .smart-alert {
     display: flex;
-    align-items: flex-start;
-    gap: 10px;
+    align-items: center;
+    gap: 8px;
     padding: 8px 10px;
     background: var(--vscode-editor-background);
     border: 1px solid var(--vscode-panel-border);
     border-radius: 6px;
     margin-bottom: 8px;
   }
-  
-  .alert-icon {
-    font-size: 16px;
+
+  .alert-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
     flex-shrink: 0;
-    margin-top: 1px;
   }
   
   .alert-body {

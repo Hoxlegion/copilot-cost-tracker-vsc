@@ -72,7 +72,11 @@
   
   <main class="tab-content">
     {#if !data}
-      <div class="loading">Loading dashboard data...</div>
+      <div class="loading">
+        <div class="loading-icon">◐</div>
+        <div class="loading-title">Crunching your Copilot usage…</div>
+        <div class="loading-sub">Reading local telemetry — no data leaves your machine.</div>
+      </div>
     {:else if activeTab === 'dashboard'}
       <DashboardTab />
     {:else if activeTab === 'activity'}
@@ -96,6 +100,14 @@
     height: 100vh;
     display: flex;
     flex-direction: column;
+    /* Tabular figures keep columns of credits/USD aligned (inherited by children). */
+    font-variant-numeric: tabular-nums;
+    /* Brand palette — single source of truth, mirrors utils/palette.ts. */
+    --cct-accent: #4fc3f7;
+    --cct-success: #81c784;
+    --cct-warning: #ffb74d;
+    --cct-danger: #e57373;
+    --cct-purple: #ba68c8;
   }
   
   .header {
@@ -218,8 +230,31 @@
   }
   
   .loading {
-    padding: 20px;
+    padding: 48px 20px;
     text-align: center;
     color: var(--vscode-descriptionForeground);
+  }
+
+  .loading-icon {
+    font-size: 28px;
+    color: var(--cct-accent);
+    animation: cct-spin 1.4s linear infinite;
+    display: inline-block;
+  }
+
+  .loading-title {
+    margin-top: 12px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--vscode-editor-foreground);
+  }
+
+  .loading-sub {
+    margin-top: 4px;
+    font-size: 12px;
+  }
+
+  @keyframes cct-spin {
+    to { transform: rotate(360deg); }
   }
 </style>
