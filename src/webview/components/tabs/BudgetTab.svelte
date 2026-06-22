@@ -4,6 +4,8 @@
   import BudgetBar from '../shared/BudgetBar.svelte';
   import DailyChart from '../charts/DailyChart.svelte';
   import { formatCompactNumber } from '../../utils/format';
+  import { PALETTE } from '../../utils/palette';
+  import { Wallet, CircleAlert, TriangleAlert, CircleCheck } from '@lucide/svelte';
   
   $: data = $dashboardData;
   $: budgetCredits = data?.budgetCredits ?? 0;
@@ -29,10 +31,10 @@
   $: forecastOverPct = budgetCredits > 0 ? ((forecastOverage / budgetCredits) * 100) : 0;
   
   $: pacingStatus = (() => {
-    if (budgetCredits <= 0) return { label: 'No budget set', color: '#4fc3f7', icon: '📊' };
-    if (burnRate > dailyBudget * 1.3) return { label: 'Over pace', color: '#e57373', icon: '🔴' };
-    if (burnRate > dailyBudget * 0.9) return { label: 'Tight', color: '#ffb74d', icon: '🟡' };
-    return { label: 'On track', color: '#81c784', icon: '🟢' };
+    if (budgetCredits <= 0) return { label: 'No budget set', color: PALETTE.accent, icon: Wallet };
+    if (burnRate > dailyBudget * 1.3) return { label: 'Over pace', color: PALETTE.danger, icon: CircleAlert };
+    if (burnRate > dailyBudget * 0.9) return { label: 'Tight', color: PALETTE.warning, icon: TriangleAlert };
+    return { label: 'On track', color: PALETTE.success, icon: CircleCheck };
   })();
   
   // Progress position (how far through the period)
@@ -46,7 +48,7 @@
 <div class="budget-tab">
   {#if budgetCredits <= 0}
     <div class="no-budget">
-      <div class="no-budget-icon">📊</div>
+      <div class="no-budget-icon"><Wallet size={40} /></div>
       <h3>No Budget Configured</h3>
       <p>Set a credit budget in settings to enable budget tracking, pacing analysis, and forecasting.</p>
       <p class="no-budget-hint">Setting: <code>copilotCostTracker.budgetCredits</code></p>
@@ -113,7 +115,7 @@
       <h3>Pacing</h3>
       <div class="pacing-stats">
         <div class="pace-item">
-          <span class="pace-icon">{pacingStatus.icon}</span>
+          <span class="pace-icon"><svelte:component this={pacingStatus.icon} size={16} color={pacingStatus.color} /></span>
           <span class="pace-label" style="color: {pacingStatus.color}">{pacingStatus.label}</span>
         </div>
         <div class="pace-detail">
@@ -167,7 +169,7 @@
     border: 1px solid color-mix(in srgb, var(--vscode-panel-border) 70%, #2aa5ff 30%);
     border-radius: 12px;
   }
-  .no-budget-icon { font-size: 40px; margin-bottom: 12px; }
+  .no-budget-icon { display: flex; justify-content: center; margin-bottom: 12px; color: var(--vscode-descriptionForeground); }
   .no-budget h3 { margin: 0 0 8px; font-size: 16px; }
   .no-budget p { margin: 0 0 6px; font-size: 12px; color: var(--vscode-descriptionForeground); }
   .no-budget-hint { margin-top: 12px !important; }
@@ -224,7 +226,7 @@
   }
   .pacing-stats { display: flex; flex-direction: column; gap: 6px; }
   .pace-item { display: flex; align-items: center; gap: 8px; }
-  .pace-icon { font-size: 18px; }
+  .pace-icon { display: inline-flex; align-items: center; }
   .pace-label { font-size: 14px; font-weight: 700; }
   .pace-detail { font-size: 12px; color: var(--vscode-descriptionForeground); }
   .pace-detail strong { color: var(--vscode-editor-foreground); }

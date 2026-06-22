@@ -11,6 +11,9 @@ export const GRID_COLOR = withAlpha(cssVar('--vscode-foreground', '#cccccc'), 0.
 export const TICK_COLOR = cssVar('--vscode-descriptionForeground', 'rgba(255, 255, 255, 0.5)');
 export const TICK_FONT_SIZE = 10;
 
+/** Theme-aware color for chart legend labels (previously hardcoded white). */
+export const LEGEND_COLOR = cssVar('--vscode-foreground', 'rgba(255, 255, 255, 0.7)');
+
 export function createGradient(
   ctx: CanvasRenderingContext2D,
   chartArea: { top: number; bottom: number },

@@ -2,7 +2,7 @@
   import { dashboardData } from '../../stores/dashboard';
   import { filterState } from '../../stores/filter';
   import ChartWrapper from '../shared/ChartWrapper.svelte';
-  import { tooltipConfig, baseScaleConfig } from '../../utils/chartStyles';
+  import { tooltipConfig, baseScaleConfig, LEGEND_COLOR } from '../../utils/chartStyles';
   import { formatSessionLabel } from '../../utils/format';
   
   const LINE_COLORS = [
@@ -103,7 +103,7 @@
         display: contextTimelines.length > 1,
         position: 'top' as const,
         labels: {
-          color: 'rgba(255, 255, 255, 0.7)',
+          color: LEGEND_COLOR,
           font: { size: 11 },
           usePointStyle: true,
           pointStyle: 'line',

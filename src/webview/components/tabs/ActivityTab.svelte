@@ -183,7 +183,7 @@
             <div class="sc-body">
               <span class="sc-model">{s.primaryModel}</span>
               <span class="sc-sep">·</span>
-              <span>{s.turnCount} calls</span>
+              <span>{s.turnCount} turns</span>
               <span class="sc-sep">·</span>
               <span>{cacheHitPct.toFixed(0)}% cache</span>
               <span class="sc-sep">·</span>
@@ -202,7 +202,7 @@
               <th class="num">Cost</th>
               <th class="num">Credits</th>
               <th class="num">Sessions</th>
-              <th class="num">LLM Calls</th>
+              <th class="num">Turns</th>
             </tr>
           </thead>
           <tbody>

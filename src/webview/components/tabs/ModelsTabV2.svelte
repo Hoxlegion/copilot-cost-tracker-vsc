@@ -9,6 +9,7 @@
   import TokenTrendChart from '../charts/TokenTrendChart.svelte';
   import { formatCompactNumber } from '../../utils/format';
   import { friendlyAgentName } from '../../utils/agentLabels';
+  import { aggregateModelsFromSessions } from '../../utils/modelAggregation';
   
   $: data = $dashboardData;
   $: sessions = $filteredSessions;
@@ -23,32 +24,8 @@
   $: cacheHitPct = billableInput > 0 ? (totalCached / billableInput) * 100 : 0;
   $: ioRatio = totalOutput > 0 ? Math.round(billableInput / totalOutput) : 0;
   
-  // ── Model breakdown ──
-  $: filteredModelBreakdown = (() => {
-    const modelMap = new Map<string, {
-      model: string; totalCostUsd: number; totalCredits: number; turnCount: number;
-      totalInputTokens: number; totalOutputTokens: number; totalCachedTokens: number;
-    }>();
-    sessions.forEach(s => {
-      const current = modelMap.get(s.primaryModel) ?? {
-        model: s.primaryModel, totalCostUsd: 0, totalCredits: 0, turnCount: 0,
-        totalInputTokens: 0, totalOutputTokens: 0, totalCachedTokens: 0,
-      };
-      current.totalCostUsd += s.totalCostUsd;
-      current.totalCredits += s.totalCredits;
-      current.turnCount += s.turnCount;
-      current.totalInputTokens += s.totalInputTokens;
-      current.totalOutputTokens += s.totalOutputTokens;
-      current.totalCachedTokens += s.totalCachedTokens;
-      modelMap.set(s.primaryModel, current);
-    });
-    const models = Array.from(modelMap.values());
-    const totalCost = models.reduce((sum, m) => sum + m.totalCostUsd, 0);
-    return models.map(m => ({
-      ...m,
-      percentage: totalCost > 0 ? (m.totalCostUsd / totalCost) * 100 : 0,
-    })).sort((a, b) => b.totalCostUsd - a.totalCostUsd);
-  })();
+  // ── Model breakdown (accurate per-model attribution across multi-model sessions) ──
+  $: filteredModelBreakdown = aggregateModelsFromSessions(sessions);
   
   // ── Agent breakdown ──
   $: filteredAgentBreakdown = (() => {
@@ -85,7 +62,7 @@
     { key: 'tokens', label: 'Tokens', type: 'number' as const, muted: true },
     { key: 'cachePct', label: 'Cache Hit', type: 'percentage' as const },
     { key: 'avgMs', label: 'Avg (ms)', type: 'number' as const, muted: true },
-    { key: 'tailMs', label: 'Tail (ms)', type: 'number' as const, muted: true },
+    { key: 'tailMs', label: 'P90 (ms)', type: 'number' as const, muted: true },
   ];
   
   $: modelRows = filteredModelBreakdown.map(m => {
@@ -101,11 +78,10 @@
     const avgMs = sessionDurations.length > 0
       ? Math.round(sessionDurations.reduce((sum, d) => sum + d, 0) / sessionDurations.length)
       : 0;
+    // True 90th-percentile latency; only shown with enough samples to be meaningful.
     const tailMs = sessionDurations.length >= 20
       ? sessionDurations[Math.floor(sessionDurations.length * 0.9)]
-      : sessionDurations.length >= 5
-        ? sessionDurations[Math.floor(sessionDurations.length * 0.5)]
-        : 0;
+      : 0;
     return {
       model: m.model,
       turns: m.turnCount,

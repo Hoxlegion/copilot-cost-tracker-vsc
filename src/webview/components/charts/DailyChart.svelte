@@ -2,9 +2,8 @@
   import { dashboardData } from '../../stores/dashboard';
   import { filterState } from '../../stores/filter';
   import ChartWrapper from '../shared/ChartWrapper.svelte';
-  import { tooltipConfig, baseScaleConfig } from '../../utils/chartStyles';
-  
-  let chartMode: 'cost' | 'tokens' = 'cost';
+  import { tooltipConfig, baseScaleConfig, LEGEND_COLOR } from '../../utils/chartStyles';
+  import { PALETTE } from '../../utils/palette';
   
   $: dailyCosts = $dashboardData?.dailyCosts ?? [];
   
@@ -22,16 +21,18 @@
   
   $: labels = sortedData.map(d => d.period);
   $: costData = sortedData.map(d => d.totalCostUsd);
-  $: creditsData = sortedData.map(d => d.totalCredits);
   $: turnsData = sortedData.map(d => d.turnCount);
   
-  $: chartData = chartMode === 'cost' ? {
+  // Cost (USD) and Turns are genuinely different metrics, so they share one
+  // chart on dual axes. (Credits = cost × 100, so a separate credits line would
+  // just duplicate the cost line.)
+  $: chartData = {
     labels,
     datasets: [
       {
         label: 'Cost (USD)',
         data: costData,
-        borderColor: '#4fc3f7',
+        borderColor: PALETTE.accent,
         backgroundColor: 'rgba(79, 195, 247, 0.1)',
         fill: true,
         yAxisID: 'y',
@@ -40,37 +41,23 @@
         pointHoverRadius: 5,
       },
       {
-        label: 'Credits',
-        data: creditsData,
-        borderColor: '#81c784',
-        backgroundColor: 'rgba(129, 199, 132, 0.1)',
+        label: 'Turns',
+        data: turnsData,
+        borderColor: PALETTE.warning,
+        backgroundColor: 'rgba(255, 183, 77, 0.1)',
         fill: true,
         yAxisID: 'y1',
         tension: 0.4,
         pointRadius: 2,
         pointHoverRadius: 5,
-      }
-    ]
-  } : {
-    labels,
-    datasets: [
-      {
-        label: 'Turns',
-        data: turnsData,
-        borderColor: '#ffb74d',
-        backgroundColor: 'rgba(255, 183, 77, 0.1)',
-        fill: true,
-        yAxisID: 'y',
-        tension: 0.4,
-        pointRadius: 2,
-        pointHoverRadius: 5,
-      }
+      },
     ]
   };
   
-  $: gradientColors = chartMode === 'cost' 
-    ? [{ color: '#4fc3f7', startAlpha: 0.3, endAlpha: 0 }, { color: '#81c784', startAlpha: 0.2, endAlpha: 0 }]
-    : [{ color: '#ffb74d', startAlpha: 0.3, endAlpha: 0 }];
+  $: gradientColors = [
+    { color: PALETTE.accent, startAlpha: 0.3, endAlpha: 0 },
+    { color: PALETTE.warning, startAlpha: 0.2, endAlpha: 0 },
+  ];
   
   $: chartOptions = {
     responsive: true,
@@ -79,7 +66,7 @@
       mode: 'index' as const,
       intersect: false,
     },
-    scales: chartMode === 'cost' ? {
+    scales: {
       y: {
         type: 'linear' as const,
         display: true,
@@ -97,9 +84,10 @@
         type: 'linear' as const,
         display: true,
         position: 'right' as const,
+        beginAtZero: true,
         title: {
           display: true,
-          text: 'Credits',
+          text: 'Turns',
           color: baseScaleConfig.ticks.color,
           font: { size: baseScaleConfig.ticks.font.size },
         },
@@ -108,27 +96,13 @@
         },
         ticks: baseScaleConfig.ticks,
       },
-    } : {
-      y: {
-        type: 'linear' as const,
-        display: true,
-        position: 'left' as const,
-        title: {
-          display: true,
-          text: 'Turns',
-          color: baseScaleConfig.ticks.color,
-          font: { size: baseScaleConfig.ticks.font.size },
-        },
-        grid: baseScaleConfig.grid,
-        ticks: baseScaleConfig.ticks,
-      },
     },
     plugins: {
       legend: {
         display: true,
         position: 'top' as const,
         labels: {
-          color: 'rgba(255, 255, 255, 0.7)',
+          color: LEGEND_COLOR,
           font: { size: 11 },
           usePointStyle: true,
           pointStyle: 'circle',
@@ -142,20 +116,6 @@
 <div class="daily-chart">
   <div class="chart-header">
     <h3>Daily Activity</h3>
-    <div class="mode-toggle">
-      <button 
-        class:active={chartMode === 'cost'}
-        on:click={() => chartMode = 'cost'}
-      >
-        Cost/Credits
-      </button>
-      <button 
-        class:active={chartMode === 'tokens'}
-        on:click={() => chartMode = 'tokens'}
-      >
-        Turns
-      </button>
-    </div>
   </div>
   <div class="chart-container">
     <ChartWrapper 
@@ -189,31 +149,6 @@
     font-size: 14px;
     font-weight: 600;
     color: var(--vscode-foreground);
-  }
-  
-  .mode-toggle {
-    display: flex;
-    gap: 4px;
-  }
-  
-  .mode-toggle button {
-    padding: 4px 12px;
-    background: var(--vscode-button-secondaryBackground);
-    color: var(--vscode-button-secondaryForeground);
-    border: 1px solid var(--vscode-button-border);
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 12px;
-    transition: all 0.15s ease;
-  }
-  
-  .mode-toggle button:hover {
-    background: var(--vscode-button-secondaryHoverBackground);
-  }
-  
-  .mode-toggle button.active {
-    background: var(--vscode-button-background);
-    color: var(--vscode-button-foreground);
   }
   
   .chart-container {

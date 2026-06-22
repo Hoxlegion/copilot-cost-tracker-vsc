@@ -26,6 +26,21 @@ export const SERIES_COLORS: string[] = [
 ];
 
 /**
+ * Extended categorical palette (8 colors) for pie/bar charts that may render
+ * many slices at once. Starts with the brand colors, then adds distinct hues.
+ */
+export const CHART_COLORS: string[] = [
+  PALETTE.accent,
+  PALETTE.success,
+  PALETTE.warning,
+  PALETTE.danger,
+  PALETTE.purple,
+  "#4db6ac", // teal
+  "#fff176", // yellow
+  "#90a4ae", // blue-grey
+];
+
+/**
  * Read a VS Code theme CSS custom property from the document root.
  * Falls back to <body> (older webview hosts) and finally to the supplied default.
  */

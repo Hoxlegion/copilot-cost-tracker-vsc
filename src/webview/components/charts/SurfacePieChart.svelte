@@ -2,7 +2,8 @@
   import { dashboardData } from '../../stores/dashboard';
   import { filterState } from '../../stores/filter';
   import ChartWrapper from '../shared/ChartWrapper.svelte';
-  import { tooltipConfig } from '../../utils/chartStyles';
+  import { tooltipConfig, LEGEND_COLOR } from '../../utils/chartStyles';
+  import { CHART_COLORS } from '../../utils/palette';
   
   $: agentBreakdown = $dashboardData?.agentBreakdown ?? [];
   $: dailyAgentBreakdown = $dashboardData?.dailyAgentBreakdown ?? [];
@@ -54,7 +55,7 @@
   
   $: labels = filteredAgentBreakdown.map(a => AGENT_LABEL_MAP[a.agentName] ?? a.agentName ?? 'Other');
   $: costData = filteredAgentBreakdown.map(a => a.totalCostUsd);
-  $: colors = ['#4fc3f7', '#81c784', '#ffb74d', '#e57373', '#ba68c8', '#4db6ac', '#fff176', '#90a4ae'];
+  $: colors = CHART_COLORS;
   
   $: chartData = {
     labels,
@@ -76,7 +77,7 @@
         display: true,
         position: 'right' as const,
         labels: {
-          color: 'rgba(255, 255, 255, 0.7)',
+          color: LEGEND_COLOR,
           font: { size: 11 },
           usePointStyle: true,
           pointStyle: 'circle',
