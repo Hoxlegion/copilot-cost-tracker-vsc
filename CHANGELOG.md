@@ -4,6 +4,14 @@ All notable changes to the **Copilot Cost Tracker** extension will be documented
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.1] - 2026-06-22
+
+### Fixed
+- Multi-window workspace attribution: turns are now attributed to their session's git repo (read from the traces DB) instead of whichever VS Code window ingested the shared global database, so sessions no longer appear under the wrong workspace
+- Cost-database upsert self-heals a turn's workspace to an authoritative `Org/Repo` label when a later ingest provides one
+- Pinned `@types/vscode` to `1.85.0` to match `engines.vscode` (fixes `vsce package` failure)
+- Resolved CodeQL and Sonar findings (webview HTML construction, message origin/shape validation, `Statement.run` typing, redundant array check, duplicate/constant test conditions)
+
 ## [0.6.0] - 2026-06-22
 
 ### Added
