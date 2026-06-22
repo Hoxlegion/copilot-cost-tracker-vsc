@@ -87,7 +87,7 @@ export function getInsightMetrics(db: Database, days: number = 30): InsightMetri
 
   const dailyStmt = db.prepare(`
     SELECT
-      date(timestamp / 1000, 'unixepoch') as period,
+      date(timestamp / 1000, 'unixepoch', 'localtime') as period,
       SUM(input_tokens), SUM(output_tokens), SUM(cached_tokens)
     FROM turns WHERE timestamp >= :since
     GROUP BY period ORDER BY period ASC

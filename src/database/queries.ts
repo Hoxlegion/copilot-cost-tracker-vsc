@@ -73,7 +73,7 @@ export function getDailyCostsSince(db: Database, sinceMs: number, workspace?: st
   const since = safeSinceMs(sinceMs);
   return queryRows(db, `
     SELECT
-      date(timestamp / 1000, 'unixepoch') as period,
+      date(timestamp / 1000, 'unixepoch', 'localtime') as period,
       SUM(cost_usd) as total_cost_usd,
       SUM(credits) as total_credits,
       COUNT(*) as turn_count
@@ -154,7 +154,7 @@ export function getDailyAgentBreakdown(db: Database, days: number = 365, workspa
   const since = daysToSinceMs(days);
   return queryRows(db, `
     SELECT
-      date(timestamp / 1000, 'unixepoch') as period,
+      date(timestamp / 1000, 'unixepoch', 'localtime') as period,
       agent_name,
       SUM(cost_usd) as total_cost_usd,
       SUM(credits) as total_credits,

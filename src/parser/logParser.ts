@@ -11,6 +11,8 @@ import { getVscodeUserDataPath } from "../shared/paths";
 
 export class LogParser {
   private readonly debugLogsBasePath: string;
+  /** Per-file cache of extracted title entries, keyed by path, invalidated by mtime. */
+  private readonly titleFileCache = new Map<string, { mtimeMs: number; entries: Array<[string, string]> }>();
 
   constructor() {
     this.debugLogsBasePath = path.join(getVscodeUserDataPath(), "workspaceStorage");
@@ -289,6 +291,21 @@ export class LogParser {
   }
 
   private extractTitlesFromFile(filePath: string, titles: Map<string, string>): void {
+    // Skip re-reading/re-parsing unchanged title files: this runs on every ingest
+    // poll, and title-*.jsonl files rarely change once a session has a title.
+    let mtimeMs: number | undefined;
+    try {
+      mtimeMs = fs.statSync(filePath).mtimeMs;
+    } catch {
+      return;
+    }
+
+    const cached = this.titleFileCache.get(filePath);
+    if (cached?.mtimeMs === mtimeMs) {
+      for (const [id, title] of cached.entries) titles.set(id, title);
+      return;
+    }
+
     let content: string;
     try {
       content = fs.readFileSync(filePath, "utf-8");
@@ -296,7 +313,14 @@ export class LogParser {
       return;
     }
 
+    const entries = this.parseTitleEntries(content);
+    this.titleFileCache.set(filePath, { mtimeMs, entries });
+    for (const [id, title] of entries) titles.set(id, title);
+  }
+
+  private parseTitleEntries(content: string): Array<[string, string]> {
     const lines = content.split("\n").filter((l) => l.trim());
+    const entries: Array<[string, string]> = [];
     let conversationId: string | undefined;
     let parentSessionId: string | undefined;
 
@@ -305,16 +329,17 @@ export class LogParser {
       if (!parsed) continue;
 
       conversationId ??= parsed.sid;
-
       if (parsed.type === "session_start" && parsed.parentSessionId) {
         parentSessionId = parsed.parentSessionId;
       }
 
       if (parsed.title) {
-        if (conversationId) titles.set(conversationId, parsed.title);
-        if (parentSessionId) titles.set(parentSessionId, parsed.title);
+        if (conversationId) entries.push([conversationId, parsed.title]);
+        if (parentSessionId) entries.push([parentSessionId, parsed.title]);
       }
     }
+
+    return entries;
   }
 
   private parseTitleEntry(line: string): { sid?: string; type?: string; parentSessionId?: string; title?: string } | null {

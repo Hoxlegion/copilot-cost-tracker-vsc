@@ -110,10 +110,8 @@
             class:zero={row[col.key] === '0.00' || row[col.key] === '$0.00' || row[col.key] === 0}
           >
             {#if col.type === 'percentage'}
-              <div class="pct-cell">
-                <div class="pct-bar" style="width: {Math.min(100, Number(row[col.key]))}%"></div>
-                <span class="pct-value">{row[col.key]}%</span>
-              </div>
+              {@const pctNum = Number(row[col.key])}
+              <span class="pct-value" class:pct-low={pctNum < 40}>{row[col.key]}%</span>
             {:else}
               {row[col.key]}
             {/if}
@@ -231,24 +229,13 @@
     border-bottom: 2px solid rgba(79, 195, 247, 0.2);
   }
   
-  .pct-cell {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    justify-content: flex-end;
-  }
-  
-  .pct-bar {
-    height: 4px;
-    background: linear-gradient(90deg, #81c784, #4fc3f7);
-    border-radius: 2px;
-    min-width: 2px;
-    max-width: 60px;
-    transition: width 0.3s ease;
-  }
-  
   .pct-value {
     min-width: 40px;
     text-align: right;
+  }
+  
+  .pct-value.pct-low {
+    color: #e57373;
+    font-weight: 600;
   }
 </style>

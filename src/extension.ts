@@ -179,6 +179,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(
     configManager, logger, promptIntelligence, sidebarView,
     promptCodeLens, promptHover, statusBar, contextTracker, ingester,
+    reader,
   );
 }
 

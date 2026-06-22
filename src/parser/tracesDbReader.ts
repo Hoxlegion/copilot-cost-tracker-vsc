@@ -29,6 +29,9 @@ export class TracesDbReader {
   private readonly dbPath: string;
   private wasmPath: string | undefined;
   private cachedSqlPromise: ReturnType<typeof initSqlJs> | undefined;
+  private cachedDb: Database | undefined;
+  private cachedMtimeMs = -1;
+  private cachedSize = -1;
 
   constructor(wasmPath?: string) {
     this.dbPath = path.join(getVscodeUserDataPath(), "globalStorage", "github.copilot-chat", "agent-traces.db");
@@ -98,22 +101,43 @@ export class TracesDbReader {
     return { clause: `WHERE ${conditions.join(" AND ")}`, params };
   }
 
-  private async openDb(): Promise<{ db: Database; close: () => void }> {
+  /**
+   * Return a cached sql.js `Database` for the traces file, reloading from disk only
+   * when the file's mtime or size changes. The traces DB can be large and queries
+   * run frequently (watcher-driven ingests + dashboard refreshes), so re-reading the
+   * entire file on every call was a major source of disk I/O.
+   */
+  private async getDb(): Promise<Database> {
+    const stat = fs.statSync(this.dbPath);
+    if (this.cachedDb && stat.mtimeMs === this.cachedMtimeMs && stat.size === this.cachedSize) {
+      return this.cachedDb;
+    }
+    this.cachedDb?.close();
+    this.cachedDb = undefined;
     const fileBuffer = fs.readFileSync(this.dbPath);
     const SQL = await this.getSqlJs();
-    const db = new SQL.Database(fileBuffer);
-    return { db, close: () => db.close() };
+    this.cachedDb = new SQL.Database(fileBuffer);
+    this.cachedMtimeMs = stat.mtimeMs;
+    this.cachedSize = stat.size;
+    return this.cachedDb;
+  }
+
+  /** Release the cached database handle. Call on extension deactivation. */
+  dispose(): void {
+    this.cachedDb?.close();
+    this.cachedDb = undefined;
+    this.cachedMtimeMs = -1;
+    this.cachedSize = -1;
   }
 
   async querySpans(sinceMs?: number): Promise<TraceSpan[]> {
     if (!this.exists()) return [];
 
-    const { db, close } = await this.openDb();
+    const db = await this.getDb();
 
-    try {
-      const { clause, params } = this.buildTokenFilter(sinceMs, undefined, "s");
+    const { clause, params } = this.buildTokenFilter(sinceMs, undefined, "s");
 
-      const stmt = db.prepare(
+    const stmt = db.prepare(
         `SELECT s.span_id, s.trace_id, s.parent_span_id, s.name, s.start_time_ms, s.end_time_ms,
                 s.status_code, s.operation_name, s.provider_name, s.agent_name, s.conversation_id,
                 s.request_model, s.response_model, s.input_tokens, s.output_tokens, s.cached_tokens,
@@ -148,9 +172,6 @@ export class TracesDbReader {
         }
       }
       return results;
-    } finally {
-      close();
-    }
   }
 
   /** Map each chat session to a friendly "Org/Repo" label from its git repo attribute. */
@@ -184,10 +205,9 @@ export class TracesDbReader {
   async getSurfaceBreakdown(sinceMs?: number): Promise<SurfaceBreakdown[]> {
     if (!this.exists()) return [];
 
-    const { db, close } = await this.openDb();
+    const db = await this.getDb();
 
-    try {
-      const { clause, params } = this.buildTokenFilter(
+    const { clause, params } = this.buildTokenFilter(
         sinceMs,
         `agent_name IS NOT '${AGGREGATE_AGENT_NAME}'`,
       );
@@ -221,19 +241,14 @@ export class TracesDbReader {
       }
       stmt.free();
       return results;
-
-    } finally {
-      close();
-    }
   }
 
   async getTurnDiscovery(sinceMs?: number): Promise<TurnDiscoveryRow[]> {
     if (!this.exists()) return [];
 
-    const { db, close } = await this.openDb();
+    const db = await this.getDb();
 
-    try {
-      const conditions = ["chat_session_id IS NOT NULL", `agent_name IS NOT '${AGGREGATE_AGENT_NAME}'`];
+    const conditions = ["chat_session_id IS NOT NULL", `agent_name IS NOT '${AGGREGATE_AGENT_NAME}'`];
       const params: unknown[] = [];
       if (sinceMs !== undefined) {
         conditions.push("start_time_ms >= ?");
@@ -271,8 +286,5 @@ export class TracesDbReader {
 
       if (rows.length === 0) return [];
       return buildTurnDiscovery(rows);
-    } finally {
-      close();
-    }
   }
 }

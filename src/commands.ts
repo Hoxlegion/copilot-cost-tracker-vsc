@@ -98,7 +98,7 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
           "Business": { plan: "business", credits: 300 },
           "Enterprise": { plan: "enterprise", credits: 1000 },
         };
-        const selected = planMap[picked.label]!;
+        const selected = planMap[picked.label];
         credits = selected.credits;
         await cfg.update("plan", selected.plan, vscode.ConfigurationTarget.Global);
       }

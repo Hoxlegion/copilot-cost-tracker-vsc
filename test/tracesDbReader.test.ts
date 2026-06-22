@@ -5,6 +5,7 @@ const mockPrepare = vi.fn();
 const mockClose = vi.fn();
 const mockExistsSync = vi.fn();
 const mockReadFileSync = vi.fn();
+const mockStatSync = vi.fn();
 
 vi.mock("node:os", () => ({
   homedir: () => "C:/Users/test",
@@ -14,6 +15,7 @@ vi.mock("node:os", () => ({
 vi.mock("node:fs", () => ({
   existsSync: (...args: unknown[]) => mockExistsSync(...args),
   readFileSync: (...args: unknown[]) => mockReadFileSync(...args),
+  statSync: (...args: unknown[]) => mockStatSync(...args),
 }));
 
 vi.mock("sql.js", () => ({
@@ -43,8 +45,10 @@ describe("TracesDbReader", () => {
     mockClose.mockReset();
     mockExistsSync.mockReset();
     mockReadFileSync.mockReset();
+    mockStatSync.mockReset();
     mockExistsSync.mockReturnValue(true);
     mockReadFileSync.mockReturnValue(new Uint8Array([100, 98]));
+    mockStatSync.mockReturnValue({ mtimeMs: 1, size: 2 });
   });
 
   it("reads spans from DB and defaults cacheWriteTokens to 0 (column removed from schema)", async () => {

@@ -4,6 +4,18 @@ All notable changes to the **Copilot Cost Tracker** extension will be documented
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.3] - 2026-06-22
+
+### Fixed
+- Daily charts (cost, tokens, agent breakdown) now bucket turns by **local calendar day** instead of UTC, so activity near midnight no longer lands on the wrong day
+
+### Changed
+- **Cache Hit** columns in the Activity and Models tables now show the value plainly and only highlight unusually low hit rates (< 40%); the always-full proportional bar was removed since agentic cache hit rates are uniformly high and the bar added no signal
+
+### Performance
+- The Copilot traces database is now kept open and re-read only when the file changes (mtime/size), eliminating repeated full-file reads on every dashboard refresh and watcher-driven ingest
+- Session title files (`title-*.jsonl`) are cached per file and re-parsed only when they change, instead of being re-read on every ingest poll
+
 ## [0.6.2] - 2026-06-22
 
 ### Changed

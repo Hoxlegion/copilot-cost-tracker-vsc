@@ -39,7 +39,8 @@ export class DashboardDataAssembler {
     const insightMetrics = this.database.getInsightMetrics(30);
     const monthTotal = this.database.getCurrentMonthTotal();
     const dailyCostsForRange = this.database.getDailyCosts(365);
-    const thirtyDaysAgo = new Date(sinceMs30d).toISOString().slice(0, 10);
+    const cutoff = new Date(sinceMs30d);
+    const thirtyDaysAgo = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, "0")}-${String(cutoff.getDate()).padStart(2, "0")}`;
     const dailyCosts = dailyCostsForRange.filter(d => d.period >= thirtyDaysAgo);
     const insightMetricsFullRange = this.database.getInsightMetrics(365);
     const modelBreakdown = this.database.getModelBreakdown(30);
