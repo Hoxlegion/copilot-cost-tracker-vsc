@@ -24,8 +24,6 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
 
   resolveWebviewView(
     webviewView: vscode.WebviewView,
-    _context: vscode.WebviewViewResolveContext,
-    _token: vscode.CancellationToken,
   ): void {
     this.view = webviewView;
     webviewView.webview.options = { enableScripts: true };
@@ -129,120 +127,19 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
   private buildHtml(): string {
     const d = this.getData();
     const usagePct = d.budgetCredits > 0 ? (d.period.credits / d.budgetCredits) * 100 : 0;
-    const barColor = usagePct >= 100 ? "#e57373" : usagePct >= 80 ? "#ffb74d" : "#4fc3f7";
-    const remaining = d.budgetCredits - d.period.credits;
 
-    // Today trend
-    const todayTrend = d.yesterday.costUsd > 0 && d.today.costUsd > d.yesterday.costUsd
-      ? `<span class="trend up">↑ vs yesterday</span>`
-      : d.yesterday.costUsd > 0 && d.today.costUsd < d.yesterday.costUsd
-        ? `<span class="trend down">↓ vs yesterday</span>`
-        : "";
+    let barColor = "#4fc3f7";
+    if (usagePct >= 100) barColor = "#e57373";
+    else if (usagePct >= 80) barColor = "#ffb74d";
 
-    // Pace
-    let paceHtml = "";
-    if (d.period.turns >= 10) {
-      const paceColor = d.budgetCredits > 0 && d.projected > d.budgetCredits ? "#e57373" : "#81c784";
-      const paceLabel = d.budgetCredits > 0 && d.projected > d.budgetCredits
-        ? `On pace to exceed budget by ~${fmtNum(d.projected - d.budgetCredits)} cr`
-        : d.budgetCredits > 0
-          ? `On pace to stay ${fmtNum(d.budgetCredits - d.projected)} cr under budget`
-          : "";
-      paceHtml = `
-        <div class="pace-section">
-          <div class="section-label">PACE</div>
-          <div class="pace-value">${fmtNum(d.projected)} <span class="pace-unit">credits</span> <span class="pace-note">projected this period</span></div>
-          ${paceLabel ? `<div class="pace-alert" style="color:${paceColor}">${paceLabel}</div>` : ""}
-        </div>`;
-    }
-
-    // Models
-    let modelsHtml = "";
-    if (d.models.length > 0) {
-      const maxCost = d.models[0].totalCostUsd;
-      modelsHtml = d.models.slice(0, 6).map((m) => {
-        const barW = maxCost > 0 ? (m.totalCostUsd / maxCost) * 100 : 0;
-        return `
-          <div class="breakdown-row">
-            <div class="breakdown-bar" style="width:${barW}%"></div>
-            <span class="breakdown-name" title="${esc(m.model)}">${esc(simplifyModelName(m.model))}</span>
-            <span class="breakdown-val">${fmtUsd(m.totalCostUsd)}</span>
-            <span class="breakdown-pct">${m.percentage.toFixed(0)}%</span>
-          </div>`;
-      }).join("");
-    }
-
-    // Agents
-    let agentsHtml = "";
-    if (d.agents.length > 0) {
-      const maxAgent = d.agents[0].totalCostUsd;
-      agentsHtml = d.agents.slice(0, 5).map((a) => {
-        const barW = maxAgent > 0 ? (a.totalCostUsd / maxAgent) * 100 : 0;
-        return `
-          <div class="breakdown-row">
-            <div class="breakdown-bar agent-bar" style="width:${barW}%"></div>
-            <span class="breakdown-name" title="${esc(a.agentName)}">${esc(formatAgentName(a.agentName))}</span>
-            <span class="breakdown-val">${fmtUsd(a.totalCostUsd)}</span>
-            <span class="breakdown-pct">${a.percentage.toFixed(0)}%</span>
-          </div>`;
-      }).join("");
-    }
-
-    // Workspaces
-    let wsHtml = "";
-    if (d.wsBreakdown.length > 1) {
-      const maxWs = d.wsBreakdown[0].credits;
-      wsHtml = `
-        <div class="section-divider"></div>
-        <div class="collapse-section">
-          <details>
-            <summary class="section-header">WORKSPACES <span class="badge">${d.wsBreakdown.length}</span></summary>
-            <div class="section-body">
-              ${d.wsBreakdown.slice(0, 8).map((ws) => {
-                const barW = maxWs > 0 ? (ws.credits / maxWs) * 100 : 0;
-                return `
-                  <div class="breakdown-row">
-                    <div class="breakdown-bar ws-bar" style="width:${barW}%"></div>
-                    <span class="breakdown-name" title="${esc(ws.name)}">${esc(ws.name)}</span>
-                    <span class="breakdown-val">${fmtUsd(ws.costUsd)}</span>
-                    <span class="breakdown-pct">${ws.turns} t</span>
-                  </div>`;
-              }).join("")}
-            </div>
-          </details>
-        </div>`;
-    }
-
-    // Sessions
-    let sessionsHtml = "";
-    if (d.sessions.length > 0) {
-      sessionsHtml = d.sessions.map((s) => {
-        const time = new Date(s.lastTimestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-        const model = simplifyModelName(s.primaryModel);
-        const wsName = resolveWorkspaceName(s.workspace);
-        const isExpensive = s.totalCostUsd >= 50;
-        const costClass = isExpensive ? "session-cost expensive" : "session-cost";
-        const titleLine = s.title
-          ? `<div class="session-title" title="${esc(s.title)}">${esc(s.title)}</div>`
-          : "";
-        return `
-          <div class="session-row${isExpensive ? " expensive" : ""}">
-            <div class="session-top">
-              <span class="session-time">${time}</span>
-              <span class="session-ws" title="${esc(s.workspace)}">${esc(wsName)}</span>
-              <span class="${costClass}">${fmtUsd(s.totalCostUsd)}</span>
-            </div>
-            ${titleLine}
-            <div class="session-bottom">
-              <span class="session-model">${esc(model)}</span>
-              <span class="session-sep">·</span>
-              <span>${s.turnCount} turns</span>
-              <span class="session-sep">·</span>
-              <span>${formatDuration(s.avgDurationMs)} avg</span>
-            </div>
-          </div>`;
-      }).join("");
-    }
+    const todayTrend = this.getTodayTrend(d.yesterday.costUsd, d.today.costUsd);
+    const paceHtml = this.buildPaceSection(d.period.turns, d.budgetCredits, d.projected);
+    const modelsHtml = this.buildModelsRows(d.models);
+    const agentsHtml = this.buildAgentsRows(d.agents);
+    const breakdownHtml = this.buildBreakdownSection(modelsHtml, agentsHtml, d.models.length);
+    const wsHtml = this.buildWsSection(d.wsBreakdown);
+    const sessionsRows = this.buildSessionsRows(d.sessions);
+    const sessionsHtml = this.buildSessionsSection(sessionsRows, d.sessions.length);
 
     return `<!DOCTYPE html>
 <html>
@@ -301,37 +198,11 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
 
     ${paceHtml}
 
-    <!-- Breakdown -->
-    ${(modelsHtml || agentsHtml) ? `
-      <div class="section-divider"></div>
-      <div class="collapse-section">
-        <details>
-          <summary class="section-header">BREAKDOWN <span class="badge">${d.models.length} models</span></summary>
-          <div class="section-body">
-            ${modelsHtml}
-            ${agentsHtml ? `
-              <div class="sub-label">Agents</div>
-              ${agentsHtml}
-            ` : ""}
-          </div>
-        </details>
-      </div>
-    ` : ""}
+    ${breakdownHtml}
 
     ${wsHtml}
 
-    <!-- Sessions -->
-    ${sessionsHtml ? `
-      <div class="section-divider"></div>
-      <div class="collapse-section">
-        <details>
-          <summary class="section-header">SESSIONS <span class="badge">${d.sessions.length} recent</span></summary>
-          <div class="section-body">
-            ${sessionsHtml}
-          </div>
-        </details>
-      </div>
-    ` : ""}
+    ${sessionsHtml}
 
     <!-- Actions -->
     <div class="section-divider"></div>
@@ -347,6 +218,154 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
   </script>
 </body>
 </html>`;
+  }
+
+  // ── Section builders ────────────────────────────────────
+
+  private getTodayTrend(yesterdayCost: number, todayCost: number): string {
+    if (yesterdayCost > 0 && todayCost > yesterdayCost) {
+      return `<span class="trend up">↑ vs yesterday</span>`;
+    }
+    if (yesterdayCost > 0 && todayCost < yesterdayCost) {
+      return `<span class="trend down">↓ vs yesterday</span>`;
+    }
+    return "";
+  }
+
+  private buildPaceSection(turns: number, budgetCredits: number, projected: number): string {
+    if (turns < 10) return "";
+
+    const paceColor = budgetCredits > 0 && projected > budgetCredits ? "#e57373" : "#81c784";
+    let paceLabel = "";
+    if (budgetCredits > 0 && projected > budgetCredits) {
+      paceLabel = `On pace to exceed budget by ~${fmtNum(projected - budgetCredits)} cr`;
+    } else if (budgetCredits > 0) {
+      paceLabel = `On pace to stay ${fmtNum(budgetCredits - projected)} cr under budget`;
+    }
+
+    return `
+      <div class="pace-section">
+        <div class="section-label">PACE</div>
+        <div class="pace-value">${fmtNum(projected)} <span class="pace-unit">credits</span> <span class="pace-note">projected this period</span></div>
+        ${paceLabel ? `<div class="pace-alert" style="color:${paceColor}">${paceLabel}</div>` : ""}
+      </div>`;
+  }
+
+  private buildModelsRows(models: { model: string; totalCostUsd: number; percentage: number }[]): string {
+    if (models.length === 0) return "";
+    const maxCost = models[0].totalCostUsd;
+    return models.slice(0, 6).map((m) => {
+      const barW = maxCost > 0 ? (m.totalCostUsd / maxCost) * 100 : 0;
+      return `
+        <div class="breakdown-row">
+          <div class="breakdown-bar" style="width:${barW}%"></div>
+          <span class="breakdown-name" title="${esc(m.model)}">${esc(simplifyModelName(m.model))}</span>
+          <span class="breakdown-val">${fmtUsd(m.totalCostUsd)}</span>
+          <span class="breakdown-pct">${m.percentage.toFixed(0)}%</span>
+        </div>`;
+    }).join("");
+  }
+
+  private buildAgentsRows(agents: { agentName: string; totalCostUsd: number; percentage: number }[]): string {
+    if (agents.length === 0) return "";
+    const maxAgent = agents[0].totalCostUsd;
+    return agents.slice(0, 5).map((a) => {
+      const barW = maxAgent > 0 ? (a.totalCostUsd / maxAgent) * 100 : 0;
+      return `
+        <div class="breakdown-row">
+          <div class="breakdown-bar agent-bar" style="width:${barW}%"></div>
+          <span class="breakdown-name" title="${esc(a.agentName)}">${esc(formatAgentName(a.agentName))}</span>
+          <span class="breakdown-val">${fmtUsd(a.totalCostUsd)}</span>
+          <span class="breakdown-pct">${a.percentage.toFixed(0)}%</span>
+        </div>`;
+    }).join("");
+  }
+
+  private buildBreakdownSection(modelsHtml: string, agentsHtml: string, modelCount: number): string {
+    if (!modelsHtml && !agentsHtml) return "";
+    const agentsSection = agentsHtml
+      ? `<div class="sub-label">Agents</div>${agentsHtml}`
+      : "";
+    return `
+      <!-- Breakdown -->
+      <div class="section-divider"></div>
+      <div class="collapse-section">
+        <details>
+          <summary class="section-header">BREAKDOWN <span class="badge">${modelCount} models</span></summary>
+          <div class="section-body">
+            ${modelsHtml}
+            ${agentsSection}
+          </div>
+        </details>
+      </div>`;
+  }
+
+  private buildWsSection(wsBreakdown: { name: string; costUsd: number; credits: number; turns: number }[]): string {
+    if (wsBreakdown.length <= 1) return "";
+    const maxWs = wsBreakdown[0].credits;
+    return `
+      <div class="section-divider"></div>
+      <div class="collapse-section">
+        <details>
+          <summary class="section-header">WORKSPACES <span class="badge">${wsBreakdown.length}</span></summary>
+          <div class="section-body">
+            ${wsBreakdown.slice(0, 8).map((ws) => {
+              const barW = maxWs > 0 ? (ws.credits / maxWs) * 100 : 0;
+              return `
+                <div class="breakdown-row">
+                  <div class="breakdown-bar ws-bar" style="width:${barW}%"></div>
+                  <span class="breakdown-name" title="${esc(ws.name)}">${esc(ws.name)}</span>
+                  <span class="breakdown-val">${fmtUsd(ws.costUsd)}</span>
+                  <span class="breakdown-pct">${ws.turns} t</span>
+                </div>`;
+            }).join("")}
+          </div>
+        </details>
+      </div>`;
+  }
+
+  private buildSessionsRows(sessions: { lastTimestamp: number; primaryModel: string; workspace: string; totalCostUsd: number; title: string | null; turnCount: number; avgDurationMs: number }[]): string {
+    return sessions.map((s) => {
+      const time = new Date(s.lastTimestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      const model = simplifyModelName(s.primaryModel);
+      const wsName = resolveWorkspaceName(s.workspace);
+      const isExpensive = s.totalCostUsd >= 50;
+      const costClass = isExpensive ? "session-cost expensive" : "session-cost";
+      const titleLine = s.title
+        ? `<div class="session-title" title="${esc(s.title)}">${esc(s.title)}</div>`
+        : "";
+      return `
+        <div class="session-row${isExpensive ? " expensive" : ""}">
+          <div class="session-top">
+            <span class="session-time">${time}</span>
+            <span class="session-ws" title="${esc(s.workspace)}">${esc(wsName)}</span>
+            <span class="${costClass}">${fmtUsd(s.totalCostUsd)}</span>
+          </div>
+          ${titleLine}
+          <div class="session-bottom">
+            <span class="session-model">${esc(model)}</span>
+            <span class="session-sep">·</span>
+            <span>${s.turnCount} turns</span>
+            <span class="session-sep">·</span>
+            <span>${formatDuration(s.avgDurationMs)} avg</span>
+          </div>
+        </div>`;
+    }).join("");
+  }
+
+  private buildSessionsSection(sessionsHtml: string, count: number): string {
+    if (!sessionsHtml) return "";
+    return `
+      <!-- Sessions -->
+      <div class="section-divider"></div>
+      <div class="collapse-section">
+        <details>
+          <summary class="section-header">SESSIONS <span class="badge">${count} recent</span></summary>
+          <div class="section-body">
+            ${sessionsHtml}
+          </div>
+        </details>
+      </div>`;
   }
 
   private getStyles(): string {
@@ -707,5 +726,5 @@ function ordinal(day: number): string {
 }
 
 function esc(text: string): string {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  return text.replaceAll('&', "&amp;").replaceAll('<', "&lt;").replaceAll('>', "&gt;").replaceAll('"', "&quot;");
 }
