@@ -95,7 +95,20 @@ export function assessBudgetPace(
   const dayMs = 24 * 60 * 60 * 1000;
 
   const totalDays = Math.max(1, (periodEndMs - periodStartMs) / dayMs);
-  const daysElapsed = Math.max(1, (nowMs - periodStartMs) / dayMs);
+  const daysElapsed = (nowMs - periodStartMs) / dayMs;
+
+  // Guard against division by zero (and negative values) at the very start of a period.
+  if (daysElapsed <= 0) {
+    return {
+      level: "on-track",
+      shortLabel: "PACE OK",
+      expectedCreditsNow: 0,
+      paceRatio: 0,
+      daysElapsed: Math.max(0, daysElapsed),
+      totalDays,
+    };
+  }
+
   const elapsedRatio = Math.min(1, Math.max(0, daysElapsed / totalDays));
 
   if (!Number.isFinite(budgetCredits) || budgetCredits <= 0) {
