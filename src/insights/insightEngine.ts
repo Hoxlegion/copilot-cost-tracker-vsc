@@ -1,4 +1,9 @@
 import { CostReader, AlertMetrics } from "../database";
+import {
+  HIGH_VERBOSITY_AVG_OUTPUT_TOKENS,
+  CONTEXT_BLOAT_SESSION_INPUT_TOKENS,
+  CACHE_DECAY_IDLE_GAP_MS,
+} from "./alertThresholds";
 
 export interface DashboardAlert {
   id: string;
@@ -29,9 +34,7 @@ export interface AlertThresholds {
 }
 
 // Thresholds — named constants so they document intent
-const HIGH_VERBOSITY_AVG_OUTPUT_TOKENS = 600; // turns averaging >600 output tokens are paying for narration
-const CONTEXT_BLOAT_SESSION_INPUT_TOKENS = 40_000; // session accumulating >40K input tokens has dead weight
-const CACHE_DECAY_IDLE_GAP_MS = 5 * 60 * 1000; // >5 min idle likely busts the Copilot cache TTL
+// Display thresholds are consolidated in ./alertThresholds.ts
 
 // Format token counts as "1.2M" above 1M, "49.2K" above 1K, or plain number below.
 function formatTokens(tokens: number): string {
