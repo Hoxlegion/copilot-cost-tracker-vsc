@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { randomBytes } from 'node:crypto';
 import { CostReader } from '../database';
 import { PricingEngine } from '../pricing';
 import { TracesDbReader } from '../parser';
@@ -133,12 +134,7 @@ export class DashboardPanel {
   }
 
   private getNonce(): string {
-    let text = '';
-    const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    for (let i = 0; i < 32; i++) {
-      text += possible.charAt(Math.floor(Math.random() * possible.length));
-    }
-    return text;
+    return randomBytes(16).toString('hex');
   }
 
   private dispose(): void {
