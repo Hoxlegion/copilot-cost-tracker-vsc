@@ -334,6 +334,12 @@
           "minimum": 10,
           "maximum": 1000,
           "description": "Maximum number of recent sessions to load when opening the dashboard. Lower values improve load time on large histories."
+        },
+        "copilotCostTracker.weekStartDay": {
+          "type": "string",
+          "enum": ["monday", "sunday"],
+          "default": "monday",
+          "description": "First day of the week used for the weekly cost total in the sidebar."
         }
       }
     }

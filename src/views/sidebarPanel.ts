@@ -142,7 +142,9 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
   private getWeek() {
     const now = new Date();
     const dow = now.getDay();
-    const offset = dow === 0 ? 6 : dow - 1;
+    const weekStartDay = this.configManager.config.weekStartDay;
+    const offset =
+      weekStartDay === "sunday" ? dow : dow === 0 ? 6 : dow - 1;
     const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - offset).getTime();
     return this.database.getCostSince(weekStart);
   }

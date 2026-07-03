@@ -55,6 +55,9 @@ export interface ExtensionConfig {
   dashboardSessionLimit: number;
 
   // Display
+  weekStartDay: "monday" | "sunday";
+
+  // Display
   currency: string;
   exchangeRate: number;
   showStatusBar: boolean;
@@ -183,6 +186,7 @@ function readConfig(): ExtensionConfig {
 
   const alertWindowHours = clamp(Math.round(cfg.get<number>("alertWindowHours") ?? 24), 1, 168);
   const dashboardSessionLimit = clamp(Math.round(cfg.get<number>("dashboardSessionLimit") ?? 200), 10, 1000);
+  const weekStartDay = cfg.get<string>("weekStartDay") === "sunday" ? "sunday" : "monday";
 
   const currency = cfg.get<string>("currency") ?? "USD";
   const exchangeRate = Math.max(cfg.get<number>("exchangeRate") ?? 1, 0.0001);
@@ -212,6 +216,7 @@ function readConfig(): ExtensionConfig {
     plan,
     alertWindowHours,
     dashboardSessionLimit,
+    weekStartDay,
     currency,
     exchangeRate,
     showStatusBar,
