@@ -24,7 +24,6 @@ export interface ModelRate {
  */
 export interface ExtensionConfig {
   // Polling
-  pollIntervalMin: number;
   pollIntervalMax: number;
   refreshDebounceMs: number;
 
@@ -125,12 +124,9 @@ function parseCustomModelRates(rawCustomRates: unknown): Record<string, ModelRat
 function readConfig(): ExtensionConfig {
   const cfg = vscode.workspace.getConfiguration(SECTION);
 
-  const pollIntervalMin = clamp(cfg.get<number>("pollIntervalMin") ?? 5000, 1000, 300000);
-  const rawPollMax = clamp(cfg.get<number>("pollIntervalMax") ?? 30000, pollIntervalMin, 600000);
-  const pollIntervalMax = Math.max(rawPollMax, pollIntervalMin);
-  if (rawPollMax < pollIntervalMin) {
-    console.warn(`[Config] pollIntervalMax (${cfg.get<number>("pollIntervalMax")}) is less than pollIntervalMin (${pollIntervalMin}), clamping to ${pollIntervalMax}`);
-  }
+  // pollIntervalMin is deprecated and no longer used; the event-driven watcher relies
+  // on pollIntervalMax as a fallback only.
+  const pollIntervalMax = clamp(Math.round(cfg.get<number>("pollIntervalMax") ?? 30000), 5000, 600000);
   const refreshDebounceMs = clamp(Math.round(cfg.get<number>("refreshDebounceMs") ?? 300), 100, 5000);
 
   const billingCycleStartDay = clamp(Math.round(cfg.get<number>("billingCycleStartDay") ?? 1), 1, 31);
@@ -199,7 +195,6 @@ function readConfig(): ExtensionConfig {
     : "error";
 
   return {
-    pollIntervalMin,
     pollIntervalMax,
     refreshDebounceMs,
     billingCycleStartDay,
