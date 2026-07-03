@@ -153,6 +153,12 @@ Most users won't need to change anything. These are the most common settings:
 | `billingCycleStartDay` | number | `1` | Day of month your billing resets (1–31) |
 | `budgetWarningThresholds` | array | `[75, 90, 100]` | % thresholds for VS Code notifications |
 | `currency` | string | `"USD"` | Display currency code |
+| `currency` | string | `"USD"` | Display currency code (e.g. `EUR`, `GBP`). Requires `exchangeRate`. |
+| `exchangeRate` | number | `1` | Exchange rate from USD to the configured `currency`. |
+| `userDataPath` | string | `""` | Manual override for the editor user-data path (see fork support below). |
+| `alertWindowHours` | number | `24` | Lookback window (hours) for efficiency alerts (1–168). |
+| `dashboardSessionLimit` | number | `200` | Max recent sessions loaded when opening the dashboard (10–1000). |
+| `weekStartDay` | enum | `"monday"` | First day of the week for the sidebar's weekly total (`monday`/`sunday`). |
 | `showStatusBar` | boolean | `true` | Show cost in status bar |
 | `contextWeightNotifications` | boolean | `true` | Show warnings for heavy context (20K, 40K, 80K tokens) |
 | `microTurnGapSeconds` | number | `120` | Max seconds between turns for micro-turn pattern detection |
@@ -175,8 +181,20 @@ Accessible via the Command Palette (`Ctrl+Shift+P`) under the **Copilot Cost Tra
 | `Copilot Cost Tracker: Open Dashboard` | Opens the webview dashboard in a side panel. |
 | `Copilot Cost Tracker: Scan All Workspaces` | Ingests all available data without watermark restriction. |
 | `Copilot Cost Tracker: Scan Full History` | Ingests from timestamp 0 — backfills the entire available history. |
+| `Copilot Cost Tracker: Set Monthly Budget` | Pick a plan or enter a custom monthly credit budget. |
+| `Copilot Cost Tracker: Export Usage Data` | Export all recorded turns to a JSON or CSV file. |
 
 ---
+
+## Editor & Fork Support
+
+Copilot Cost Tracker automatically locates the editor's user-data directory for VS Code and popular forks:
+
+- **VS Code** and **VS Code Insiders** (`Code - Insiders`)
+- **Cursor** and **Windsurf**
+- **Portable Mode** (via the `VSCODE_PORTABLE` environment variable)
+
+If auto-detection fails (unusual install location, remote setup, etc.), set `copilotCostTracker.userDataPath` to the absolute path of your editor's `User` data directory as a manual override.
 
 ## UI Components
 
@@ -248,8 +266,9 @@ Open via **Copilot Cost Tracker: Open Dashboard** command or the graph icon in t
 All settings under `copilotCostTracker.*`:
 - **Billing**: `billingCycleStartDay`, `budgetCredits`, `budgetWarningThresholds`
 - **Pricing**: `customModelRates`, `excludedModels`, `pricingUrl`  
-- **Data**: `telemetrySource`, `pollIntervalMin`, `pollIntervalMax`, `initialScanDays`
-- **Display**: `currency`, `exchangeRate`, `showStatusBar`
+- **Data**: `telemetrySource`, `pollIntervalMax`, `initialScanDays`, `userDataPath`
+- **Display**: `currency`, `exchangeRate`, `weekStartDay`, `showStatusBar`
+- **Insights**: `alertWindowHours`, `dashboardSessionLimit`
 - **Debug**: `logLevel`
 
 Tip: open VS Code Settings and search for `copilotCostTracker.` to browse all available options.
