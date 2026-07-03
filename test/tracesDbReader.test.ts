@@ -9,6 +9,10 @@ const mockStatSync = vi.fn();
 const mockOpenSync = vi.fn();
 const mockFstatSync = vi.fn();
 const mockCloseSync = vi.fn();
+const mockPromisesOpen = vi.fn();
+const mockFhStat = vi.fn();
+const mockFhReadFile = vi.fn();
+const mockFhClose = vi.fn();
 
 vi.mock("node:os", () => ({
   homedir: () => "C:/Users/test",
@@ -22,6 +26,9 @@ vi.mock("node:fs", () => ({
   openSync: (...args: unknown[]) => mockOpenSync(...args),
   fstatSync: (...args: unknown[]) => mockFstatSync(...args),
   closeSync: (...args: unknown[]) => mockCloseSync(...args),
+  promises: {
+    open: (...args: unknown[]) => mockPromisesOpen(...args),
+  },
 }));
 
 vi.mock("sql.js", () => ({
@@ -61,6 +68,18 @@ describe("TracesDbReader", () => {
     mockOpenSync.mockReturnValue(3);
     mockFstatSync.mockReturnValue({ mtimeMs: 1, size: 2 });
     mockCloseSync.mockReturnValue(undefined);
+    mockFhStat.mockReset();
+    mockFhReadFile.mockReset();
+    mockFhClose.mockReset();
+    mockPromisesOpen.mockReset();
+    mockFhStat.mockResolvedValue({ mtimeMs: 1, size: 2 });
+    mockFhReadFile.mockResolvedValue(new Uint8Array([100, 98]));
+    mockFhClose.mockResolvedValue(undefined);
+    mockPromisesOpen.mockResolvedValue({
+      stat: (...args: unknown[]) => mockFhStat(...args),
+      readFile: (...args: unknown[]) => mockFhReadFile(...args),
+      close: (...args: unknown[]) => mockFhClose(...args),
+    });
   });
 
   it("reads spans from DB and defaults cacheWriteTokens to 0 (column removed from schema)", async () => {
