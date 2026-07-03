@@ -109,5 +109,56 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
       refreshAndUpdate();
       vscode.window.showInformationMessage(`Copilot Cost Tracker: Monthly budget set to ${credits} credits.`);
     }),
+
+    vscode.commands.registerCommand("copilotCostTracker.exportData", async () => {
+      try {
+        const format = await vscode.window.showQuickPick(
+          [
+            { label: "JSON", description: "Structured JSON array of all turns" },
+            { label: "CSV", description: "Comma-separated values for spreadsheets" },
+          ],
+          { placeHolder: "Select export format", title: "Export Usage Data" },
+        );
+        if (!format) return;
+
+        const ext = format.label === "CSV" ? "csv" : "json";
+        const stamp = new Date().toISOString().slice(0, 10);
+        const target = await vscode.window.showSaveDialog({
+          title: "Export Usage Data",
+          saveLabel: "Export",
+          defaultUri: vscode.Uri.file(`copilot-cost-export-${stamp}.${ext}`),
+          filters: format.label === "CSV" ? { "CSV files": ["csv"] } : { "JSON files": ["json"] },
+        });
+        if (!target) return;
+
+        const turns = database.getAllTurns();
+        let content: string;
+        if (format.label === "CSV") {
+          const headers = [
+            "id", "sessionId", "timestamp", "duration", "agentName", "model", "modelFamily",
+            "inputTokens", "outputTokens", "cachedTokens", "cacheWriteTokens", "totalTokens",
+            "costUsd", "credits", "workspace", "status", "costSource",
+          ];
+          const escape = (v: unknown): string => {
+            const s = v == null ? "" : String(v);
+            return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+          };
+          const lines = [headers.join(",")];
+          for (const t of turns) {
+            lines.push(headers.map((h) => escape((t as unknown as Record<string, unknown>)[h])).join(","));
+          }
+          content = lines.join("\r\n");
+        } else {
+          content = JSON.stringify(turns, null, 2);
+        }
+
+        await vscode.workspace.fs.writeFile(target, Buffer.from(content, "utf8"));
+        vscode.window.showInformationMessage(
+          `Copilot Cost Tracker: Exported ${turns.length} turns to ${target.fsPath}`,
+        );
+      } catch (err) {
+        vscode.window.showErrorMessage(`Copilot Cost Tracker: Export failed — ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }),
   );
 }

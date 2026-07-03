@@ -372,6 +372,39 @@ export function getTurnsForSession(db: Database, sessionId: string, limit: numbe
   return rows;
 }
 
+export function getAllTurns(db: Database): StoredTurn[] {
+  const stmt = db.prepare(
+    `SELECT id, session_id, timestamp, duration, agent_name, model, model_family, input_tokens, output_tokens, cached_tokens, cache_write_tokens, total_tokens, cost_usd, credits, workspace, status, cost_source
+     FROM turns
+     ORDER BY timestamp ASC`
+  );
+  const rows: StoredTurn[] = [];
+  while (stmt.step()) {
+    const row = stmt.getAsObject();
+    rows.push({
+      id: row.id as number,
+      sessionId: row.session_id as string,
+      timestamp: row.timestamp as number,
+      duration: row.duration as number,
+      agentName: row.agent_name as string,
+      model: row.model as string,
+      modelFamily: row.model_family as string,
+      inputTokens: row.input_tokens as number,
+      outputTokens: row.output_tokens as number,
+      cachedTokens: row.cached_tokens as number,
+      cacheWriteTokens: row.cache_write_tokens as number,
+      totalTokens: row.total_tokens as number,
+      costUsd: row.cost_usd as number,
+      credits: row.credits as number,
+      workspace: row.workspace as string,
+      status: row.status as string,
+      costSource: (row.cost_source as "real" | "estimated") ?? "estimated",
+    });
+  }
+  stmt.free();
+  return rows;
+}
+
 export function getMaxTimestamp(db: Database): number {
   const result = db.exec("SELECT MAX(timestamp) FROM turns");
   if (result.length > 0 && result[0].values.length > 0 && result[0].values[0][0] != null) {

@@ -82,6 +82,12 @@
         "title": "Set Monthly Budget",
         "category": "Copilot Cost Tracker",
         "icon": "$(credit-card)"
+      },
+      {
+        "command": "copilotCostTracker.exportData",
+        "title": "Export Usage Data",
+        "category": "Copilot Cost Tracker",
+        "icon": "$(export)"
       }
     ],
     "menus": {
