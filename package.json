@@ -253,6 +253,17 @@
           "default": true,
           "description": "Show live cost indicator in the status bar."
         },
+        "copilotCostTracker.currency": {
+          "type": "string",
+          "default": "USD",
+          "description": "Currency code for cost display (e.g. EUR, GBP). Requires exchangeRate to be set."
+        },
+        "copilotCostTracker.exchangeRate": {
+          "type": "number",
+          "default": 1,
+          "minimum": 0.0001,
+          "description": "Exchange rate from USD to the configured currency."
+        },
         "copilotCostTracker.contextWeightNotifications": {
           "type": "boolean",
           "default": true,
