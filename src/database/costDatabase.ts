@@ -116,9 +116,28 @@ export class CostDatabase implements CostReader, CostWriter, CostMaintenance {
   }
 
   private mergeDuplicateSessionRecords(db: Database): void {
-    // Check if migration already ran (marker stored as a pragmatic session record)
-    const marker = db.exec("SELECT 1 FROM sessions WHERE session_id = '__migration_merge_v2__'");
-    if (marker.length > 0 && marker[0].values.length > 0) return;
+    // Migration completion is tracked via PRAGMA user_version instead of a fake
+    // session row so it no longer pollutes the sessions table. The user_version
+    // counter is shared across data migrations: v1 = cache-token semantics (see
+    // recomputeCacheTokenSemantics), v2 = this session dedup. We therefore only
+    // advance the counter once v1 has already run, so we never skip it.
+    const CACHE_MIGRATION_VERSION = 1;
+    const MERGE_MIGRATION_VERSION = 2;
+    const currentVersion = Number(db.exec("PRAGMA user_version")[0]?.values?.[0]?.[0] ?? 0);
+
+    // Migrate any legacy sentinel-row bookkeeping to user_version, then remove the
+    // sentinel so it no longer appears in the sessions table.
+    const legacyMarker = db.exec("SELECT 1 FROM sessions WHERE session_id = '__migration_merge_v2__'");
+    const hadLegacyMarker = legacyMarker.length > 0 && legacyMarker[0].values.length > 0;
+    if (hadLegacyMarker) {
+      db.run("DELETE FROM sessions WHERE session_id = '__migration_merge_v2__'");
+      if (currentVersion >= CACHE_MIGRATION_VERSION && currentVersion < MERGE_MIGRATION_VERSION) {
+        db.run(`PRAGMA user_version = ${MERGE_MIGRATION_VERSION}`);
+      }
+      return;
+    }
+
+    if (currentVersion >= MERGE_MIGRATION_VERSION) return;
 
     // Defer marking completion until title sync has happened at least once.
     // Otherwise we may mark as done too early and miss legacy duplicates.
@@ -201,11 +220,12 @@ export class CostDatabase implements CostReader, CostWriter, CostMaintenance {
       }
     }
 
-    // Mark migration as done so it doesn't re-run
-    db.run(
-      `INSERT OR IGNORE INTO sessions (session_id, workspace, start_timestamp, last_timestamp, processed_at) VALUES ('__migration_merge_v2__', '', 0, 0, ?)`,
-      [Date.now()]
-    );
+    // Mark migration as done so it doesn't re-run — but only once the v1
+    // (cache-token) migration has run, so we never skip it. If v1 hasn't run yet,
+    // leave the counter untouched; this idempotent dedup will re-run next pass.
+    if (currentVersion >= CACHE_MIGRATION_VERSION) {
+      db.run(`PRAGMA user_version = ${MERGE_MIGRATION_VERSION}`);
+    }
   }
 
   /** Returns true if the database was corrupted and had to be reset during initialization. */
