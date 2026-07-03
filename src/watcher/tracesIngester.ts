@@ -312,7 +312,7 @@ export class TracesIngester implements vscode.Disposable {
   private async ingestFromJsonl(): Promise<number> {
     let sessions;
     try {
-      sessions = this.logParser.parseAllSessions();
+      sessions = await this.logParser.parseAllSessions();
     } catch (err) {
       this.logger.error("Failed to parse JSONL sessions (fallback source)", err);
       return 0;

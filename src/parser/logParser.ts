@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import * as readline from "node:readline";
 import {
   BaseLogEntry,
   LogEntry,
@@ -77,29 +78,35 @@ export class LogParser {
   /**
    * Parse a single session directory (main.jsonl + models.json).
    */
-  parseSession(sessionDir: string): ParsedSession | null {
+  async parseSession(sessionDir: string): Promise<ParsedSession | null> {
     const mainJsonlPath = path.join(sessionDir, "main.jsonl");
 
     if (!fs.existsSync(mainJsonlPath)) {
       return null;
     }
 
-    const content = fs.readFileSync(mainJsonlPath, "utf-8");
-    const lines = content.split("\n").filter((l) => l.trim());
-
-    if (lines.length === 0) {
+    // Stream the JSONL file line-by-line instead of loading the whole (potentially
+    // very large) file into memory at once.
+    const entries: LogEntry[] = [];
+    let skippedLines = 0;
+    try {
+      const rl = readline.createInterface({
+        input: fs.createReadStream(mainJsonlPath, { encoding: "utf-8" }),
+        crlfDelay: Infinity,
+      });
+      for await (const rawLine of rl) {
+        const line = rawLine.trim();
+        if (!line) continue;
+        try {
+          entries.push(JSON.parse(line) as LogEntry);
+        } catch {
+          skippedLines++;
+        }
+      }
+    } catch {
       return null;
     }
 
-    const entries: LogEntry[] = [];
-    let skippedLines = 0;
-    for (const line of lines) {
-      try {
-        entries.push(JSON.parse(line) as LogEntry);
-      } catch {
-        skippedLines++;
-      }
-    }
     if (skippedLines > 0) {
       console.warn(`[LogParser] Skipped ${skippedLines} malformed line(s) in ${mainJsonlPath}`);
     }
@@ -240,12 +247,12 @@ export class LogParser {
   /**
    * Parse all sessions across all workspaces.
    */
-  parseAllSessions(): ParsedSession[] {
+  async parseAllSessions(): Promise<ParsedSession[]> {
     const dirs = this.discoverLogDirectories();
     const sessions: ParsedSession[] = [];
 
     for (const dir of dirs) {
-      const session = this.parseSession(dir);
+      const session = await this.parseSession(dir);
       if (session) {
         sessions.push(session);
       }
