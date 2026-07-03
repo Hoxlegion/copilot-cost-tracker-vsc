@@ -8,7 +8,9 @@ interface PromptPreviewResult {
   tokens: number;
 }
 
-const PREFERRED_TOKEN_COUNTER_MODELS = new Set(["claude-opus-4.6", "claude-sonnet-4.6", "gpt-5.4"]);
+// Token counting is a purely local operation, so prefer cheap/small model tokenizers
+// (they are as accurate for counting) over expensive premium models.
+const CHEAP_TOKEN_COUNTER_HINTS = ["mini", "nano", "haiku", "flash", "small"];
 
 export class PromptCostIntelligenceProvider implements vscode.CodeLensProvider, vscode.HoverProvider, vscode.Disposable {
   private readonly onDidChangeEmitter = new vscode.EventEmitter<void>();
@@ -138,9 +140,10 @@ export class PromptCostIntelligenceProvider implements vscode.CodeLensProvider, 
     try {
       const lmApi = (vscode as unknown as { lm?: { selectChatModels?: (selector?: object) => Thenable<any[]> } }).lm;
       const models = (await lmApi?.selectChatModels?.()) ?? [];
-      const preferred = models.find((model) =>
-        typeof model?.id === "string" && PREFERRED_TOKEN_COUNTER_MODELS.has(model.id)
-      );
+      const preferred = models.find((model) => {
+        const id = typeof model?.id === "string" ? model.id.toLowerCase() : "";
+        return CHEAP_TOKEN_COUNTER_HINTS.some((hint) => id.includes(hint));
+      });
       const modelForCounting = preferred ?? models[0];
 
       if (modelForCounting && typeof modelForCounting.countTokens === "function") {
