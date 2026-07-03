@@ -16,7 +16,7 @@ export interface CostReader {
   getAgentBreakdown(days?: number, workspace?: string): AgentBreakdown[];
   getAgentBreakdownSince(sinceMs: number, workspace?: string): AgentBreakdown[];
   getDailyAgentBreakdown(days?: number, workspace?: string): DailyAgentBreakdown[];
-  getCurrentMonthTotal(workspace?: string): { costUsd: number; credits: number; turns: number };
+  getCurrentMonthTotal(billingStartDay?: number, workspace?: string): { costUsd: number; credits: number; turns: number };
   getCreditsSince(sinceMs: number): number;
   getMostRecentModel(): string | null;
   getCostSince(sinceMs: number, workspace?: string): { costUsd: number; credits: number; turns: number };

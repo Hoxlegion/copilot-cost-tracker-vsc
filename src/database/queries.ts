@@ -1,5 +1,6 @@
 import type { Database } from "sql.js";
 import type { AggregatedCost, ModelBreakdown, AgentBreakdown, DailyAgentBreakdown, ModelLatencySample, SessionSummary, SessionModelBreakdownRow, StoredTurn, SessionContextInfo, ContextTimelinePoint, SessionContextDistribution } from "./types";
+import { getBillingPeriodStartMs } from "../billing";
 
 type SqlBindings = Record<string, number | string | null>;
 
@@ -173,9 +174,8 @@ export function getDailyAgentBreakdown(db: Database, days: number = 365, workspa
   }));
 }
 
-export function getCurrentMonthTotal(db: Database, workspace?: string): { costUsd: number; credits: number; turns: number } {
-  const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+export function getCurrentMonthTotal(db: Database, billingStartDay: number = 1, workspace?: string): { costUsd: number; credits: number; turns: number } {
+  const periodStart = getBillingPeriodStartMs(billingStartDay);
   return queryOne(db, `
     SELECT
       COALESCE(SUM(cost_usd), 0) as total_cost,
@@ -184,7 +184,7 @@ export function getCurrentMonthTotal(db: Database, workspace?: string): { costUs
     FROM turns
     WHERE timestamp >= :since
       AND (:workspace IS NULL OR workspace = :workspace)
-  `, sinceWorkspaceBindings(monthStart, workspace), (row) => ({
+  `, sinceWorkspaceBindings(periodStart, workspace), (row) => ({
     costUsd: row.total_cost as number,
     credits: row.total_credits as number,
     turns: row.turn_count as number,

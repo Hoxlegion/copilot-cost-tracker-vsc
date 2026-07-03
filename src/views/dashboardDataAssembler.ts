@@ -37,7 +37,7 @@ export class DashboardDataAssembler {
 
     // Synchronous database queries
     const insightMetrics = this.database.getInsightMetrics(30);
-    const monthTotal = this.database.getCurrentMonthTotal();
+    const monthTotal = this.database.getCurrentMonthTotal(billingCycleStartDay);
     const dailyCostsForRange = this.database.getDailyCosts(365);
     const cutoff = new Date(sinceMs30d);
     const thirtyDaysAgo = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, "0")}-${String(cutoff.getDate()).padStart(2, "0")}`;

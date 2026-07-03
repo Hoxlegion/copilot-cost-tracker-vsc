@@ -504,9 +504,9 @@ export class CostDatabase implements CostReader, CostWriter, CostMaintenance {
     return queries.getDailyAgentBreakdown(this.db, days, workspace);
   }
 
-  getCurrentMonthTotal(workspace?: string): { costUsd: number; credits: number; turns: number } {
+  getCurrentMonthTotal(billingStartDay: number = 1, workspace?: string): { costUsd: number; credits: number; turns: number } {
     if (!this.db) return { costUsd: 0, credits: 0, turns: 0 };
-    return queries.getCurrentMonthTotal(this.db, workspace);
+    return queries.getCurrentMonthTotal(this.db, billingStartDay, workspace);
   }
 
   getCreditsSince(sinceMs: number): number {
