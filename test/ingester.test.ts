@@ -58,7 +58,7 @@ describe("Ingester Failover & Polling", () => {
     it("debounces rapid successive file change events into one ingestion", async () => {
       const debounceMs = 300;
       let ingestionCount = 0;
-      let debounceTimer: NodeJS.Timeout | undefined;
+      let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
       const triggerDebounced = () => {
         if (debounceTimer) { clearTimeout(debounceTimer); }
