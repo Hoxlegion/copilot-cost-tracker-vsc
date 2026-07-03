@@ -19,6 +19,14 @@ export function repoUrlToName(url: string | null | undefined): string | null {
   let s = url.trim();
   if (!s) return null;
   s = s.replace(/\.git$/i, "");
+
+  // Windows local path (e.g. C:\path\to\repo or C:/path/to/repo): use last segment.
+  if (/^[a-zA-Z]:[\\/]/.test(s)) {
+    const parts = s.split(/[\\/]+/).filter(Boolean);
+    return parts.at(-1) ?? null;
+  }
+
+  s = s.replace(/^git:\/\//i, ""); // strip git:// scheme
   s = s.replace(/^[a-z][a-z0-9+\-.]*:\/\//i, ""); // strip scheme://
   s = s.replace(/^[^/@]+@/, ""); // strip user@ (ssh)
   s = s.replace(/^[^/:]+[:/]/, ""); // strip host: or host/
