@@ -279,8 +279,12 @@ export class TracesIngester implements vscode.Disposable {
 
       this.database.commitTransaction();
 
-      const batchMaxTimestamp = spans.at(-1)!.startTimeMs;
-      this.lastProcessedTimestamp = Math.max(maxTimestamp, batchMaxTimestamp);
+      // Only advance the watermark when spans were actually written. Advancing past
+      // filtered/skipped spans (e.g. excluded models) would permanently hide those
+      // turns if the user later changes their settings.
+      if (newCount > 0) {
+        this.lastProcessedTimestamp = maxTimestamp;
+      }
     } catch (err) {
       this.database.rollbackTransaction();
       this.logger.error("Failed during batch insert, rolling back transaction", err);
