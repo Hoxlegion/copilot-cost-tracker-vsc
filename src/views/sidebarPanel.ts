@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { randomBytes } from "crypto";
 import { CostReader } from "../database";
 import { PricingEngine } from "../pricing";
 import { ConfigManager } from "../config";
@@ -36,15 +37,24 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
         vscode.commands.executeCommand("copilotCostTracker.refresh");
       } else if (msg.command === "openDashboard") {
         vscode.commands.executeCommand("copilotCostTracker.openDashboard");
+      } else if (msg.command === "ready") {
+        this.postUpdate();
       }
     });
 
-    this.refresh();
+    // Set the shell HTML once; subsequent refreshes push data via postMessage
+    // so the webview updates in place (no flicker or scroll reset).
+    webviewView.webview.html = this.buildShellHtml();
+    this.postUpdate();
   }
 
   refresh(): void {
+    this.postUpdate();
+  }
+
+  private postUpdate(): void {
     if (!this.view) return;
-    this.view.webview.html = this.buildHtml();
+    this.view.webview.postMessage({ type: "update", html: this.buildContentHtml() });
   }
 
   // ── Data gathering ──────────────────────────────────────
@@ -151,7 +161,47 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
 
   // ── HTML rendering ──────────────────────────────────────
 
-  private buildHtml(): string {
+  private buildShellHtml(): string {
+    const nonce = this.getNonce();
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
+  <style>${this.getStyles()}</style>
+</head>
+<body>
+  <div class="sidebar">
+    <div id="content">
+      <div class="status-bar"><span class="status-dot"></span><span>Loading…</span></div>
+    </div>
+
+    <!-- Actions -->
+    <div class="section-divider"></div>
+    <div class="actions">
+      <button id="btnDashboard">Open Dashboard</button>
+      <button id="btnRefresh">Refresh</button>
+    </div>
+  </div>
+
+  <script nonce="${nonce}">
+    const vscode = acquireVsCodeApi();
+    function post(cmd) { vscode.postMessage({ command: cmd }); }
+    document.getElementById('btnDashboard').addEventListener('click', () => post('openDashboard'));
+    document.getElementById('btnRefresh').addEventListener('click', () => post('refresh'));
+    window.addEventListener('message', (e) => {
+      const msg = e.data;
+      if (msg && msg.type === 'update') {
+        document.getElementById('content').innerHTML = msg.html;
+      }
+    });
+    post('ready');
+  </script>
+</body>
+</html>`;
+  }
+
+  private buildContentHtml(): string {
     const d = this.getData();
     const usagePct = d.budgetCredits > 0 ? (d.period.credits / d.budgetCredits) * 100 : 0;
 
@@ -167,16 +217,9 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
     const wsHtml = this.buildWsSection(d.wsBreakdown);
     const sessionsRows = this.buildSessionsRows(d.sessions);
     const sessionsHtml = this.buildSessionsSection(sessionsRows, d.sessions.length);
+    const weekLabel = this.configManager.config.weekStartDay === "sunday" ? "Sunday" : "Monday";
 
-    return `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline';">
-  <style>${this.getStyles()}</style>
-</head>
-<body>
-  <div class="sidebar">
+    return `
     <!-- Status -->
     <div class="status-bar">
       <span class="status-dot"></span>
@@ -219,7 +262,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
       <div class="twin-stat">
         <div class="section-label">THIS WEEK</div>
         <div class="twin-value">${fmtNum(d.week.credits)}</div>
-        <div class="twin-unit">credits (since Monday)</div>
+        <div class="twin-unit">credits (since ${weekLabel})</div>
       </div>
     </div>
 
@@ -231,22 +274,11 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
 
     ${wsHtml}
 
-    ${sessionsHtml}
+    ${sessionsHtml}`;
+  }
 
-    <!-- Actions -->
-    <div class="section-divider"></div>
-    <div class="actions">
-      <button onclick="post('openDashboard')">Open Dashboard</button>
-      <button onclick="post('refresh')">Refresh</button>
-    </div>
-  </div>
-
-  <script>
-    const vscode = acquireVsCodeApi();
-    function post(cmd) { vscode.postMessage({ command: cmd }); }
-  </script>
-</body>
-</html>`;
+  private getNonce(): string {
+    return randomBytes(16).toString("hex");
   }
 
   // ── Section builders ────────────────────────────────────
