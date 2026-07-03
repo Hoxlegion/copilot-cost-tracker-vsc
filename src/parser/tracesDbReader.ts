@@ -40,6 +40,7 @@ export class TracesDbReader {
   private cachedDb: Database | undefined;
   private cachedMtimeMs = -1;
   private cachedSize = -1;
+  private _loadingPromise: Promise<Database> | null = null;
 
   constructor(wasmPath?: string) {
     this.dbPath = path.join(getVscodeUserDataPath(), "globalStorage", "github.copilot-chat", "agent-traces.db");
@@ -116,6 +117,21 @@ export class TracesDbReader {
    * entire file on every call was a major source of disk I/O.
    */
   private async getDb(): Promise<Database> {
+    // Promise-singleton: concurrent callers await the same in-flight load rather
+    // than each re-entering and racing on the cache fields.
+    if (this._loadingPromise) {
+      return this._loadingPromise;
+    }
+    const load = this.loadDb();
+    this._loadingPromise = load;
+    try {
+      return await load;
+    } finally {
+      this._loadingPromise = null;
+    }
+  }
+
+  private async loadDb(): Promise<Database> {
     // Open once and stat/read via the same descriptor so the check (mtime/size)
     // and the use (read) cannot race against a path swap (CodeQL TOCTOU). Use the
     // async fs.promises API so we never block the extension host event loop.
