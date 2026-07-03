@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { CostReader } from "../database";
 import { PricingEngine } from "../pricing";
+import { ConfigManager } from "../config";
 import { getBillingPeriodStartMs, getBillingPeriodEndMs } from "../billing";
 import { simplifyModelName, formatDuration } from "./treeViewFormatting";
 import { formatAgentName } from "../parser/surfaceLabels";
@@ -16,10 +17,12 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
   private view?: vscode.WebviewView;
   private readonly database: CostReader;
   private readonly pricing: PricingEngine;
+  private readonly configManager: ConfigManager;
 
-  constructor(database: CostReader, pricing: PricingEngine) {
+  constructor(database: CostReader, pricing: PricingEngine, configManager: ConfigManager) {
     this.database = database;
     this.pricing = pricing;
+    this.configManager = configManager;
   }
 
   resolveWebviewView(
@@ -46,10 +49,14 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
 
   // ── Data gathering ──────────────────────────────────────
 
+  private fmtUsd(amount: number): string {
+    const { currency, exchangeRate } = this.configManager.config;
+    return formatMoney(amount, currency, exchangeRate);
+  }
+
   private getData() {
-    const config = vscode.workspace.getConfiguration("copilotCostTracker");
-    const budgetCredits = config.get<number>("budgetCredits", 0);
-    const billingCycleStartDay = config.get<number>("billingCycleStartDay", 1);
+    const budgetCredits = this.configManager.config.budgetCredits;
+    const billingCycleStartDay = this.configManager.config.billingCycleStartDay;
     const periodStartMs = getBillingPeriodStartMs(billingCycleStartDay);
     const periodEndMs = getBillingPeriodEndMs(billingCycleStartDay);
 
@@ -197,7 +204,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
       <div class="budget-block">
         <div class="budget-label">PERIOD TOTAL</div>
         <div class="budget-value">${fmtNum(d.period.credits)} credits</div>
-        <div class="budget-sub"><span>${fmtUsd(d.period.costUsd)}</span><span>${d.period.turns} turns</span></div>
+        <div class="budget-sub"><span>${this.fmtUsd(d.period.costUsd)}</span><span>${d.period.turns} turns</span></div>
       </div>
     `}
 
@@ -307,7 +314,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
         <div class="breakdown-row">
           <div class="breakdown-bar" style="width:${barW}%"></div>
           <span class="breakdown-name" title="${esc(m.model)}">${esc(simplifyModelName(m.model))}</span>
-          <span class="breakdown-val">${fmtUsd(m.totalCostUsd)}</span>
+          <span class="breakdown-val">${this.fmtUsd(m.totalCostUsd)}</span>
           <span class="breakdown-pct">${m.percentage.toFixed(0)}%</span>
         </div>`;
     }).join("");
@@ -322,7 +329,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
         <div class="breakdown-row">
           <div class="breakdown-bar agent-bar" style="width:${barW}%"></div>
           <span class="breakdown-name" title="${esc(a.agentName)}">${esc(formatAgentName(a.agentName))}</span>
-          <span class="breakdown-val">${fmtUsd(a.totalCostUsd)}</span>
+          <span class="breakdown-val">${this.fmtUsd(a.totalCostUsd)}</span>
           <span class="breakdown-pct">${a.percentage.toFixed(0)}%</span>
         </div>`;
     }).join("");
@@ -362,7 +369,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
                 <div class="breakdown-row">
                   <div class="breakdown-bar ws-bar" style="width:${barW}%"></div>
                   <span class="breakdown-name" title="${esc(ws.name)}">${esc(ws.name)}</span>
-                  <span class="breakdown-val">${fmtUsd(ws.costUsd)}</span>
+                  <span class="breakdown-val">${this.fmtUsd(ws.costUsd)}</span>
                   <span class="breakdown-pct">${ws.turns} t</span>
                 </div>`;
             }).join("")}
@@ -386,7 +393,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
           <div class="session-top">
             <span class="session-time">${time}</span>
             <span class="session-ws" title="${esc(s.workspace)}">${esc(wsName)}</span>
-            <span class="${costClass}">${fmtUsd(s.totalCostUsd)}</span>
+            <span class="${costClass}">${this.fmtUsd(s.totalCostUsd)}</span>
           </div>
           ${titleLine}
           <div class="session-bottom">
@@ -787,10 +794,7 @@ function fmtNum(n: number): string {
   return n.toFixed(2);
 }
 
-function fmtUsd(amount: number): string {
-  const config = vscode.workspace.getConfiguration("copilotCostTracker");
-  const currency = config.get<string>("currency", "USD");
-  const exchangeRate = config.get<number>("exchangeRate", 1);
+function formatMoney(amount: number, currency: string, exchangeRate: number): string {
   if (currency === "USD") return `$${amount.toFixed(2)}`;
   const local = amount * exchangeRate;
   try {

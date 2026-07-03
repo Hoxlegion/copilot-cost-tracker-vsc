@@ -84,7 +84,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   contextTracker.setNotificationsEnabled(configManager.config.contextWeightNotifications);
   const statusBar = new StatusBarIndicator(database, pricing, configManager, logger, contextTracker, getCurrentWorkspaceRepo());
   const promptIntelligence = new PromptCostIntelligenceProvider(configManager, logger);
-  const sidebarProvider = new SidebarPanel(database, pricing);
+  const sidebarProvider = new SidebarPanel(database, pricing, configManager);
 
   // Register sidebar webview, CodeLens, and Hover
   const sidebarView = vscode.window.registerWebviewViewProvider(
@@ -122,7 +122,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // Commands
   registerCommands(context, {
-    database, pricing, ingester, reader, statusBar,
+    database, pricing, ingester, reader, statusBar, configManager,
     extensionUri: context.extensionUri,
   });
 

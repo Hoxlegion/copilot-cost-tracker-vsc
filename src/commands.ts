@@ -3,6 +3,7 @@ import { CostReader, CostMaintenance } from "./database";
 import { PricingEngine } from "./pricing";
 import { TracesDbReader } from "./parser";
 import { TracesIngester } from "./watcher";
+import { ConfigManager } from "./config";
 import { DashboardPanel, StatusBarIndicator } from "./views";
 
 interface CommandDeps {
@@ -11,11 +12,12 @@ interface CommandDeps {
   ingester: TracesIngester;
   reader: TracesDbReader;
   statusBar: StatusBarIndicator;
+  configManager: ConfigManager;
   extensionUri: vscode.Uri;
 }
 
 export function registerCommands(context: vscode.ExtensionContext, deps: CommandDeps): void {
-  const { database, pricing, ingester, reader, statusBar, extensionUri } = deps;
+  const { database, pricing, ingester, reader, statusBar, configManager, extensionUri } = deps;
 
   const refreshAndUpdate = () => {
     statusBar.update();
@@ -35,7 +37,7 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
     }),
 
     vscode.commands.registerCommand("copilotCostTracker.openDashboard", () => {
-      DashboardPanel.createOrShow(extensionUri, database, pricing, reader);
+      DashboardPanel.createOrShow(extensionUri, database, pricing, reader, configManager);
     }),
 
     vscode.commands.registerCommand("copilotCostTracker.scanAll", async () => {
