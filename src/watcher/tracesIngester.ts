@@ -317,39 +317,49 @@ export class TracesIngester implements vscode.Disposable {
     }
 
     let newTurns = 0;
-    for (const session of sessions) {
-      const lastProcessedSessionTimestamp = this.database.getSessionLastTimestamp(session.sessionId);
-      const sessionTurns = lastProcessedSessionTimestamp == null
-        ? session.turns
-        : session.turns.filter((turn) => turn.timestamp > lastProcessedSessionTimestamp);
+    this.database.beginTransaction();
+    try {
+      for (const session of sessions) {
+        const lastProcessedSessionTimestamp = this.database.getSessionLastTimestamp(session.sessionId);
+        const sessionTurns = lastProcessedSessionTimestamp == null
+          ? session.turns
+          : session.turns.filter((turn) => turn.timestamp > lastProcessedSessionTimestamp);
 
-      if (sessionTurns.length === 0) continue;
+        if (sessionTurns.length === 0) continue;
 
-      for (const turn of sessionTurns) {
-        const costUsd = this.pricing.calculateCost(
-          turn.modelFamily,
-          turn.inputTokens,
-          turn.outputTokens,
-          turn.cachedTokens,
-          turn.cacheWriteTokens
+        for (const turn of sessionTurns) {
+          const costUsd = this.pricing.calculateCost(
+            turn.modelFamily,
+            turn.inputTokens,
+            turn.outputTokens,
+            turn.cachedTokens,
+            turn.cacheWriteTokens
+          );
+          const credits = this.pricing.costToCredits(costUsd);
+          turn.costSource = "estimated";
+          this.database.insertTurn(turn, costUsd, credits, session.workspace ?? "unknown");
+          newTurns++;
+        }
+
+        this.database.markSessionProcessed(
+          session.sessionId,
+          session.workspace ?? "unknown",
+          session.turns[0]?.timestamp ?? Date.now(),
+          session.turns.at(-1)?.timestamp ?? Date.now(),
+          session.copilotVersion ?? "unknown",
+          session.vscodeVersion ?? "unknown"
         );
-        const credits = this.pricing.costToCredits(costUsd);
-        turn.costSource = "estimated";
-        this.database.insertTurn(turn, costUsd, credits, session.workspace ?? "unknown");
-        newTurns++;
       }
 
-      this.database.markSessionProcessed(
-        session.sessionId,
-        session.workspace ?? "unknown",
-        session.turns[0]?.timestamp ?? Date.now(),
-        session.turns.at(-1)?.timestamp ?? Date.now(),
-        session.copilotVersion ?? "unknown",
-        session.vscodeVersion ?? "unknown"
-      );
+      this.database.commitTransaction();
+    } catch (err) {
+      this.database.rollbackTransaction();
+      this.logger.error("Failed during JSONL batch insert, rolling back transaction", err);
+      return 0;
     }
 
     if (newTurns > 0 && !this.isDisposed) {
+      await this.database.save();
       this.onDataChanged.fire();
     }
     return newTurns;
