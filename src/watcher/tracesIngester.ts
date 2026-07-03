@@ -265,6 +265,8 @@ export class TracesIngester implements vscode.Disposable {
   }
 
   private async processSpanBatch(spans: TraceSpan[], skipWatermark: boolean = false): Promise<number> {
+    if (spans.length === 0) return 0;
+
     let newCount = 0;
     let maxTimestamp = this.lastProcessedTimestamp;
 
