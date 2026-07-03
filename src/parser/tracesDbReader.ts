@@ -117,18 +117,19 @@ export class TracesDbReader {
    */
   private async getDb(): Promise<Database> {
     // Open once and stat/read via the same descriptor so the check (mtime/size)
-    // and the use (read) cannot race against a path swap (CodeQL TOCTOU).
-    const fd = fs.openSync(this.dbPath, "r");
+    // and the use (read) cannot race against a path swap (CodeQL TOCTOU). Use the
+    // async fs.promises API so we never block the extension host event loop.
+    const fh = await fs.promises.open(this.dbPath, "r");
     let stat: fs.Stats;
     let fileBuffer: Buffer;
     try {
-      stat = fs.fstatSync(fd);
+      stat = await fh.stat();
       if (this.cachedDb && stat.mtimeMs === this.cachedMtimeMs && stat.size === this.cachedSize) {
         return this.cachedDb;
       }
-      fileBuffer = fs.readFileSync(fd);
+      fileBuffer = await fh.readFile();
     } finally {
-      fs.closeSync(fd);
+      await fh.close();
     }
     this.cachedDb?.close();
     this.cachedDb = undefined;
