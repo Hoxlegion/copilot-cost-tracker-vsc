@@ -88,6 +88,12 @@ export class PricingEngine {
       const response = await fetch(url, { signal: AbortSignal.timeout(10_000) });
       if (!response.ok) return false;
 
+      const contentType = response.headers.get("content-type") ?? "";
+      if (!contentType.toLowerCase().includes("application/json")) {
+        this.logger?.warn(`Remote pricing response has non-JSON Content-Type ("${contentType}"); using built-in pricing`);
+        return false;
+      }
+
       const remote = (await response.json()) as PricingData;
       const validationError = this.validatePricingData(remote);
       if (validationError) {
@@ -285,8 +291,13 @@ export class PricingEngine {
     const d = data as Record<string, unknown>;
     if (!d.version || typeof d.version !== "string") return "missing or invalid 'version'";
     if (!d.models || typeof d.models !== "object") return "missing or invalid 'models'";
+    const modelEntries = Object.entries(d.models as Record<string, unknown>);
+    const MAX_MODELS = 500;
+    if (modelEntries.length > MAX_MODELS) {
+      return `too many model entries (${modelEntries.length} > ${MAX_MODELS})`;
+    }
     const MAX_RATE = 1000;
-    for (const [key, val] of Object.entries(d.models as Record<string, unknown>)) {
+    for (const [key, val] of modelEntries) {
       if (!val || typeof val !== "object") return `model "${key}": value is not an object`;
       const m = val as Record<string, unknown>;
       if (typeof m.input !== "number" || typeof m.output !== "number" || typeof m.cached !== "number") {
