@@ -93,9 +93,9 @@ export class DashboardPanel {
         this.htmlLoaded = true;
       }
 
-      const { billingCycleStartDay, budgetCredits, currency, exchangeRate, alertWindowHours } = this.configManager.config;
+      const { billingCycleStartDay, budgetCredits, currency, exchangeRate, alertWindowHours, dashboardSessionLimit } = this.configManager.config;
 
-      const rawData = await this.assembler.assemble(billingCycleStartDay, budgetCredits, currency, exchangeRate, alertWindowHours);
+      const rawData = await this.assembler.assemble(billingCycleStartDay, budgetCredits, currency, exchangeRate, alertWindowHours, dashboardSessionLimit);
       
       this.panel.webview.postMessage({
         type: 'dashboardData',

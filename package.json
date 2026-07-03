@@ -327,6 +327,13 @@
           "minimum": 1,
           "maximum": 168,
           "description": "Lookback window (in hours) used when computing dashboard efficiency alerts."
+        },
+        "copilotCostTracker.dashboardSessionLimit": {
+          "type": "number",
+          "default": 200,
+          "minimum": 10,
+          "maximum": 1000,
+          "description": "Maximum number of recent sessions to load when opening the dashboard. Lower values improve load time on large histories."
         }
       }
     }

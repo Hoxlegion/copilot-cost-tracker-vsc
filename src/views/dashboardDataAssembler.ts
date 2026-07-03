@@ -24,7 +24,7 @@ export class DashboardDataAssembler {
     private readonly pricing: PricingEngine,
   ) {}
 
-  async assemble(billingCycleStartDay: number, budgetCredits: number, currency: string = "USD", exchangeRate: number = 1, alertWindowHours?: number): Promise<DashboardRawData> {
+  async assemble(billingCycleStartDay: number, budgetCredits: number, currency: string = "USD", exchangeRate: number = 1, alertWindowHours?: number, sessionLimit: number = 200): Promise<DashboardRawData> {
     const periodStartMs = getBillingPeriodStartMs(billingCycleStartDay);
     const periodEndMs = getBillingPeriodEndMs(billingCycleStartDay);
     const sinceMs30d = Date.now() - 30 * 24 * 60 * 60 * 1000;
@@ -46,7 +46,7 @@ export class DashboardDataAssembler {
     const modelBreakdown = this.database.getModelBreakdown(30);
     const agentBreakdown = this.database.getAgentBreakdown(30);
     const dailyAgentBreakdown = this.database.getDailyAgentBreakdown(365);
-    const allSessions = this.database.getSessionSummaries(undefined, 1000);
+    const allSessions = this.database.getSessionSummaries(undefined, sessionLimit);
     const periodCredits = this.database.getCreditsSince(periodStartMs);
     const periodAggregate = this.database.getCostSince(periodStartMs);
     const cacheSavings = this.database.getCacheSavingsMetrics(

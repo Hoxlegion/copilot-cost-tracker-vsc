@@ -53,6 +53,7 @@ export interface ExtensionConfig {
 
   // Insights
   alertWindowHours: number;
+  dashboardSessionLimit: number;
 
   // Display
   currency: string;
@@ -185,6 +186,7 @@ function readConfig(): ExtensionConfig {
   const plan = cfg.get<string>("plan") ?? "pro";
 
   const alertWindowHours = clamp(Math.round(cfg.get<number>("alertWindowHours") ?? 24), 1, 168);
+  const dashboardSessionLimit = clamp(Math.round(cfg.get<number>("dashboardSessionLimit") ?? 200), 10, 1000);
 
   const currency = cfg.get<string>("currency") ?? "USD";
   const exchangeRate = Math.max(cfg.get<number>("exchangeRate") ?? 1, 0.0001);
@@ -214,6 +216,7 @@ function readConfig(): ExtensionConfig {
     enabledFileExtensions,
     plan,
     alertWindowHours,
+    dashboardSessionLimit,
     currency,
     exchangeRate,
     showStatusBar,
