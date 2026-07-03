@@ -24,7 +24,7 @@ export class DashboardDataAssembler {
     private readonly pricing: PricingEngine,
   ) {}
 
-  async assemble(billingCycleStartDay: number, budgetCredits: number, currency: string = "USD", exchangeRate: number = 1): Promise<DashboardRawData> {
+  async assemble(billingCycleStartDay: number, budgetCredits: number, currency: string = "USD", exchangeRate: number = 1, alertWindowHours?: number): Promise<DashboardRawData> {
     const periodStartMs = getBillingPeriodStartMs(billingCycleStartDay);
     const periodEndMs = getBillingPeriodEndMs(billingCycleStartDay);
     const sinceMs30d = Date.now() - 30 * 24 * 60 * 60 * 1000;
@@ -78,7 +78,7 @@ export class DashboardDataAssembler {
       })),
     }));
 
-    const alerts = getAlerts(this.database);
+    const alerts = getAlerts(this.database, undefined, alertWindowHours);
     const playbook = buildPlaybook(alerts);
 
     const topHeaviestSessions = contextDistribution.filter((s) => s.turnCount > 3).slice(0, 5);

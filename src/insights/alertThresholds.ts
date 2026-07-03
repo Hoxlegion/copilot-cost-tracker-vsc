@@ -31,3 +31,6 @@ export const HIGH_VERBOSITY_AVG_OUTPUT_TOKENS = 600;
 export const CONTEXT_BLOAT_SESSION_INPUT_TOKENS = 40_000;
 /** Idle gaps longer than this likely bust the Copilot cache TTL. */
 export const CACHE_DECAY_IDLE_GAP_MS = 5 * 60 * 1000;
+
+/** Default lookback window (hours) for dashboard alerts. */
+export const DEFAULT_ALERT_WINDOW_HOURS = 24;

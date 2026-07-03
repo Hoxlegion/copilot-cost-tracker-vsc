@@ -3,6 +3,7 @@ import {
   HIGH_VERBOSITY_AVG_OUTPUT_TOKENS,
   CONTEXT_BLOAT_SESSION_INPUT_TOKENS,
   CACHE_DECAY_IDLE_GAP_MS,
+  DEFAULT_ALERT_WINDOW_HOURS,
 } from "./alertThresholds";
 
 export interface DashboardAlert {
@@ -149,8 +150,9 @@ function checkMassiveContextTurn(metrics: AlertMetrics): DashboardAlert | null {
   };
 }
 
-export function getAlerts(database: CostReader, thresholds?: AlertThresholds): DashboardAlert[] {
-  const sinceMs = Date.now() - 24 * 60 * 60 * 1000; // last 24 hours
+export function getAlerts(database: CostReader, thresholds?: AlertThresholds, windowHours: number = DEFAULT_ALERT_WINDOW_HOURS): DashboardAlert[] {
+  const safeWindowHours = Number.isFinite(windowHours) && windowHours > 0 ? windowHours : DEFAULT_ALERT_WINDOW_HOURS;
+  const sinceMs = Date.now() - safeWindowHours * 60 * 60 * 1000;
   const metrics = database.getAlertMetrics(sinceMs, thresholds ? {
     microTurnGapMs: thresholds.microTurnGapMs,
     microTurnMinCount: thresholds.microTurnMinCount,

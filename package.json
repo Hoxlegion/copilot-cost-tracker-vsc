@@ -320,6 +320,13 @@
           "default": 80000,
           "minimum": 10000,
           "description": "Minimum input tokens in a single turn to trigger the Massive Context Turn alert."
+        },
+        "copilotCostTracker.alertWindowHours": {
+          "type": "number",
+          "default": 24,
+          "minimum": 1,
+          "maximum": 168,
+          "description": "Lookback window (in hours) used when computing dashboard efficiency alerts."
         }
       }
     }

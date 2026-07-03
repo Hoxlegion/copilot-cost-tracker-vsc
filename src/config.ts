@@ -51,6 +51,9 @@ export interface ExtensionConfig {
   // Plan
   plan: string;
 
+  // Insights
+  alertWindowHours: number;
+
   // Display
   currency: string;
   exchangeRate: number;
@@ -181,6 +184,8 @@ function readConfig(): ExtensionConfig {
 
   const plan = cfg.get<string>("plan") ?? "pro";
 
+  const alertWindowHours = clamp(Math.round(cfg.get<number>("alertWindowHours") ?? 24), 1, 168);
+
   const currency = cfg.get<string>("currency") ?? "USD";
   const exchangeRate = Math.max(cfg.get<number>("exchangeRate") ?? 1, 0.0001);
   const showStatusBar = cfg.get<boolean>("showStatusBar") ?? true;
@@ -208,6 +213,7 @@ function readConfig(): ExtensionConfig {
     excludedModels,
     enabledFileExtensions,
     plan,
+    alertWindowHours,
     currency,
     exchangeRate,
     showStatusBar,
