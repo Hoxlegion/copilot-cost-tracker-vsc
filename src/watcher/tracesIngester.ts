@@ -24,6 +24,7 @@ export class TracesIngester implements vscode.Disposable {
 
   private lastProcessedTimestamp: number = 0;
   private migrationsApplied: boolean = false;
+  private _ingesting: boolean = false;
   private static readonly INGEST_BATCH_SIZE = 5_000;
 
   readonly onDidDataChange: vscode.Event<void>;
@@ -87,30 +88,42 @@ export class TracesIngester implements vscode.Disposable {
   async ingest(sinceOverride?: number): Promise<number> {
     if (this.isDisposed) return 0;
 
-    await this.applyDataMigrationsOnce();
-
-    const source = this.sourceResolver.resolve({
-      dbExists: () => this.reader.exists(),
-      onSwitchToJsonl: () => {
-        this.logger.info("Switching to JSONL fallback");
-        this.setWatchPath(null);
-      },
-      onRecoverToDb: () => {
-        this.logger.info("Probing traces DB for recovery after JSONL failover");
-        this.setWatchPath(this.reader.path);
-      },
-    });
-
-    let count: number;
-    if (source === "database") {
-      count = await this.ingestFromTracesDb(sinceOverride);
-    } else {
-      count = await this.ingestFromJsonl();
+    // Prevent concurrent ingests (file watcher + commands can overlap), which would
+    // cause SQLite "cannot start a transaction within a transaction" errors.
+    if (this._ingesting) {
+      this.logger.warn("Ingest already in progress, skipping concurrent invocation");
+      return 0;
     }
+    this._ingesting = true;
 
-    this.syncSessionTitles();
+    try {
+      await this.applyDataMigrationsOnce();
 
-    return count;
+      const source = this.sourceResolver.resolve({
+        dbExists: () => this.reader.exists(),
+        onSwitchToJsonl: () => {
+          this.logger.info("Switching to JSONL fallback");
+          this.setWatchPath(null);
+        },
+        onRecoverToDb: () => {
+          this.logger.info("Probing traces DB for recovery after JSONL failover");
+          this.setWatchPath(this.reader.path);
+        },
+      });
+
+      let count: number;
+      if (source === "database") {
+        count = await this.ingestFromTracesDb(sinceOverride);
+      } else {
+        count = await this.ingestFromJsonl();
+      }
+
+      this.syncSessionTitles();
+
+      return count;
+    } finally {
+      this._ingesting = false;
+    }
   }
 
   /**
