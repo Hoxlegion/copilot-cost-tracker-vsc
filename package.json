@@ -188,6 +188,11 @@
           "maximum": 3650,
           "description": "Number of days to retain turn data. Older turns are pruned periodically."
         },
+        "copilotCostTracker.userDataPath": {
+          "type": "string",
+          "default": "",
+          "description": "Manual override for the VS Code user data directory (the folder containing 'globalStorage'/'workspaceStorage', e.g. '.../Code/User'). Leave empty for automatic detection of VS Code, Insiders, Cursor, Windsurf, and Portable Mode."
+        },
         "copilotCostTracker.customModelRates": {
           "type": "object",
           "default": {},

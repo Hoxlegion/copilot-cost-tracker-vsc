@@ -10,6 +10,7 @@ import { Logger } from "./logger";
 import { PromptCostIntelligenceProvider } from "./promptCostIntelligence";
 import { registerCommands } from "./commands";
 import { setupTimers } from "./timers";
+import { setUserDataPathOverride } from "./shared/paths";
 
 let database: CostDatabase | undefined;
 const COPILOT_DB_SPAN_EXPORTER_KEY = "github.copilot.chat.otel.dbSpanExporter.enabled";
@@ -44,6 +45,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   logger.info("Activating Copilot Cost Tracker");
   await ensureCopilotDbSpanExporterEnabled(logger);
+
+  // Apply the user-data-path override (if any) before constructing path-dependent
+  // services so fork/portable layouts resolve correctly.
+  setUserDataPathOverride(configManager.config.userDataPath);
 
   // WASM path for sql.js
   const wasmPath = path.join(context.extensionPath, "dist", "sql-wasm.wasm");

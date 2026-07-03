@@ -37,6 +37,7 @@ export interface ExtensionConfig {
   telemetrySource: TelemetrySource;
   initialScanDays: number;
   retentionDays: number;
+  userDataPath: string;
 
   // Pricing
   customModelRates: Record<string, ModelRate>;
@@ -143,6 +144,7 @@ function readConfig(): ExtensionConfig {
 
   const initialScanDays = clamp(Math.round(cfg.get<number>("initialScanDays") ?? 30), 1, 365);
   const retentionDays = clamp(Math.round(cfg.get<number>("retentionDays") ?? 90), 1, 3650);
+  const userDataPath = (cfg.get<string>("userDataPath") ?? "").trim();
 
   const rawCustomRates = cfg.get<Record<string, ModelRate>>("customModelRates") ?? {};
   const customModelRates = parseCustomModelRates(rawCustomRates);
@@ -199,6 +201,7 @@ function readConfig(): ExtensionConfig {
     telemetrySource,
     initialScanDays,
     retentionDays,
+    userDataPath,
     customModelRates,
     pricingUrl,
     excludeUnknownModelsFromTotals,
