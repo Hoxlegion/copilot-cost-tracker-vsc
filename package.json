@@ -340,7 +340,7 @@
     "vitest": "4.1.9"
   },
   "dependencies": {
-    "sql.js": "1.14.1"
+    "sql.js": "1.14.2"
   },
   "allowScripts": {
     "@types/node@25.9.2": true,
