@@ -57,6 +57,10 @@ export class CostDatabase implements CostReader, CostWriter, CostMaintenance {
   private readonly dbPath: string;
   private saving: boolean = false;
   private wasCorrupted: boolean = false;
+  // Header versions of the last persisted image; -1 means nothing was persisted yet.
+  private savedSchemaVersion = -1;
+  private savedUserVersion = -1;
+  private exportNotWritten = false;
 
   constructor(storagePath: string) {
     this.dbPath = path.join(storagePath, "copilot-costs.db");
@@ -86,6 +90,7 @@ export class CostDatabase implements CostReader, CostWriter, CostMaintenance {
     }
 
     try {
+      if (data && !this.wasCorrupted) this.recordPersistedVersions(this.db);
       createTables(this.db);
       this.runMigrations(this.db);
     } catch (err) {
@@ -93,9 +98,33 @@ export class CostDatabase implements CostReader, CostWriter, CostMaintenance {
       this.db.close();
       this.db = new SQL.Database();
       this.wasCorrupted = true;
+      this.savedSchemaVersion = -1;
+      this.savedUserVersion = -1;
       createTables(this.db);
       this.runMigrations(this.db);
     }
+  }
+
+  private recordPersistedVersions(db: Database): void {
+    this.savedSchemaVersion = readPragma(db, "schema_version");
+    this.savedUserVersion = readPragma(db, "user_version");
+  }
+
+  /**
+   * True when the in-memory database differs from the last written file. `export()` reopens the
+   * connection, which resets `total_changes()`; DDL and `user_version` are tracked separately.
+   */
+  private hasUnsavedChanges(db: Database): boolean {
+    return this.exportNotWritten
+      || Number(db.exec("SELECT total_changes()")[0]?.values[0]?.[0] ?? 0) > 0
+      || readPragma(db, "schema_version") !== this.savedSchemaVersion
+      || readPragma(db, "user_version") !== this.savedUserVersion;
+  }
+
+  private exportForSave(db: Database): Uint8Array {
+    const data = db.export();
+    this.recordPersistedVersions(db);
+    return data;
   }
 
   private runMigrations(db: Database): void {
@@ -276,14 +305,16 @@ export class CostDatabase implements CostReader, CostWriter, CostMaintenance {
 
   private nullDbWarned = false;
 
-  insertTurn(turn: ParsedTurn, costUsd: number, credits: number, workspace: string): void {
+  insertTurn(turn: ParsedTurn, costUsd: number, credits: number, workspace: string): boolean {
     if (!this.db) {
       if (!this.nullDbWarned) {
         this.nullDbWarned = true;
         console.warn("[CostDatabase] insertTurn called before database initialized — data is being dropped");
       }
-      return;
+      return false;
     }
+    // The WHERE clause turns re-ingested, unchanged turns into no-ops so they neither count as
+    // changes nor make the database dirty.
     this.db.run(
       `INSERT INTO turns
         (session_id, timestamp, duration, agent_name, model, model_family, input_tokens, output_tokens, cached_tokens, cache_write_tokens, total_tokens, cost_usd, credits, workspace, status, cost_source)
@@ -294,7 +325,9 @@ export class CostDatabase implements CostReader, CostWriter, CostMaintenance {
          cost_source = CASE WHEN excluded.cost_source = 'real' AND cost_source != 'real' THEN excluded.cost_source ELSE cost_source END,
          -- Self-heal workspace to an authoritative repo label ("Org/Repo") when a
          -- later ingest provides one; never let a non-repo fallback overwrite it.
-         workspace = CASE WHEN instr(excluded.workspace, '/') > 0 THEN excluded.workspace ELSE workspace END`,
+         workspace = CASE WHEN instr(excluded.workspace, '/') > 0 THEN excluded.workspace ELSE workspace END
+       WHERE (excluded.cost_source = 'real' AND turns.cost_source != 'real')
+          OR (instr(excluded.workspace, '/') > 0 AND excluded.workspace != turns.workspace)`,
       [
         turn.sessionId,
         turn.timestamp,
@@ -314,6 +347,7 @@ export class CostDatabase implements CostReader, CostWriter, CostMaintenance {
         turn.costSource ?? "estimated",
       ]
     );
+    return this.db.getRowsModified() > 0;
   }
 
   /**
@@ -622,16 +656,17 @@ export class CostDatabase implements CostReader, CostWriter, CostMaintenance {
   // ── Maintenance ─────────────────────────────────────
 
   async save(): Promise<void> {
-    if (!this.db) return;
-    if (this.saving) return;
+    if (!this.db || this.saving || !this.hasUnsavedChanges(this.db)) return;
     this.saving = true;
     try {
       const dir = path.dirname(this.dbPath);
       await fs.promises.mkdir(dir, { recursive: true });
-      const data = this.db.export();
+      const data = this.exportForSave(this.db);
+      this.exportNotWritten = true;
       const tmpPath = this.dbPath + ".tmp";
-      await fs.promises.writeFile(tmpPath, Buffer.from(data));
+      await fs.promises.writeFile(tmpPath, data);
       await fs.promises.rename(tmpPath, this.dbPath);
+      this.exportNotWritten = false;
     } catch (err) {
       console.error(`[CostDatabase] Failed to save database: ${err}`);
     } finally {
@@ -673,15 +708,15 @@ export class CostDatabase implements CostReader, CostWriter, CostMaintenance {
   close(): void {
     if (this.db) {
       // Synchronous save on close to ensure data is persisted before process exit
-      if (!this.saving) {
+      if (!this.saving && this.hasUnsavedChanges(this.db)) {
         try {
           const dir = path.dirname(this.dbPath);
           if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true });
           }
-          const data = this.db.export();
+          const data = this.exportForSave(this.db);
           const tmpPath = this.dbPath + ".tmp";
-          fs.writeFileSync(tmpPath, Buffer.from(data));
+          fs.writeFileSync(tmpPath, data);
           fs.renameSync(tmpPath, this.dbPath);
         } catch (err) {
           console.error(`[CostDatabase] Failed to save database on close: ${err}`);
@@ -691,4 +726,8 @@ export class CostDatabase implements CostReader, CostWriter, CostMaintenance {
       this.db = null;
     }
   }
+}
+
+function readPragma(db: Database, name: "schema_version" | "user_version"): number {
+  return Number(db.exec(`PRAGMA ${name}`)[0]?.values[0]?.[0] ?? 0);
 }

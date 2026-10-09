@@ -59,8 +59,8 @@ Get live updates on AI credit consumption with an always-visible status bar, bud
 | File watcher strategy | Event-driven updates with 2s debounce for near-instant status bar refresh (sub-second after data arrival) |
 | Response latency metrics | Tracks model response times and displays avg latency and P90 per model |
 | DB + JSONL failover | Reads `agent-traces.db` directly; falls back to JSONL debug logs automatically |
-| Watermark recovery | On restart, resumes from the last processed timestamp — no duplicate counting |
-| Periodic persistence | In-memory SQLite flushed to disk every 60 seconds |
+| Watermark recovery | On restart, resumes from the last processed timestamp and re-reads a 15-minute overlap; unchanged turns are ignored, so nothing is counted twice |
+| Periodic persistence | In-memory SQLite flushed to disk every 60 seconds, only when something changed |
 
 ---
 
@@ -326,36 +326,47 @@ npm run build          # Development build with source maps
 npm run package        # Create .vsix file for distribution
 npm test               # Run unit tests (vitest)
 npm run test:watch     # Watch mode
+npm run typecheck      # Typecheck extension, tests, and webview
 npm run deploy:local   # Builds and installs to local VS Code
 ```
 
 ### Traces WAL Validation
 
-The traces reader opens the main database and WAL with read-only file descriptors. It validates WAL salts and checksums, applies only committed pages to an in-memory snapshot, and retries up to three times when source versions change during the read. The watcher monitors both files, including WAL creation and resets. It never checkpoints or writes Copilot's database or shared-memory file.
+The traces reader opens the main database and WAL with read-only file descriptors. It validates WAL salts and checksums, applies only committed pages, and retries up to three times when the source changes during a full read. It never checkpoints or writes Copilot's database or shared-memory file.
 
-The snapshot follows the [SQLite WAL file format](https://www.sqlite.org/fileformat2.html#walformat). It still loads the complete database into sql.js; this fixes WAL visibility, not the large-memory architecture.
+The reader keeps one in-memory image of the database: the main file plus committed WAL pages, following the [SQLite WAL file format](https://www.sqlite.org/fileformat2.html#walformat). sql.js reads that image in place. New commits in the same WAL generation are read from the end of the WAL and applied to the image. A full reload happens only after a WAL restart, a removed WAL, a replaced database file, or growth beyond the image's 12.5% headroom, and it reuses the same memory. The image itself still needs about as much memory as the database file.
+
+Ingestion streams spans in batches of 1,000, each in its own transaction, and yields to the event loop between batches. Incremental passes re-read 15 minutes before the watermark because Copilot writes a span when it ends. Unchanged turns are ignored, so the overlap cannot double count. The cost database is only exported when it changed.
 
 Use Node.js 22 or newer to reproduce the measurement:
 
 ```bash
-node scripts/measure-traces.js
-# Optional: provide the path to another agent-traces.db
-node scripts/measure-traces.js "C:/path/to/agent-traces.db"
+# Freeze a consistent copy of the live main/WAL pair
+node scripts/measure-traces.js --freeze ./traces-copy
+# Compare a checkout of the previous release with the current code on that copy
+git worktree add --detach ../cct-v0.7.0 v0.7.0
+node scripts/measure-traces.js ./traces-copy/agent-traces.db --baseline ../cct-v0.7.0
 npm test -- test/tracesWal.test.ts --reporter=verbose
 ```
 
-The script captures a stable copy of the main/WAL pair, uses separate processes for peak RSS measurements, and runs the production ingester and cost database over 30 days of telemetry. It also changes only a temporary copy's timestamp to measure a cache-invalidating reload. SQLite is opened only on the temporary copy as a correctness reference. Temporary files are removed afterwards, and span identifiers are hashed rather than printed. Node's native SQLite is used only for development measurements and fixtures, not by the extension runtime.
+The script gives every scenario a fresh copy of the capture and runs the production reader, ingester, and cost database of each code version in separate processes. It writes to the temporary copies with SQLite to create real WAL commits and restarts, and uses SQLite as the correctness reference. A replay makes spans visible in the order they ended to measure late-span losses. Temporary files are removed afterwards, and span identifiers are hashed. Node's native SQLite is only used for measurements and test fixtures, not by the extension.
 
-Measured on Windows with Node.js 22.19.0 on 2026-10-09: main file 824,958,976 bytes (786.7 MiB), WAL 6,538,472 bytes (6.2 MiB).
+Measured on Windows with Node.js 22.19.0 on 2026-10-09 (main file 824,958,976 bytes, WAL 6,538,472 bytes, 30 days, median of three runs):
 
-| Source | Visible spans | Missing spans | Cold ingest + save | Warm / reload query | Cold / reload peak RSS |
-|--------|---------------|---------------|--------------------|---------------------|------------------------|
-| Main file only | 944 | 12 | 1,217 ms | 37 / 357 ms | 855 / 1,641 MiB |
-| Main + WAL snapshot | 956 | 0 | 551 ms | 38 / 376 ms | 862 / 1,647 MiB |
+| Scenario | 0.7.0 | 0.7.1 |
+|----------|-------|-------|
+| Cold ingest + save | 647 ms, 863 MiB peak RSS | 434 ms, 860 MiB peak RSS |
+| Warm query | 195 ms | 45 ms |
+| Refresh after a WAL timestamp change | 448 ms, +794 MiB peak | 47 ms, +3.5 MiB peak |
+| Refresh after a WAL commit (10 turns) | 429 ms, +786 MiB peak | 27 ms, +3.6 MiB peak |
+| Refresh after a WAL restart | 369 ms, +786 MiB peak | 184 ms, +4.6 MiB peak |
+| Three saves without changes | 3 exports | 0 exports |
+| Full rescan without changes | 661 turns rewritten, 1 export | 0 turns, 0 exports |
+| Late-span replay (1,082 passes) | 9 of 661 turns missed (453.02 credits) | 0 missed |
 
-The snapshot matched SQLite's 956 spans with zero unexpected spans or billed-credit mismatches. The oldest missing main-only span was approximately eight minutes old by the end of the measurement. The ingester processed 453 spans from the main-only copy versus 459 from the WAL snapshot after applying its filters. This is a single run affected by OS file caching, not a guaranteed speedup. The SQLite reference query took 15 ms and 52 MiB peak RSS, but did not include ingestion, workspace lookup, or cost storage, so its timing is not directly comparable. Full database loading remains the main memory cost; reloading peaked at approximately 1.61 GiB because the old snapshot is still present while the new one is read.
+Peak RSS during a refresh dropped from about 1,655 MiB to 863 MiB. In every scenario both versions matched SQLite with zero missing, unexpected, or credit-mismatched spans and stored identical turns and credits. The replay needed at most 70 seconds of overlap; the longest stored span lasted 348 seconds. The snapshot reserves its headroom as untouched memory, so it raises ArrayBuffer usage (886 instead of 787 MiB) but not RSS. These are single-machine measurements with a warm file cache, so treat the timings as indicative.
 
-The WAL integration tests also cover uncommitted spilled frames, stale frames after resets, corrupt checksums, concurrent checkpoints, and byte-for-byte preservation of the main, WAL, and SHM files. The watcher fixture measured 22.93 ms commit-to-visible latency with a 10 ms debounce in the full coverage run. It requires visibility within 1.5 seconds, without waiting for the 60-second fallback poll. This small-fixture latency is not a live-database refresh benchmark.
+The WAL integration tests also cover incremental application without rereading the main file, checkpoints within a WAL generation, restarts, truncated and removed WALs, growth and shrinkage, replaced files, concurrent changes during a read, pinned iteration, and byte-for-byte preservation of the main, WAL, and SHM files. The watcher fixture requires commit-to-visible latency under 1.5 seconds with a 10 ms debounce, without waiting for the fallback poll; this small-fixture latency is not a live-database benchmark.
 
 ### Project Structure
 

@@ -4,6 +4,30 @@ All notable changes to the **Copilot Cost Tracker** extension will be documented
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.7.1] - 2026-10-09
+
+Lower refresh memory and bounded ingestion for large traces databases.
+
+### Performance
+- **Incremental WAL refresh**: new commits are read from the end of the WAL and applied to the existing in-memory snapshot instead of reloading the whole traces database. On an 825 MB database a refresh after a commit takes 27 ms instead of 429 ms, and peak memory during a refresh drops from about 1,655 MiB to 863 MiB
+- **In-place reloads**: a WAL restart, a removed WAL, or a replaced database reloads into the same memory, so two full snapshots never coexist
+- **Bounded ingestion**: spans are streamed in batches of 1,000, each in its own transaction, with a yield to the event loop between batches
+- **Fewer database exports**: the cost database is only written when it changed, so periodic saves, scans without new data, and closing a window no longer export an unchanged database
+- The session-to-repository map is cached per snapshot, which makes repeated span queries faster
+
+### Bug Fixes
+- **Late spans**: incremental ingestion re-reads 15 minutes before the watermark because Copilot writes a span when it ends. Replaying 30 days of telemetry recovered 9 turns (453 credits) that 0.7.0 only picked up after a manual refresh. Unchanged turns are ignored, so the overlap cannot double count
+- Spans that share a start time across a batch boundary are no longer skipped
+- Refresh and scan messages now count new or updated turns instead of every re-processed span
+
+### CI
+- Typechecks for the extension, the tests, and the Svelte webview (`svelte-check` 4.7.6) run in CI and release builds
+- The extension bundle targets Node 18 (VS Code 1.85), and lint rejects `node:sqlite` imports in extension code
+
+### Internal
+- `scripts/measure-traces.js` compares a baseline checkout with the current code on a frozen capture, including real WAL commits and restarts, a late-span replay, export counts, and stored-turn digests
+- New tests cover incremental WAL application, checkpoints, restarts, truncated and removed WALs, growth, shrinkage, replaced files, pinned iteration, change tracking for saves, and overlap ingestion
+
 ## [0.7.0] - 2026-10-09
 
 Architecture review hardening across ingestion, parsing, views, pricing, and configuration.

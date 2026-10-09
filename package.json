@@ -2,7 +2,7 @@
   "name": "copilot-cost-tracker",
   "displayName": "Copilot Cost Tracker",
   "description": "Track and visualize your GitHub Copilot usage costs.",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "publisher": "Hoxlegion",
   "license": "MIT",
   "repository": {
@@ -343,7 +343,10 @@
         },
         "copilotCostTracker.weekStartDay": {
           "type": "string",
-          "enum": ["monday", "sunday"],
+          "enum": [
+            "monday",
+            "sunday"
+          ],
           "default": "monday",
           "description": "First day of the week used for the weekly cost total in the sidebar."
         }
@@ -353,13 +356,17 @@
   "scripts": {
     "vscode:prepublish": "npm run build",
     "build:webview": "vite build",
-    "build": "npm run build:webview && esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap && node scripts/copy-assets.js",
-    "watch": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap --watch",
+    "build": "npm run build:webview && esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --target=node18 --sourcemap && node scripts/copy-assets.js",
+    "watch": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --target=node18 --sourcemap --watch",
     "test": "vitest run",
     "test:watch": "vitest",
     "package": "vsce package --no-dependencies",
     "deploy:local": "npm run package && node ./scripts/install-local-vsix.js",
-    "lint": "eslint src"
+    "lint": "eslint src",
+    "typecheck": "npm run typecheck:src && npm run typecheck:test && npm run typecheck:webview",
+    "typecheck:src": "tsc --noEmit -p tsconfig.json",
+    "typecheck:test": "tsc --noEmit -p test/tsconfig.json",
+    "typecheck:webview": "svelte-check --tsconfig ./src/webview/tsconfig.json"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
@@ -376,6 +383,7 @@
     "glob": "13.0.6",
     "rimraf": "6.1.3",
     "svelte": "5.57.0",
+    "svelte-check": "4.7.6",
     "typescript": "6.0.3",
     "typescript-eslint": "8.70.0",
     "vite": "8.2.2",

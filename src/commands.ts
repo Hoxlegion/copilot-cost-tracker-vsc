@@ -36,7 +36,7 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
         const count = await ingester.fullIngest();
         await database.save();
         refreshAndUpdate();
-        vscode.window.showInformationMessage(`Copilot Cost Tracker: Refreshed. ${count} new turns processed.`);
+        vscode.window.showInformationMessage(`Copilot Cost Tracker: Refreshed. ${count} new or updated turns.`);
       } catch (err) {
         vscode.window.showErrorMessage(`Copilot Cost Tracker: Refresh failed — ${err instanceof Error ? err.message : String(err)}`);
       }
@@ -51,7 +51,7 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
         const count = await ingester.fullIngest();
         await database.save();
         refreshAndUpdate();
-        vscode.window.showInformationMessage(`Copilot Cost Tracker: Full scan complete. ${count} turns processed.`);
+        vscode.window.showInformationMessage(`Copilot Cost Tracker: Full scan complete. ${count} new or updated turns.`);
       } catch (err) {
         vscode.window.showErrorMessage(`Copilot Cost Tracker: Scan failed — ${err instanceof Error ? err.message : String(err)}`);
       }
@@ -63,7 +63,7 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
         const count = await ingester.ingest(0);
         await database.save();
         refreshAndUpdate();
-        vscode.window.showInformationMessage(`Copilot Cost Tracker: Full history backfill complete. ${count} turns processed.`);
+        vscode.window.showInformationMessage(`Copilot Cost Tracker: Full history backfill complete. ${count} new or updated turns.`);
       } catch (err) {
         vscode.window.showErrorMessage(`Copilot Cost Tracker: History backfill failed — ${err instanceof Error ? err.message : String(err)}`);
       }

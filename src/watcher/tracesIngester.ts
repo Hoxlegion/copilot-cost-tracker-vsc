@@ -9,6 +9,25 @@ import { TelemetrySourceResolver } from "./telemetrySourceResolver";
 
 type IngesterDatabase = CostWriter & CostMaintenance;
 
+export interface TracesIngesterOptions {
+  /** Spans read and written per transaction. */
+  batchSize?: number;
+  /** How far before the watermark incremental passes re-read to catch spans that were written late. */
+  overlapMs?: number;
+}
+
+interface PassTotals {
+  spansRead: number;
+  newSpans: number;
+  written: number;
+  changed: number;
+  realCredits: number;
+  batches: number;
+}
+
+const DEFAULT_BATCH_SIZE = 1_000;
+const DEFAULT_WATERMARK_OVERLAP_MS = 15 * 60_000;
+
 export class TracesIngester implements vscode.Disposable {
   private readonly reader: TracesDbReader;
   private readonly logParser: LogParser;
@@ -17,6 +36,8 @@ export class TracesIngester implements vscode.Disposable {
   private readonly configManager: ConfigManager;
   private readonly logger: Logger;
   private readonly workspaceId: string;
+  private readonly batchSize: number;
+  private readonly overlapMs: number;
   private readonly onDataChanged: vscode.EventEmitter<void>;
   private readonly sourceResolver: TelemetrySourceResolver;
   private watcher: FileWatcherStrategy | undefined;
@@ -25,7 +46,6 @@ export class TracesIngester implements vscode.Disposable {
   private lastProcessedTimestamp: number = 0;
   private migrationsApplied: boolean = false;
   private ongoingIngest: Promise<number> | null = null;
-  private static readonly INGEST_BATCH_SIZE = 5_000;
 
   readonly onDidDataChange: vscode.Event<void>;
 
@@ -36,7 +56,8 @@ export class TracesIngester implements vscode.Disposable {
     database: IngesterDatabase,
     configManager: ConfigManager,
     logger: Logger,
-    workspaceId: string = "unknown"
+    workspaceId: string = "unknown",
+    options: TracesIngesterOptions = {},
   ) {
     this.reader = reader;
     this.logParser = logParser;
@@ -45,6 +66,8 @@ export class TracesIngester implements vscode.Disposable {
     this.configManager = configManager;
     this.logger = logger;
     this.workspaceId = workspaceId;
+    this.batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;
+    this.overlapMs = options.overlapMs ?? DEFAULT_WATERMARK_OVERLAP_MS;
     this.onDataChanged = new vscode.EventEmitter<void>();
     this.onDidDataChange = this.onDataChanged.event;
     this.sourceResolver = new TelemetrySourceResolver();
@@ -161,8 +184,8 @@ export class TracesIngester implements vscode.Disposable {
       this.logger.warn("Cache-token semantics migration failed (non-fatal)", err);
     }
   }
-  private shouldSkipSpan(span: TraceSpan, skipWatermark: boolean = false): boolean {
-    if (!skipWatermark && span.startTimeMs <= this.lastProcessedTimestamp) return true;
+  private shouldSkipSpan(span: TraceSpan, lowerBound: number | undefined): boolean {
+    if (lowerBound !== undefined && span.startTimeMs <= lowerBound) return true;
 
     if (span.inputTokens === 0 && span.outputTokens === 0) {
       return true;
@@ -184,7 +207,8 @@ export class TracesIngester implements vscode.Disposable {
     return false;
   }
 
-  private insertSpanAsTurn(span: TraceSpan): void {
+  /** Returns true when the turn was inserted or upgraded, false for an unchanged duplicate. */
+  private insertSpanAsTurn(span: TraceSpan): boolean {
     const model = span.responseModel ?? span.requestModel ?? "unknown";
 
     // Telemetry `input_tokens` includes `cached_tokens` (cache reads are a subset of the
@@ -214,7 +238,7 @@ export class TracesIngester implements vscode.Disposable {
       costSource = "real";
     }
 
-    this.database.insertTurn(
+    return this.database.insertTurn(
       {
         sessionId: span.chatSessionId ?? span.conversationId ?? "unknown",
         timestamp: span.startTimeMs,
@@ -241,80 +265,94 @@ export class TracesIngester implements vscode.Disposable {
   private async ingestFromTracesDb(sinceOverride?: number): Promise<number> {
     if (this.isDisposed) return 0;
 
-    const since = sinceOverride ?? this.lastProcessedTimestamp;
+    const passWatermark = this.lastProcessedTimestamp;
+    const since = sinceOverride ?? passWatermark;
+    // A full re-scan (since 0) reads everything so estimated turns can be upgraded to real
+    // credits. Other passes re-read an overlap window: spans are written when they end, so one
+    // can land after later-starting spans already advanced the watermark. Upserts are idempotent.
+    const lowerBound = since === 0
+      ? undefined
+      : Math.max(sinceOverride ?? Number.NEGATIVE_INFINITY, passWatermark - this.overlapMs);
+    const queryBound = lowerBound !== undefined && lowerBound > 0 ? lowerBound : undefined;
+    // A poll is empty when nothing newer than the pre-overlap bound exists, as before the overlap.
+    const pollBound = since > 0 ? since : undefined;
 
-    let spans: TraceSpan[];
+    const totals: PassTotals = { spansRead: 0, newSpans: 0, written: 0, changed: 0, realCredits: 0, batches: 0 };
     try {
-      spans = await this.reader.querySpans(since > 0 ? since : undefined);
+      for await (const batch of this.reader.iterateSpanBatches(queryBound, this.batchSize)) {
+        if (this.isDisposed || !this.writeSpanBatch(batch, queryBound, pollBound, totals)) break;
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
     } catch (err) {
-      this.logger.error("Failed to query traces DB, will trigger failover if this continues", err);
+      if (this.isDisposed) return totals.changed;
+      if (totals.spansRead === 0) {
+        this.logger.error("Failed to query traces DB, will trigger failover if this continues", err);
+        this.sourceResolver.recordEmptyDbPoll();
+        return 0;
+      }
+      this.logger.error("Failed while reading traces DB batches, keeping earlier batches", err);
+    }
+    if (this.isDisposed) return totals.changed;
+
+    if (totals.newSpans === 0) {
       this.sourceResolver.recordEmptyDbPoll();
-      return 0;
+    } else {
+      this.sourceResolver.recordSuccessfulDbPoll();
     }
 
-    if (spans.length === 0) {
-      this.sourceResolver.recordEmptyDbPoll();
-      return 0;
-    }
-
-    this.sourceResolver.recordSuccessfulDbPoll();
-
-    // When doing a full re-scan (since=0), skip the watermark check so that
-    // existing estimated turns can be upgraded with real credit values.
-    const skipWatermark = since === 0;
-    const newCount = await this.processSpanBatch(spans, skipWatermark);
-
-    if (newCount > 0 && !this.isDisposed) {
-      const realCount = spans.filter(s => s.realCredits != null).length;
-      this.logger.debug(`Ingested ${newCount} spans (${realCount} with real credits, ${newCount - realCount} estimated)`);
+    const refresh = this.reader.getLastRefresh();
+    this.logger.debug(
+      `Traces pass: ${totals.spansRead} spans read, ${totals.written} written, ${totals.changed} changed `
+      + `(${totals.realCredits} with real credits) in ${totals.batches} batches; snapshot `
+      + (refresh ? `${refresh.mode} (${refresh.bytesRead} bytes, ${refresh.durationMs.toFixed(1)} ms)` : "unavailable"),
+    );
+    if (totals.changed > 0) {
       this.onDataChanged.fire();
     }
-    return newCount;
+    return totals.changed;
   }
 
-  private async processSpanBatch(spans: TraceSpan[], skipWatermark: boolean = false): Promise<number> {
-    if (spans.length === 0) return 0;
-
-    let newCount = 0;
-    let maxTimestamp = this.lastProcessedTimestamp;
+  /** Writes one batch in its own transaction; returns false when the batch had to be rolled back. */
+  private writeSpanBatch(batch: TraceSpan[], lowerBound: number | undefined, pollBound: number | undefined, totals: PassTotals): boolean {
+    totals.spansRead += batch.length;
+    let maxWritten = this.lastProcessedTimestamp;
+    let written = 0;
+    let changed = 0;
+    let realCredits = 0;
 
     this.database.beginTransaction();
     try {
-      for (const span of spans) {
-        if (this.isDisposed) break;
-        if (this.shouldSkipSpan(span, skipWatermark)) continue;
+      for (const span of batch) {
+        if (pollBound === undefined || span.startTimeMs > pollBound) totals.newSpans++;
+        if (this.shouldSkipSpan(span, lowerBound)) continue;
 
-        this.insertSpanAsTurn(span);
-        newCount++;
-
-        if (span.startTimeMs > maxTimestamp) {
-          maxTimestamp = span.startTimeMs;
+        written++;
+        if (this.insertSpanAsTurn(span)) {
+          changed++;
+          if (span.realCredits != null) realCredits++;
         }
-
-        if (newCount % TracesIngester.INGEST_BATCH_SIZE === 0) {
-          this.database.commitTransaction();
-          this.lastProcessedTimestamp = maxTimestamp;
-          await this.database.save();
-          this.database.beginTransaction();
-          this.logger.debug(`Ingested batch of ${TracesIngester.INGEST_BATCH_SIZE} spans (${newCount} total so far)`);
+        if (span.startTimeMs > maxWritten) {
+          maxWritten = span.startTimeMs;
         }
       }
-
       this.database.commitTransaction();
-
-      // Only advance the watermark when spans were actually written. Advancing past
-      // filtered/skipped spans (e.g. excluded models) would permanently hide those
-      // turns if the user later changes their settings.
-      if (newCount > 0) {
-        this.lastProcessedTimestamp = maxTimestamp;
-      }
     } catch (err) {
       this.database.rollbackTransaction();
       this.logger.error("Failed during batch insert, rolling back transaction", err);
-      return 0;
+      return false;
     }
 
-    return newCount;
+    // Only advance the watermark when spans were actually written. Advancing past
+    // filtered/skipped spans (e.g. excluded models) would permanently hide those
+    // turns if the user later changes their settings.
+    if (written > 0) {
+      this.lastProcessedTimestamp = maxWritten;
+    }
+    totals.written += written;
+    totals.changed += changed;
+    totals.realCredits += realCredits;
+    totals.batches++;
+    return true;
   }
 
   private async ingestFromJsonl(): Promise<number> {
@@ -347,8 +385,9 @@ export class TracesIngester implements vscode.Disposable {
           );
           const credits = this.pricing.costToCredits(costUsd);
           turn.costSource = "estimated";
-          this.database.insertTurn(turn, costUsd, credits, session.workspace ?? "unknown");
-          newTurns++;
+          if (this.database.insertTurn(turn, costUsd, credits, session.workspace ?? "unknown")) {
+            newTurns++;
+          }
         }
 
         this.database.markSessionProcessed(
@@ -368,8 +407,8 @@ export class TracesIngester implements vscode.Disposable {
       return 0;
     }
 
+    // Persisted by the periodic, change-gated save; turns are re-ingestable until then.
     if (newTurns > 0 && !this.isDisposed) {
-      await this.database.save();
       this.onDataChanged.fire();
     }
     return newTurns;
