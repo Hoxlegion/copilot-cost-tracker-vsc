@@ -10,6 +10,7 @@ const mockOpenSync = vi.fn();
 const mockFstatSync = vi.fn();
 const mockCloseSync = vi.fn();
 const mockPromisesOpen = vi.fn();
+const mockPromisesStat = vi.fn();
 const mockFhStat = vi.fn();
 const mockFhReadFile = vi.fn();
 const mockFhClose = vi.fn();
@@ -28,6 +29,7 @@ vi.mock("node:fs", () => ({
   closeSync: (...args: unknown[]) => mockCloseSync(...args),
   promises: {
     open: (...args: unknown[]) => mockPromisesOpen(...args),
+    stat: (...args: unknown[]) => mockPromisesStat(...args),
   },
 }));
 
@@ -72,13 +74,21 @@ describe("TracesDbReader", () => {
     mockFhReadFile.mockReset();
     mockFhClose.mockReset();
     mockPromisesOpen.mockReset();
+    mockPromisesStat.mockReset();
     mockFhStat.mockResolvedValue({ mtimeMs: 1, size: 2 });
     mockFhReadFile.mockResolvedValue(new Uint8Array([100, 98]));
     mockFhClose.mockResolvedValue(undefined);
-    mockPromisesOpen.mockResolvedValue({
-      stat: (...args: unknown[]) => mockFhStat(...args),
-      readFile: (...args: unknown[]) => mockFhReadFile(...args),
-      close: (...args: unknown[]) => mockFhClose(...args),
+    mockPromisesOpen.mockImplementation(async (filePath: string) => {
+      if (filePath.endsWith("-wal")) throw Object.assign(new Error("no WAL"), { code: "ENOENT" });
+      return {
+        stat: (...args: unknown[]) => mockFhStat(...args),
+        readFile: (...args: unknown[]) => mockFhReadFile(...args),
+        close: (...args: unknown[]) => mockFhClose(...args),
+      };
+    });
+    mockPromisesStat.mockImplementation(async (filePath: string) => {
+      if (filePath.endsWith("-wal")) throw Object.assign(new Error("no WAL"), { code: "ENOENT" });
+      return { mtimeMs: 1, size: 2 };
     });
   });
 
@@ -94,7 +104,7 @@ describe("TracesDbReader", () => {
     completeRead(new Uint8Array([100, 98]));
 
     expect(await Promise.all([first, second])).toEqual([[], []]);
-    expect(mockPromisesOpen).toHaveBeenCalledTimes(1);
+    expect(mockPromisesOpen).toHaveBeenCalledTimes(2);
     expect(mockFhClose).toHaveBeenCalledTimes(1);
     expect(mockReadFileSync).not.toHaveBeenCalled();
   });
@@ -107,7 +117,7 @@ describe("TracesDbReader", () => {
     await expect(reader.querySpans()).rejects.toThrow("read failed");
     await expect(reader.querySpans()).resolves.toEqual([]);
 
-    expect(mockPromisesOpen).toHaveBeenCalledTimes(2);
+    expect(mockPromisesOpen).toHaveBeenCalledTimes(4);
     expect(mockFhClose).toHaveBeenCalledTimes(2);
   });
 

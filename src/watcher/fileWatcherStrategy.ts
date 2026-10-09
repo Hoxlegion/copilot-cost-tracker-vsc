@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import * as path from "node:path";
 
 export interface FileWatcherOptions {
   debounceMs: number;
@@ -72,8 +73,10 @@ export class FileWatcherStrategy {
     try {
       if (!fs.existsSync(this.watchPath)) return;
 
-      this.watcher = fs.watch(this.watchPath, () => {
-        this.triggerDebounced();
+      const filename = path.basename(this.watchPath);
+      this.watcher = fs.watch(path.dirname(this.watchPath), (_event, changedFile) => {
+        const changed = changedFile?.toString();
+        if (!changed || changed === filename || changed === `${filename}-wal`) this.triggerDebounced();
       });
 
       this.watcher.on("error", () => {
@@ -114,7 +117,7 @@ export class FileWatcherStrategy {
     this.clearDebounce();
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = undefined;
-      this.runCallback();
+      void this.runCallback();
     }, this.debounceMs);
   }
 

@@ -1,6 +1,6 @@
 # Copilot Cost Tracker
 
-[![Version](https://img.shields.io/badge/version-0.6.5-blue.svg)](https://github.com/Hoxlegion/copilot-cost-tracker-vsc/releases)
+[![Version](https://img.shields.io/badge/version-0.7.0-blue.svg)](https://github.com/Hoxlegion/copilot-cost-tracker-vsc/releases)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![VS Code](https://img.shields.io/badge/VS%20Code-%5E1.85.0-blue.svg)](https://code.visualstudio.com/)
 
@@ -328,6 +328,34 @@ npm test               # Run unit tests (vitest)
 npm run test:watch     # Watch mode
 npm run deploy:local   # Builds and installs to local VS Code
 ```
+
+### Traces WAL Validation
+
+The traces reader opens the main database and WAL with read-only file descriptors. It validates WAL salts and checksums, applies only committed pages to an in-memory snapshot, and retries up to three times when source versions change during the read. The watcher monitors both files, including WAL creation and resets. It never checkpoints or writes Copilot's database or shared-memory file.
+
+The snapshot follows the [SQLite WAL file format](https://www.sqlite.org/fileformat2.html#walformat). It still loads the complete database into sql.js; this fixes WAL visibility, not the large-memory architecture.
+
+Use Node.js 22 or newer to reproduce the measurement:
+
+```bash
+node scripts/measure-traces.js
+# Optional: provide the path to another agent-traces.db
+node scripts/measure-traces.js "C:/path/to/agent-traces.db"
+npm test -- test/tracesWal.test.ts --reporter=verbose
+```
+
+The script captures a stable copy of the main/WAL pair, uses separate processes for peak RSS measurements, and runs the production ingester and cost database over 30 days of telemetry. It also changes only a temporary copy's timestamp to measure a cache-invalidating reload. SQLite is opened only on the temporary copy as a correctness reference. Temporary files are removed afterwards, and span identifiers are hashed rather than printed. Node's native SQLite is used only for development measurements and fixtures, not by the extension runtime.
+
+Measured on Windows with Node.js 22.19.0 on 2026-10-09: main file 824,958,976 bytes (786.7 MiB), WAL 6,538,472 bytes (6.2 MiB).
+
+| Source | Visible spans | Missing spans | Cold ingest + save | Warm / reload query | Cold / reload peak RSS |
+|--------|---------------|---------------|--------------------|---------------------|------------------------|
+| Main file only | 944 | 12 | 1,217 ms | 37 / 357 ms | 855 / 1,641 MiB |
+| Main + WAL snapshot | 956 | 0 | 551 ms | 38 / 376 ms | 862 / 1,647 MiB |
+
+The snapshot matched SQLite's 956 spans with zero unexpected spans or billed-credit mismatches. The oldest missing main-only span was approximately eight minutes old by the end of the measurement. The ingester processed 453 spans from the main-only copy versus 459 from the WAL snapshot after applying its filters. This is a single run affected by OS file caching, not a guaranteed speedup. The SQLite reference query took 15 ms and 52 MiB peak RSS, but did not include ingestion, workspace lookup, or cost storage, so its timing is not directly comparable. Full database loading remains the main memory cost; reloading peaked at approximately 1.61 GiB because the old snapshot is still present while the new one is read.
+
+The WAL integration tests also cover uncommitted spilled frames, stale frames after resets, corrupt checksums, concurrent checkpoints, and byte-for-byte preservation of the main, WAL, and SHM files. The watcher fixture measured 22.93 ms commit-to-visible latency with a 10 ms debounce in the full coverage run. It requires visibility within 1.5 seconds, without waiting for the 60-second fallback poll. This small-fixture latency is not a live-database refresh benchmark.
 
 ### Project Structure
 

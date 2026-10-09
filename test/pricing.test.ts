@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 
 vi.mock("vscode", () => ({
   workspace: {
@@ -24,6 +24,104 @@ const DEFAULT_FALLBACK = {
 };
 
 describe("Pricing Engine", () => {
+  describe("Remote response limits", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+    });
+
+    it("rejects a declared oversized response before parsing JSON", async () => {
+      const response = new Response(JSON.stringify({
+        version: "test", models: { "remote-model": { input: 1, output: 2, cached: 0.1 } },
+      }), { headers: { "content-type": "application/json", "content-length": String(512 * 1024 + 1) } });
+      const json = vi.spyOn(response, "json");
+      const cancel = vi.spyOn(response.body!, "cancel");
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+      const engine = new PricingEngine({
+        config: { pricingUrl: "https://example.test/pricing.json" },
+      } as unknown as ConstructorParameters<typeof PricingEngine>[0]);
+
+      await engine.refreshPricing();
+
+      expect(json).not.toHaveBeenCalled();
+      expect(cancel).toHaveBeenCalled();
+      expect(engine.getModelPricing("remote-model")).toBeUndefined();
+      expect(engine.getModelPricing("gpt-5.4")).toBeDefined();
+    });
+
+    it.each([undefined, "1"])("limits streamed bytes with content-length %s", async (contentLength) => {
+      const bytes = new TextEncoder().encode(JSON.stringify({
+        version: "test", models: { "remote-model": { input: 1, output: 2, cached: 0.1 } },
+        padding: "x".repeat(512 * 1024),
+      }));
+      const canceled = vi.fn();
+      const response = new Response(new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(bytes.subarray(0, 512 * 1024));
+          controller.enqueue(bytes.subarray(512 * 1024, 512 * 1024 + 1));
+          controller.enqueue(bytes.subarray(512 * 1024 + 1));
+          controller.close();
+        },
+        cancel: canceled,
+      }), { headers: { "content-type": "application/json" } });
+      if (contentLength) response.headers.set("content-length", contentLength);
+      const json = vi.spyOn(response, "json");
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+      const engine = new PricingEngine({
+        config: { pricingUrl: "https://example.test/pricing.json" },
+      } as unknown as ConstructorParameters<typeof PricingEngine>[0]);
+
+      await engine.refreshPricing();
+
+      expect(json).not.toHaveBeenCalled();
+      expect(canceled).toHaveBeenCalled();
+      expect(response.body!.locked).toBe(false);
+      expect(engine.getModelPricing("remote-model")).toBeUndefined();
+    });
+
+    it("accepts valid JSON at the byte limit without calling response.json", async () => {
+      const jsonText = JSON.stringify({
+        version: "test", models: { "remote-model": { input: 1, output: 2, cached: 0.1 } },
+      });
+      const response = new Response(jsonText + " ".repeat(512 * 1024 - Buffer.byteLength(jsonText)), {
+        headers: { "content-type": "application/json" },
+      });
+      const json = vi.spyOn(response, "json");
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+      const engine = new PricingEngine({
+        config: { pricingUrl: "https://example.test/pricing.json" },
+      } as unknown as ConstructorParameters<typeof PricingEngine>[0]);
+
+      await engine.refreshPricing();
+
+      expect(json).not.toHaveBeenCalled();
+      expect(engine.getModelPricing("remote-model")).toEqual({ input: 1, output: 2, cached: 0.1 });
+      expect(response.body!.locked).toBe(false);
+    });
+
+    it("keeps previously validated remote prices after an oversized refresh", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2026, 9, 9));
+      const valid = new Response(JSON.stringify({
+        version: "test", models: { "remote-model": { input: 1, output: 2, cached: 0.1 } },
+      }), { headers: { "content-type": "application/json" } });
+      const oversized = new Response("{}", { headers: {
+        "content-type": "application/json", "content-length": String(512 * 1024 + 1),
+      } });
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(valid).mockResolvedValueOnce(oversized));
+      const engine = new PricingEngine({
+        config: { pricingUrl: "https://example.test/pricing.json" },
+      } as unknown as ConstructorParameters<typeof PricingEngine>[0]);
+      await engine.refreshPricing();
+      vi.setSystemTime(new Date(2026, 9, 11));
+
+      await engine.refreshPricing();
+
+      expect(engine.getModelPricing("remote-model")).toEqual({ input: 1, output: 2, cached: 0.1 });
+    });
+  });
+
   describe("Cost Calculation", () => {
     it("calculates cost correctly for input tokens", () => {
       const pricing = MOCK_PRICING["gpt-5.4"];

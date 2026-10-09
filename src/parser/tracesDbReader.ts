@@ -8,6 +8,7 @@ import { formatAgentName } from "./surfaceLabels";
 import { buildTurnDiscovery } from "./turnDiscovery";
 import { AGGREGATE_AGENT_NAME } from "./types";
 import { getVscodeUserDataPath } from "../shared/paths";
+import { readSqliteSnapshot } from "./sqliteSnapshot";
 
 /**
  * Convert a git remote URL into a friendly "Org/Repo" workspace label.
@@ -38,8 +39,7 @@ export class TracesDbReader {
   private wasmPath: string | undefined;
   private cachedSqlPromise: ReturnType<typeof initSqlJs> | undefined;
   private cachedDb: Database | undefined;
-  private cachedMtimeMs = -1;
-  private cachedSize = -1;
+  private cachedFingerprint: string | undefined;
   private _loadingPromise: Promise<Database> | null = null;
 
   constructor(wasmPath?: string) {
@@ -111,10 +111,9 @@ export class TracesDbReader {
   }
 
   /**
-   * Return a cached sql.js `Database` for the traces file, reloading from disk only
-   * when the file's mtime or size changes. The traces DB can be large and queries
-   * run frequently (watcher-driven ingests + dashboard refreshes), so re-reading the
-   * entire file on every call was a major source of disk I/O.
+  * Cache a sql.js snapshot containing the main file and committed WAL pages.
+  * Reload only when either source version changes; reading never checkpoints
+  * or modifies Copilot's database.
    */
   private async getDb(): Promise<Database> {
     // Promise-singleton: concurrent callers await the same in-flight load rather
@@ -132,27 +131,14 @@ export class TracesDbReader {
   }
 
   private async loadDb(): Promise<Database> {
-    // Open once and stat/read via the same descriptor so the check (mtime/size)
-    // and the use (read) cannot race against a path swap (CodeQL TOCTOU). Use the
-    // async fs.promises API so we never block the extension host event loop.
-    const fh = await fs.promises.open(this.dbPath, "r");
-    let stat: fs.Stats;
-    let fileBuffer: Buffer;
-    try {
-      stat = await fh.stat();
-      if (this.cachedDb && stat.mtimeMs === this.cachedMtimeMs && stat.size === this.cachedSize) {
-        return this.cachedDb;
-      }
-      fileBuffer = await fh.readFile();
-    } finally {
-      await fh.close();
-    }
+    const snapshot = await readSqliteSnapshot(this.dbPath, this.cachedFingerprint);
+    if (!snapshot.data && this.cachedDb) return this.cachedDb;
+    if (!snapshot.data) throw new Error("Traces snapshot data is unavailable");
     this.cachedDb?.close();
     this.cachedDb = undefined;
     const SQL = await this.getSqlJs();
-    this.cachedDb = new SQL.Database(fileBuffer);
-    this.cachedMtimeMs = stat.mtimeMs;
-    this.cachedSize = stat.size;
+    this.cachedDb = new SQL.Database(snapshot.data);
+    this.cachedFingerprint = snapshot.fingerprint;
     return this.cachedDb;
   }
 
@@ -160,8 +146,7 @@ export class TracesDbReader {
   dispose(): void {
     this.cachedDb?.close();
     this.cachedDb = undefined;
-    this.cachedMtimeMs = -1;
-    this.cachedSize = -1;
+    this.cachedFingerprint = undefined;
   }
 
   async querySpans(sinceMs?: number): Promise<TraceSpan[]> {

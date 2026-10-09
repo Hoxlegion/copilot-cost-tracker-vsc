@@ -17,6 +17,7 @@ const DEFAULT_FALLBACK_RATE: ModelPricing = {
 // Matched by normalized-name prefix because the codename suffix changes over time
 // (e.g. "copilot-nes-oct", "copilot-suggestions-himalia-001").
 const FREE_MODEL_PREFIXES = ["copilot-nes", "copilot-suggestions"];
+const MAX_PRICING_RESPONSE_BYTES = 512 * 1024;
 
 export interface UnknownModelDiagnostics {
   fallbackModelCount: number;
@@ -86,15 +87,19 @@ export class PricingEngine {
 
     try {
       const response = await fetch(url, { signal: AbortSignal.timeout(10_000) });
-      if (!response.ok) return false;
+      if (!response.ok) {
+        await response.body?.cancel();
+        return false;
+      }
 
       const contentType = response.headers.get("content-type") ?? "";
       if (!contentType.toLowerCase().includes("application/json")) {
+        await response.body?.cancel();
         this.logger?.warn(`Remote pricing response has non-JSON Content-Type ("${contentType}"); using built-in pricing`);
         return false;
       }
 
-      const remote = (await response.json()) as PricingData;
+      const remote = await this.readPricingResponse(response);
       const validationError = this.validatePricingData(remote);
       if (validationError) {
         this.logger?.warn(`Remote pricing JSON failed validation: ${validationError}; using built-in pricing`);
@@ -109,6 +114,34 @@ export class PricingEngine {
       this.logger?.warn("Failed to fetch remote pricing; using built-in pricing", err);
       return false;
     }
+  }
+
+  private async readPricingResponse(response: Response): Promise<PricingData> {
+    const sizeError = () => new Error("Remote pricing response exceeds the 512 KiB limit");
+    if (Number(response.headers.get("content-length")) > MAX_PRICING_RESPONSE_BYTES) {
+      await response.body?.cancel();
+      throw sizeError();
+    }
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("Remote pricing response has no body");
+
+    const buffer = new Uint8Array(MAX_PRICING_RESPONSE_BYTES);
+    let length = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value.byteLength > MAX_PRICING_RESPONSE_BYTES - length) throw sizeError();
+        buffer.set(value, length);
+        length += value.byteLength;
+      }
+    } catch (error) {
+      await reader.cancel().catch(() => undefined);
+      throw error;
+    } finally {
+      reader.releaseLock();
+    }
+    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, length))) as PricingData;
   }
 
   getModelPricing(modelFamily: string): ModelPricing | undefined {
