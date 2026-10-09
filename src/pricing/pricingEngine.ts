@@ -214,19 +214,24 @@ export class PricingEngine {
     const customRates = this.configManager.config.customModelRates;
     const normalized = this.normalizeModelName(modelFamily);
 
-    // Prefer exact or delimiter-bounded prefix matches (e.g. key "gpt-5" matches
-    // "gpt-5", "gpt-5.4", "gpt-5-mini" but not "gpt-50"). Fall back to the legacy
-    // substring behavior only when no precise match is found.
-    const preciseMatch = Object.entries(customRates).find(([key]) => {
-      const nk = this.normalizeModelName(key);
-      return normalized === nk || normalized.startsWith(`${nk}-`) || normalized.startsWith(`${nk}.`);
-    })?.[1];
+    const matches = Object.entries(customRates)
+      .map(([key, rate]) => ({ key: this.normalizeModelName(key), rate }))
+      .sort((first, second) => second.key.length - first.key.length);
+    const preciseMatch = matches.find(({ key }) =>
+      normalized === key || normalized.startsWith(`${key}-`) || normalized.startsWith(`${key}.`)
+    )?.rate;
+    const substringMatch = matches.find(({ key }) => {
+      const start = normalized.indexOf(key);
+      const end = start + key.length;
+      return start > 0 && /[.:-]/.test(normalized[start - 1])
+        && (end === normalized.length || /[.:-]/.test(normalized[end]));
+    })?.rate;
 
     const rate: ModelRate | undefined =
       customRates[modelFamily]
       ?? customRates[normalized]
       ?? preciseMatch
-      ?? Object.entries(customRates).find(([key]) => normalized.includes(this.normalizeModelName(key)))?.[1];
+      ?? substringMatch;
 
     if (rate) {
       // Custom rates are in credits/1M tokens. Convert to USD: credits × 0.01

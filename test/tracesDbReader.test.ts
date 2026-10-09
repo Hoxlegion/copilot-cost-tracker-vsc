@@ -82,6 +82,35 @@ describe("TracesDbReader", () => {
     });
   });
 
+  it("shares a single async file read across simultaneous queries", async () => {
+    let completeRead!: (bytes: Uint8Array) => void;
+    mockFhReadFile.mockImplementationOnce(() => new Promise<Uint8Array>((resolve) => { completeRead = resolve; }));
+    mockPrepare.mockImplementation(() => ({ step: () => false, free: vi.fn(), bind: vi.fn() }));
+    const reader = new TracesDbReader();
+
+    const first = reader.querySpans();
+    const second = reader.querySpans();
+    await vi.waitFor(() => expect(mockFhReadFile).toHaveBeenCalledTimes(1));
+    completeRead(new Uint8Array([100, 98]));
+
+    expect(await Promise.all([first, second])).toEqual([[], []]);
+    expect(mockPromisesOpen).toHaveBeenCalledTimes(1);
+    expect(mockFhClose).toHaveBeenCalledTimes(1);
+    expect(mockReadFileSync).not.toHaveBeenCalled();
+  });
+
+  it("releases the shared load after a read error so the next query can retry", async () => {
+    mockFhReadFile.mockRejectedValueOnce(new Error("read failed"));
+    mockPrepare.mockImplementation(() => ({ step: () => false, free: vi.fn(), bind: vi.fn() }));
+    const reader = new TracesDbReader();
+
+    await expect(reader.querySpans()).rejects.toThrow("read failed");
+    await expect(reader.querySpans()).resolves.toEqual([]);
+
+    expect(mockPromisesOpen).toHaveBeenCalledTimes(2);
+    expect(mockFhClose).toHaveBeenCalledTimes(2);
+  });
+
   it("reads spans from DB and defaults cacheWriteTokens to 0 (column removed from schema)", async () => {
     mockExec.mockReturnValue([
       {

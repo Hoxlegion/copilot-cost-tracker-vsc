@@ -9,6 +9,7 @@ export interface CostReader {
   getSessionModelBreakdowns(sessionIds: string[]): SessionModelBreakdownRow[];
   getTurnsForSession(sessionId: string, limit?: number): StoredTurn[];
   getAllTurns(): StoredTurn[];
+  iterateAllTurns(): Iterable<StoredTurn>;
   getModelLatencySamples(days?: number, workspace?: string): ModelLatencySample[];
   getDailyCosts(days?: number, workspace?: string): AggregatedCost[];
   getDailyCostsSince(sinceMs: number, workspace?: string): AggregatedCost[];

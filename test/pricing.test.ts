@@ -139,13 +139,28 @@ describe("Pricing Engine", () => {
       engine.setDependencies({
         config: {
           customModelRates: {
-            "Claude-Sonnet": { input: 150, output: 600 },
+            "Sonnet": { input: 150, output: 600 },
           },
         },
       } as any, undefined as any);
 
       const costUsd = engine.calculateCost("claude-sonnet-4.6-preview", 1_000_000, 0, 0);
       expect(costUsd).toBeCloseTo(1.5);
+    });
+
+    it("prefers the most specific custom rate without matching a different model number", () => {
+      const engine = new PricingEngine();
+      engine.setDependencies({
+        config: {
+          customModelRates: {
+            "gpt-5": { input: 100, output: 100 },
+            "gpt-5.4": { input: 300, output: 300 },
+          },
+        },
+      } as any, undefined as any);
+
+      expect(engine.calculateCost("gpt-5.4-preview", 1_000_000, 0, 0)).toBeCloseTo(3);
+      expect(engine.calculateCost("gpt-50", 1_000_000, 0, 0)).toBeCloseTo(2.5);
     });
 
     it("handles empty custom rates object", () => {

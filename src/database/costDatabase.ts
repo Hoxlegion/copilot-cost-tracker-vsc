@@ -487,6 +487,10 @@ export class CostDatabase implements CostReader, CostWriter, CostMaintenance {
     return queries.getAllTurns(this.db);
   }
 
+  iterateAllTurns(): Iterable<StoredTurn> {
+    return this.db ? queries.iterateAllTurns(this.db) : [];
+  }
+
   // ── Aggregations ────────────────────────────────────
 
   getModelLatencySamples(days: number = 30, workspace?: string): ModelLatencySample[] {

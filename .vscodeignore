@@ -10,6 +10,7 @@ tsconfig.json
 .context/**
 .github/**
 test/**
+coverage/**
 scripts/**
 media/*.png
 !media/icon.png

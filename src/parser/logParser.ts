@@ -85,9 +85,10 @@ export class LogParser {
       return null;
     }
 
-    // Stream the JSONL file line-by-line instead of loading the whole (potentially
-    // very large) file into memory at once.
-    const entries: LogEntry[] = [];
+    let firstEntry: LogEntry | undefined;
+    let lastStart: LogEntry | undefined;
+    let lastActivity: number | undefined;
+    const turns: ParsedTurn[] = [];
     let skippedLines = 0;
     try {
       const rl = readline.createInterface({
@@ -98,7 +99,13 @@ export class LogParser {
         const line = rawLine.trim();
         if (!line) continue;
         try {
-          entries.push(JSON.parse(line) as LogEntry);
+          const entry = JSON.parse(line) as LogEntry;
+          firstEntry ??= entry;
+          lastActivity = entry.ts;
+          if (entry.type === "session_start") lastStart = entry;
+          if (entry.type === "LLM_request" || entry.type === "llm_request" || entry.name === "llm_request") {
+            turns.push(this.parseModelTurn(entry, firstEntry.sid));
+          }
         } catch {
           skippedLines++;
         }
@@ -111,39 +118,18 @@ export class LogParser {
       console.warn(`[LogParser] Skipped ${skippedLines} malformed line(s) in ${mainJsonlPath}`);
     }
 
-    if (entries.length === 0) {
-      return null;
-    }
-
-    // Find session start info
-    const sessionStarts = entries.filter((e) => e.type === "session_start");
-    const lastStart = sessionStarts.at(-1);
-
-    const sessionId = entries[0].sid;
-    const workspace = this.getWorkspaceId(sessionDir);
+    if (!firstEntry) return null;
 
     const session: ParsedSession = {
-      sessionId,
-      startTimestamp: lastStart?.ts ?? entries[0].ts,
-      lastActivity: entries.at(-1)?.ts ?? entries[0].ts,
+      sessionId: firstEntry.sid,
+      startTimestamp: lastStart?.ts ?? firstEntry.ts,
+      lastActivity: lastActivity ?? firstEntry.ts,
       copilotVersion:
         (lastStart?.attrs?.copilotVersion as string) ?? "unknown",
       vscodeVersion: (lastStart?.attrs?.vscodeVersion as string) ?? "unknown",
-      turns: [],
-      workspace,
+      turns,
+      workspace: this.getWorkspaceId(sessionDir),
     };
-
-    // Extract LLM request entries (model turns)
-    const llmEntries = entries.filter(
-      (e) => e.type === "LLM_request" || e.type === "llm_request" || e.name === "llm_request"
-    );
-
-    for (const entry of llmEntries) {
-      const turn = this.parseModelTurn(entry, sessionId);
-      if (turn) {
-        session.turns.push(turn);
-      }
-    }
 
     return session;
   }
@@ -154,7 +140,7 @@ export class LogParser {
   private parseModelTurn(
     entry: BaseLogEntry,
     sessionId: string
-  ): ParsedTurn | null {
+  ): ParsedTurn {
     const attrs = entry.attrs || {};
 
     // Try multiple possible field names (format may vary across versions)

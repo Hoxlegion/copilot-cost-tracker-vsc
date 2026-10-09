@@ -40,6 +40,21 @@ Architecture review hardening across ingestion, parsing, views, pricing, and con
 - Alert threshold constants consolidated into `src/insights/alertThresholds.ts`
 - Removed the deprecated, unused `pollIntervalMin` config field
 
+## [0.6.6] - 2026-10-09
+
+### Security
+
+- Updated vulnerable transitive dependencies, including `brace-expansion`, `fast-uri`, `js-yaml`, `linkify-it`, `postcss`, `undici`, and `source-map-js`.
+- Upgraded `@vscode/vsce` to 4.0.0, removing the vulnerable `secretlint`/`globby`/`braces` dependency chain.
+- Updated `vitest` and `@vitest/coverage-v8` together to the patched 4.1.11 release.
+
+### Changed
+
+- Updated `sql.js` from 1.14.1 to 1.14.2.
+- Refreshed Svelte, Vite, esbuild, ESLint, TypeScript-ESLint, Lucide, and Node.js type dependencies.
+- CI now tests Node.js 22 and 24. Building and packaging require Node.js 22 or newer; the minimum supported VS Code version remains 1.85.0.
+- Updated `actions/setup-node` to v7 in the CI and release workflows.
+
 ## [0.6.5] - 2026-06-22
 
 ### Security

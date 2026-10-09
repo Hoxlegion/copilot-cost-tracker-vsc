@@ -1,9 +1,69 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+import initSqlJs from "sql.js";
+import { getCurrentMonthTotal, iterateAllTurns } from "../src/database/queries";
+import { createTables } from "../src/database/schema";
 
 // Unit tests for database operations (behavior validation)
 // Note: sql.js integration tests would require WASM initialization
 
 describe("Database Operations", () => {
+  describe("Export", () => {
+    it("streams all timestamp ties across pages without including later inserts", async () => {
+      const SQL = await initSqlJs();
+      const db = new SQL.Database();
+      try {
+        createTables(db);
+        const insertTurn = (sessionId: string) => db.run(
+          `INSERT INTO turns (session_id, timestamp, duration, model, model_family, input_tokens,
+           output_tokens, cached_tokens, total_tokens, cost_usd, credits, workspace, status)
+           VALUES (?, 1000, 1, 'model', 'model', 1, 0, 0, 1, 0, 0, 'repo', 'ok')`,
+          [sessionId],
+        );
+        for (let index = 0; index < 501; index++) insertTurn(`session-${index}`);
+
+        const iterator = iterateAllTurns(db)[Symbol.iterator]();
+        expect(iterator.next().value?.id).toBe(1);
+        insertTurn("later-insert");
+
+        const remaining = Array.from(iterator);
+        expect(remaining).toHaveLength(500);
+        expect(remaining.map((turn) => turn.id)).toEqual(
+          Array.from({ length: 500 }, (_, index) => index + 2),
+        );
+        expect(remaining.at(-1)?.sessionId).toBe("session-500");
+      } finally {
+        db.close();
+      }
+    });
+  });
+
+  describe("Billing cycle totals", () => {
+    it("counts turns since the configured billing start day", async () => {
+      const SQL = await initSqlJs();
+      const db = new SQL.Database();
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(new Date(2026, 4, 20, 12));
+        createTables(db);
+        const insertTurn = (sessionId: string, day: number, credits: number) => db.run(
+          `INSERT INTO turns (session_id, timestamp, duration, model, model_family, input_tokens,
+           output_tokens, cached_tokens, total_tokens, cost_usd, credits, workspace, status)
+           VALUES (?, ?, 1, 'model', 'model', 1, 0, 0, 1, ?, ?, 'repo', 'ok')`,
+          [sessionId, new Date(2026, 4, day, 12).getTime(), credits / 100, credits],
+        );
+        insertTurn("early", 1, 1);
+        insertTurn("start", 15, 2);
+        insertTurn("recent", 20, 3);
+
+        expect(getCurrentMonthTotal(db, 15)).toMatchObject({ credits: 5, turns: 2 });
+        expect(getCurrentMonthTotal(db, 1)).toMatchObject({ credits: 6, turns: 3 });
+      } finally {
+        vi.useRealTimers();
+        db.close();
+      }
+    });
+  });
+
   describe("Deduplication", () => {
     it("deduplicates turns on unique constraint (session_id, timestamp, model)", () => {
       const turns = [

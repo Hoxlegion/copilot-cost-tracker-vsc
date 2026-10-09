@@ -1,5 +1,11 @@
+import * as path from "node:path";
+import { randomUUID } from "node:crypto";
+import { createWriteStream } from "node:fs";
+import { rename, rm } from "node:fs/promises";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import * as vscode from "vscode";
-import { CostReader, CostMaintenance } from "./database";
+import { CostReader, CostMaintenance, StoredTurn } from "./database";
 import { PricingEngine } from "./pricing";
 import { TracesDbReader } from "./parser";
 import { TracesIngester } from "./watcher";
@@ -121,40 +127,54 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
         );
         if (!format) return;
 
-        const ext = format.label === "CSV" ? "csv" : "json";
+        const isCsv = format.label === "CSV";
+        const ext = isCsv ? "csv" : "json";
         const stamp = new Date().toISOString().slice(0, 10);
         const target = await vscode.window.showSaveDialog({
           title: "Export Usage Data",
           saveLabel: "Export",
           defaultUri: vscode.Uri.file(`copilot-cost-export-${stamp}.${ext}`),
-          filters: format.label === "CSV" ? { "CSV files": ["csv"] } : { "JSON files": ["json"] },
+          filters: isCsv ? { "CSV files": ["csv"] } : { "JSON files": ["json"] },
         });
         if (!target) return;
 
-        const turns = database.getAllTurns();
-        let content: string;
-        if (format.label === "CSV") {
-          const headers = [
-            "id", "sessionId", "timestamp", "duration", "agentName", "model", "modelFamily",
-            "inputTokens", "outputTokens", "cachedTokens", "cacheWriteTokens", "totalTokens",
-            "costUsd", "credits", "workspace", "status", "costSource",
-          ];
-          const escape = (v: unknown): string => {
-            const s = v == null ? "" : String(v);
-            return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-          };
-          const lines = [headers.join(",")];
-          for (const t of turns) {
-            lines.push(headers.map((h) => escape((t as unknown as Record<string, unknown>)[h])).join(","));
-          }
-          content = lines.join("\r\n");
-        } else {
-          content = JSON.stringify(turns, null, 2);
+        if (target.scheme !== "file") {
+          throw new Error("Export requires a local file destination.");
         }
 
-        await vscode.workspace.fs.writeFile(target, Buffer.from(content, "utf8"));
+        const headers: (keyof StoredTurn)[] = [
+          "id", "sessionId", "timestamp", "duration", "agentName", "model", "modelFamily",
+          "inputTokens", "outputTokens", "cachedTokens", "cacheWriteTokens", "totalTokens",
+          "costUsd", "credits", "workspace", "status", "costSource",
+        ];
+        const escape = (value: string | number): string => {
+          const text = value == null ? "" : String(value);
+          const safe = typeof value === "string" && /^\s*[=+\-@]/.test(value) ? `'${text}` : text;
+          return safe !== text || /[",\r\n]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe;
+        };
+        let count = 0;
+        function* chunks(): Generator<string> {
+          yield isCsv ? headers.join(",") : "[";
+          for (const turn of database.iterateAllTurns()) {
+            if (isCsv) {
+              yield `\r\n${headers.map((header) => escape(turn[header])).join(",")}`;
+            } else {
+              yield `${count === 0 ? "\n  " : ",\n  "}${JSON.stringify(turn, null, 2).replaceAll("\n", "\n  ")}`;
+            }
+            count++;
+          }
+          if (!isCsv) yield count === 0 ? "]" : "\n]";
+        }
+
+        const tempPath = path.join(path.dirname(target.fsPath), `.${path.basename(target.fsPath)}.${randomUUID()}.tmp`);
+        try {
+          await pipeline(Readable.from(chunks()), createWriteStream(tempPath, { encoding: "utf8", flags: "wx" }));
+          await rename(tempPath, target.fsPath);
+        } finally {
+          await rm(tempPath, { force: true });
+        }
         vscode.window.showInformationMessage(
-          `Copilot Cost Tracker: Exported ${turns.length} turns to ${target.fsPath}`,
+          `Copilot Cost Tracker: Exported ${count} turns to ${target.fsPath}`,
         );
       } catch (err) {
         vscode.window.showErrorMessage(`Copilot Cost Tracker: Export failed — ${err instanceof Error ? err.message : String(err)}`);

@@ -24,7 +24,7 @@ export class TracesIngester implements vscode.Disposable {
 
   private lastProcessedTimestamp: number = 0;
   private migrationsApplied: boolean = false;
-  private _ingesting: boolean = false;
+  private ongoingIngest: Promise<number> | null = null;
   private static readonly INGEST_BATCH_SIZE = 5_000;
 
   readonly onDidDataChange: vscode.Event<void>;
@@ -85,45 +85,53 @@ export class TracesIngester implements vscode.Disposable {
     return this.ingest(0);
   }
 
-  async ingest(sinceOverride?: number): Promise<number> {
-    if (this.isDisposed) return 0;
+  ingest(sinceOverride?: number): Promise<number> {
+    if (this.isDisposed) return Promise.resolve(0);
 
-    // Prevent concurrent ingests (file watcher + commands can overlap), which would
-    // cause SQLite "cannot start a transaction within a transaction" errors.
-    if (this._ingesting) {
-      this.logger.warn("Ingest already in progress, skipping concurrent invocation");
-      return 0;
-    }
-    this._ingesting = true;
-
-    try {
-      await this.applyDataMigrationsOnce();
-
-      const source = this.sourceResolver.resolve({
-        dbExists: () => this.reader.exists(),
-        onSwitchToJsonl: () => {
-          this.logger.info("Switching to JSONL fallback");
-          this.setWatchPath(null);
-        },
-        onRecoverToDb: () => {
-          this.logger.info("Probing traces DB for recovery after JSONL failover");
-          this.setWatchPath(this.reader.path);
-        },
-      });
-
-      let count: number;
-      if (source === "database") {
-        count = await this.ingestFromTracesDb(sinceOverride);
-      } else {
-        count = await this.ingestFromJsonl();
+    if (this.ongoingIngest) {
+      if (sinceOverride === undefined) {
+        this.logger.warn("Ingest already in progress, skipping concurrent invocation");
+        return Promise.resolve(0);
       }
-
-      this.syncSessionTitles();
-
-      return count;
-    } finally {
-      this._ingesting = false;
+      return this.ongoingIngest.then(
+        () => this.ingest(sinceOverride),
+        () => this.ingest(sinceOverride),
+      );
     }
+
+    const run = this.runIngest(sinceOverride);
+    const tracked = run.finally(() => {
+      if (this.ongoingIngest === tracked) this.ongoingIngest = null;
+    });
+    this.ongoingIngest = tracked;
+    return tracked;
+  }
+
+  private async runIngest(sinceOverride?: number): Promise<number> {
+    await this.applyDataMigrationsOnce();
+
+    const source = this.sourceResolver.resolve({
+      dbExists: () => this.reader.exists(),
+      onSwitchToJsonl: () => {
+        this.logger.info("Switching to JSONL fallback");
+        this.setWatchPath(null);
+      },
+      onRecoverToDb: () => {
+        this.logger.info("Probing traces DB for recovery after JSONL failover");
+        this.setWatchPath(this.reader.path);
+      },
+    });
+
+    let count: number;
+    if (source === "database") {
+      count = await this.ingestFromTracesDb(sinceOverride);
+    } else {
+      count = await this.ingestFromJsonl();
+    }
+
+    this.syncSessionTitles();
+
+    return count;
   }
 
   /**

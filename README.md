@@ -182,7 +182,7 @@ Accessible via the Command Palette (`Ctrl+Shift+P`) under the **Copilot Cost Tra
 | `Copilot Cost Tracker: Scan All Workspaces` | Ingests all available data without watermark restriction. |
 | `Copilot Cost Tracker: Scan Full History` | Ingests from timestamp 0 — backfills the entire available history. |
 | `Copilot Cost Tracker: Set Monthly Budget` | Pick a plan or enter a custom monthly credit budget. |
-| `Copilot Cost Tracker: Export Usage Data` | Export all recorded turns to a JSON or CSV file. |
+| `Copilot Cost Tracker: Export Usage Data` | Stream all recorded turns to a local JSON or CSV file. Spreadsheet formula-like text is prefixed with an apostrophe in CSV exports. |
 
 ---
 
