@@ -2,7 +2,7 @@
   "name": "copilot-cost-tracker",
   "displayName": "Copilot Cost Tracker",
   "description": "Track and visualize your GitHub Copilot usage costs.",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "publisher": "Hoxlegion",
   "license": "MIT",
   "repository": {
@@ -198,6 +198,24 @@
           "type": "string",
           "default": "",
           "description": "Manual override for the VS Code user data directory (the folder containing 'globalStorage'/'workspaceStorage', e.g. '.../Code/User'). Leave empty for automatic detection of VS Code, Insiders, Cursor, Windsurf, and Portable Mode."
+        },
+        "copilotCostTracker.cliEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Track GitHub Copilot CLI usage from the CLI's local session logs (session-state/<id>/events.jsonl). Turning this off stops reading CLI logs; CLI usage that was already imported stays in the database."
+        },
+        "copilotCostTracker.cliHomePaths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "Absolute paths of Copilot CLI home directories (the folder that contains `session-state`); a leading `~` is expanded. Leave empty to use `COPILOT_HOME` or `~/.copilot`. When set, only these folders are read, so include your local home as well if you use both (for example with a WSL home via `\\\\wsl$\\...`). A session found in more than one folder is counted once."
+        },
+        "copilotCostTracker.includeCliInBudget": {
+          "type": "boolean",
+          "default": true,
+          "description": "Count Copilot CLI credits toward the monthly budget, pace, sidebar usage totals, and the status bar. The dashboard source filter works independently of this setting."
         },
         "copilotCostTracker.customModelRates": {
           "type": "object",

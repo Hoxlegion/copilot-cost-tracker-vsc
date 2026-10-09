@@ -1,7 +1,7 @@
 import * as path from "node:path";
 import * as fs from "node:fs";
 import initSqlJs, { Database } from "sql.js";
-import { ParsedTurn, AGGREGATE_AGENT_NAME } from "../parser/types";
+import { ParsedTurn, AGGREGATE_AGENT_NAME, TurnSource } from "../parser/types";
 import { createTables } from "./schema";
 import * as queries from "./queries";
 import * as metrics from "./metrics";
@@ -9,6 +9,12 @@ import type {
   CostReader,
   CostWriter,
   CostMaintenance,
+  CliStore,
+  CliSourceState,
+  CliSourceStatus,
+  CliSessionInfo,
+  CostedTurn,
+  SourceCost,
   StoredTurn,
   SessionSummary,
   SessionModelBreakdownRow,
@@ -30,6 +36,12 @@ export type {
   CostReader,
   CostWriter,
   CostMaintenance,
+  CliStore,
+  CliSourceState,
+  CliSourceStatus,
+  CliSessionInfo,
+  CostedTurn,
+  SourceCost,
   StoredTurn,
   SessionSummary,
   SessionModelBreakdownRow,
@@ -52,7 +64,7 @@ export function setWasmPath(p: string): void {
   wasmPath = p;
 }
 
-export class CostDatabase implements CostReader, CostWriter, CostMaintenance {
+export class CostDatabase implements CostReader, CostWriter, CostMaintenance, CliStore {
   private db: Database | null = null;
   private readonly dbPath: string;
   private saving: boolean = false;
@@ -182,7 +194,8 @@ export class CostDatabase implements CostReader, CostWriter, CostMaintenance {
     if (titledCount === 0) return;
 
     // Find sessions with the same title in the same workspace, created within 1 hour of each other
-    // This cleans up duplicates from the title mapping bug that mapped to both parent and conversation IDs
+    // This cleans up duplicates from the title mapping bug that mapped to both parent and conversation IDs.
+    // Copilot CLI sessions are excluded: their generated titles repeat and their rows are replaced per session.
     const stmt = db.prepare(`
       SELECT 
         s1.session_id as primary_id,
@@ -195,6 +208,8 @@ export class CostDatabase implements CostReader, CostWriter, CostMaintenance {
         AND s1.title = s2.title 
         AND s1.session_id < s2.session_id
         AND ABS(s1.start_timestamp - s2.start_timestamp) < 3600000
+      WHERE s1.session_id NOT IN (SELECT session_id FROM cli_sources)
+        AND s2.session_id NOT IN (SELECT session_id FROM cli_sources)
     `);
 
     const duplicates: Array<{ primary_id: string; duplicate_id: string; title: string }> = [];
@@ -317,8 +332,8 @@ export class CostDatabase implements CostReader, CostWriter, CostMaintenance {
     // changes nor make the database dirty.
     this.db.run(
       `INSERT INTO turns
-        (session_id, timestamp, duration, agent_name, model, model_family, input_tokens, output_tokens, cached_tokens, cache_write_tokens, total_tokens, cost_usd, credits, workspace, status, cost_source)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (session_id, timestamp, duration, agent_name, model, model_family, input_tokens, output_tokens, cached_tokens, cache_write_tokens, total_tokens, cost_usd, credits, workspace, status, cost_source, source, request_count)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(session_id, timestamp, model) DO UPDATE SET
          cost_usd = CASE WHEN excluded.cost_source = 'real' AND cost_source != 'real' THEN excluded.cost_usd ELSE cost_usd END,
          credits = CASE WHEN excluded.cost_source = 'real' AND cost_source != 'real' THEN excluded.credits ELSE credits END,
@@ -345,6 +360,8 @@ export class CostDatabase implements CostReader, CostWriter, CostMaintenance {
         workspace,
         turn.status,
         turn.costSource ?? "estimated",
+        turn.source ?? "chat",
+        turn.requestCount ?? 1,
       ]
     );
     return this.db.getRowsModified() > 0;
@@ -392,12 +409,13 @@ export class CostDatabase implements CostReader, CostWriter, CostMaintenance {
         UPDATE turns SET
           total_tokens = MAX(input_tokens - cached_tokens, 0) + output_tokens + cached_tokens + cache_write_tokens,
           input_tokens = MAX(input_tokens - cached_tokens, 0)
+        WHERE source = 'chat'
       `);
 
       // 3. Recompute cost for estimated turns with the corrected formula (free models -> 0).
       const sel = db.prepare(
         `SELECT id, model_family, input_tokens, output_tokens, cached_tokens, cache_write_tokens
-         FROM turns WHERE cost_source != 'real'`
+         FROM turns WHERE cost_source != 'real' AND source = 'chat'`
       );
       const upd = db.prepare("UPDATE turns SET cost_usd = ?, credits = ? WHERE id = ?");
       while (sel.step()) {
@@ -499,11 +517,173 @@ export class CostDatabase implements CostReader, CostWriter, CostMaintenance {
     }
   }
 
-  // ── Sessions ────────────────────────────────────────
+  // ── Copilot CLI ─────────────────────────────────────────────
 
-  getSessionSummaries(workspace?: string, limit: number = 50): SessionSummary[] {
+  getCliSourceStates(): Map<string, CliSourceState> {
+    const states = new Map<string, CliSourceState>();
+    if (!this.db) return states;
+    const stmt = this.db.prepare("SELECT session_id, file_path, size, mtime_ms, status, last_event_ms FROM cli_sources");
+    while (stmt.step()) {
+      const row = stmt.getAsObject();
+      states.set(row.session_id as string, {
+        sessionId: row.session_id as string,
+        filePath: row.file_path as string,
+        size: row.size as number,
+        mtimeMs: row.mtime_ms as number,
+        status: row.status as CliSourceStatus,
+        lastEventMs: row.last_event_ms as number,
+      });
+    }
+    stmt.free();
+    return states;
+  }
+
+  replaceCliSession(state: CliSourceState, session: CliSessionInfo | null, rows: CostedTurn[]): boolean {
+    if (!this.db) return false;
+    const db = this.db;
+    if (this.cliUsageMatches(db, state.sessionId, session, rows)) {
+      const stored = db.exec(
+        "SELECT file_path, size, mtime_ms, status, last_event_ms FROM cli_sources WHERE session_id = ?",
+        [state.sessionId],
+      )[0]?.values[0];
+      const sameSource = stored !== undefined
+        && stored[0] === state.filePath
+        && stored[1] === state.size
+        && stored[2] === state.mtimeMs
+        && stored[3] === state.status
+        && stored[4] === state.lastEventMs;
+      if (!sameSource) this.writeCliSource(db, state);
+      return stored?.[3] !== state.status;
+    }
+    db.run("BEGIN");
+    try {
+      db.run("DELETE FROM turns WHERE source = 'cli' AND session_id = ?", [state.sessionId]);
+      for (const { turn, costUsd, credits, workspace } of rows) {
+        this.insertTurn({ ...turn, sessionId: state.sessionId, source: "cli" }, costUsd, credits, workspace);
+      }
+      if (session) {
+        db.run(
+          `INSERT INTO sessions
+            (session_id, workspace, start_timestamp, last_timestamp, copilot_version, vscode_version, processed_at, title)
+           VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
+           ON CONFLICT(session_id) DO UPDATE SET
+             workspace = excluded.workspace,
+             start_timestamp = excluded.start_timestamp,
+             last_timestamp = excluded.last_timestamp,
+             copilot_version = COALESCE(excluded.copilot_version, copilot_version),
+             processed_at = excluded.processed_at,
+             title = COALESCE(excluded.title, title)`,
+          [state.sessionId, session.workspace, session.startTimestamp, session.lastTimestamp, session.copilotVersion, Date.now(), session.title],
+        );
+      }
+      this.writeCliSource(db, state);
+      db.run("COMMIT");
+    } catch (err) {
+      db.run("ROLLBACK");
+      throw err;
+    }
+    return true;
+  }
+
+  /** True when the stored CLI rows and session details already equal what would be written. */
+  private cliUsageMatches(db: Database, sessionId: string, session: CliSessionInfo | null, rows: CostedTurn[]): boolean {
+    if (session) {
+      const stored = db.exec(
+        "SELECT workspace, start_timestamp, last_timestamp, copilot_version, title FROM sessions WHERE session_id = ?",
+        [sessionId],
+      )[0]?.values[0];
+      if (
+        !stored
+        || stored[0] !== session.workspace
+        || stored[1] !== session.startTimestamp
+        || stored[2] !== session.lastTimestamp
+        || (session.copilotVersion !== null && stored[3] !== session.copilotVersion)
+        || (session.title !== null && stored[4] !== session.title)
+      ) {
+        return false;
+      }
+    }
+
+    const byTimeAndModel = (a: unknown[], b: unknown[]): number =>
+      Number(a[0]) - Number(b[0]) || (String(a[3]) < String(b[3]) ? -1 : String(a[3]) > String(b[3]) ? 1 : 0);
+    const stored: unknown[][] = [];
+    const stmt = db.prepare(
+      `SELECT timestamp, duration, agent_name, model, model_family, input_tokens, output_tokens, cached_tokens,
+              cache_write_tokens, total_tokens, cost_usd, credits, workspace, status, cost_source, request_count
+       FROM turns WHERE source = 'cli' AND session_id = ?`,
+    );
+    stmt.bind([sessionId]);
+    while (stmt.step()) stored.push(stmt.get());
+    stmt.free();
+    if (stored.length !== rows.length) return false;
+
+    const next = rows.map(({ turn, costUsd, credits, workspace }) => [
+      turn.timestamp, turn.duration, turn.agentName ?? "unknown", turn.model, turn.modelFamily,
+      turn.inputTokens, turn.outputTokens, turn.cachedTokens, turn.cacheWriteTokens, turn.totalTokens,
+      costUsd, credits, workspace, turn.status, turn.costSource ?? "estimated", turn.requestCount ?? 1,
+    ]);
+    return JSON.stringify(stored.sort(byTimeAndModel)) === JSON.stringify(next.sort(byTimeAndModel));
+  }
+
+  markCliSource(state: CliSourceState): void {
+    if (!this.db) return;
+    this.writeCliSource(this.db, state);
+  }
+
+  hasChatTurns(sessionId: string): boolean {
+    if (!this.db) return false;
+    const stmt = this.db.prepare("SELECT 1 FROM turns WHERE session_id = :sessionId AND source = 'chat' LIMIT 1");
+    stmt.bind({ ":sessionId": sessionId });
+    const found = stmt.step();
+    stmt.free();
+    return found;
+  }
+
+  deleteCliTurnsShadowedByChat(): string[] {
     if (!this.db) return [];
-    return queries.getSessionSummaries(this.db, workspace, limit);
+    const db = this.db;
+    const result = db.exec(`
+      SELECT DISTINCT c.session_id
+      FROM turns c
+      WHERE c.source = 'cli'
+        AND EXISTS (SELECT 1 FROM turns t WHERE t.session_id = c.session_id AND t.source = 'chat')
+    `);
+    const sessionIds = (result[0]?.values ?? []).map((row) => row[0] as string);
+    if (sessionIds.length === 0) return sessionIds;
+    db.run("BEGIN");
+    try {
+      for (const sessionId of sessionIds) {
+        db.run("DELETE FROM turns WHERE source = 'cli' AND session_id = ?", [sessionId]);
+        db.run("UPDATE cli_sources SET status = 'shadowed' WHERE session_id = ?", [sessionId]);
+      }
+      db.run("COMMIT");
+    } catch (err) {
+      db.run("ROLLBACK");
+      throw err;
+    }
+    return sessionIds;
+  }
+
+  private writeCliSource(db: Database, state: CliSourceState): void {
+    db.run(
+      `INSERT INTO cli_sources (session_id, file_path, size, mtime_ms, status, last_event_ms, parsed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(session_id) DO UPDATE SET
+         file_path = excluded.file_path,
+         size = excluded.size,
+         mtime_ms = excluded.mtime_ms,
+         status = excluded.status,
+         last_event_ms = excluded.last_event_ms,
+         parsed_at = excluded.parsed_at`,
+      [state.sessionId, state.filePath, state.size, state.mtimeMs, state.status, state.lastEventMs, Date.now()],
+    );
+  }
+
+  // ── Sessions ────────────────────────────────────────────────
+
+  getSessionSummaries(workspace?: string, limit: number = 50, source?: TurnSource): SessionSummary[] {
+    if (!this.db) return [];
+    return queries.getSessionSummaries(this.db, workspace, limit, source);
   }
 
   getSessionModelBreakdowns(sessionIds: string[]): SessionModelBreakdownRow[] {
@@ -532,49 +712,49 @@ export class CostDatabase implements CostReader, CostWriter, CostMaintenance {
     return queries.getModelLatencySamples(this.db, days, workspace);
   }
 
-  getDailyCosts(days: number = 30, workspace?: string): AggregatedCost[] {
+  getDailyCosts(days: number = 30, workspace?: string, source?: TurnSource): AggregatedCost[] {
     if (!this.db) return [];
-    return queries.getDailyCosts(this.db, days, workspace);
+    return queries.getDailyCosts(this.db, days, workspace, source);
   }
 
-  getDailyCostsSince(sinceMs: number, workspace?: string): AggregatedCost[] {
+  getDailyCostsSince(sinceMs: number, workspace?: string, source?: TurnSource): AggregatedCost[] {
     if (!this.db) return [];
-    return queries.getDailyCostsSince(this.db, sinceMs, workspace);
+    return queries.getDailyCostsSince(this.db, sinceMs, workspace, source);
   }
 
-  getModelBreakdown(days: number = 30, workspace?: string): ModelBreakdown[] {
+  getModelBreakdown(days: number = 30, workspace?: string, source?: TurnSource): ModelBreakdown[] {
     if (!this.db) return [];
-    return queries.getModelBreakdown(this.db, days, workspace);
+    return queries.getModelBreakdown(this.db, days, workspace, source);
   }
 
-  getModelBreakdownSince(sinceMs: number, workspace?: string): ModelBreakdown[] {
+  getModelBreakdownSince(sinceMs: number, workspace?: string, source?: TurnSource): ModelBreakdown[] {
     if (!this.db) return [];
-    return queries.getModelBreakdownSince(this.db, sinceMs, workspace);
+    return queries.getModelBreakdownSince(this.db, sinceMs, workspace, source);
   }
 
-  getAgentBreakdown(days: number = 30, workspace?: string): AgentBreakdown[] {
+  getAgentBreakdown(days: number = 30, workspace?: string, source?: TurnSource): AgentBreakdown[] {
     if (!this.db) return [];
-    return queries.getAgentBreakdown(this.db, days, workspace);
+    return queries.getAgentBreakdown(this.db, days, workspace, source);
   }
 
-  getAgentBreakdownSince(sinceMs: number, workspace?: string): AgentBreakdown[] {
+  getAgentBreakdownSince(sinceMs: number, workspace?: string, source?: TurnSource): AgentBreakdown[] {
     if (!this.db) return [];
-    return queries.getAgentBreakdownSince(this.db, sinceMs, workspace);
+    return queries.getAgentBreakdownSince(this.db, sinceMs, workspace, source);
   }
 
-  getDailyAgentBreakdown(days: number = 365, workspace?: string): DailyAgentBreakdown[] {
+  getDailyAgentBreakdown(days: number = 365, workspace?: string, source?: TurnSource): DailyAgentBreakdown[] {
     if (!this.db) return [];
-    return queries.getDailyAgentBreakdown(this.db, days, workspace);
+    return queries.getDailyAgentBreakdown(this.db, days, workspace, source);
   }
 
-  getCurrentMonthTotal(billingStartDay: number = 1, workspace?: string): { costUsd: number; credits: number; turns: number } {
+  getCurrentMonthTotal(billingStartDay: number = 1, workspace?: string, source?: TurnSource): { costUsd: number; credits: number; turns: number } {
     if (!this.db) return { costUsd: 0, credits: 0, turns: 0 };
-    return queries.getCurrentMonthTotal(this.db, billingStartDay, workspace);
+    return queries.getCurrentMonthTotal(this.db, billingStartDay, workspace, source);
   }
 
-  getCreditsSince(sinceMs: number): number {
+  getCreditsSince(sinceMs: number, source?: TurnSource): number {
     if (!this.db) return 0;
-    return queries.getCreditsSince(this.db, sinceMs);
+    return queries.getCreditsSince(this.db, sinceMs, source);
   }
 
   getMostRecentModel(): string | null {
@@ -582,9 +762,19 @@ export class CostDatabase implements CostReader, CostWriter, CostMaintenance {
     return queries.getMostRecentModel(this.db);
   }
 
-  getCostSince(sinceMs: number, workspace?: string): { costUsd: number; credits: number; turns: number } {
+  getCostSince(sinceMs: number, workspace?: string, source?: TurnSource): { costUsd: number; credits: number; turns: number } {
     if (!this.db) return { costUsd: 0, credits: 0, turns: 0 };
-    return queries.getCostSince(this.db, sinceMs, workspace);
+    return queries.getCostSince(this.db, sinceMs, workspace, source);
+  }
+
+  getCostBySourceSince(sinceMs: number, workspace?: string): SourceCost[] {
+    if (!this.db) return [];
+    return queries.getCostBySourceSince(this.db, sinceMs, workspace);
+  }
+
+  countCliSessionsWithoutUsage(sinceMs: number): number {
+    if (!this.db) return 0;
+    return queries.countCliSessionsWithoutUsage(this.db, sinceMs);
   }
 
   getWorkspaces(): string[] {
@@ -594,11 +784,11 @@ export class CostDatabase implements CostReader, CostWriter, CostMaintenance {
 
   // ── Metrics ─────────────────────────────────────────
 
-  getInsightMetrics(days: number = 30): InsightMetrics {
+  getInsightMetrics(days: number = 30, source?: TurnSource): InsightMetrics {
     if (!this.db) {
       return { totalInputTokens: 0, totalOutputTokens: 0, totalCachedTokens: 0, errorTurns: 0, totalTurns: 0, cacheHitPct: 0, ioRatioDays: [] };
     }
-    return metrics.getInsightMetrics(this.db, days);
+    return metrics.getInsightMetrics(this.db, days, source);
   }
 
   getAlertMetrics(sinceMs: number, thresholds?: Partial<AlertThresholdConfig>): AlertMetrics {
@@ -623,6 +813,7 @@ export class CostDatabase implements CostReader, CostWriter, CostMaintenance {
     sinceMs: number,
     workspace?: string,
     calculateSavingsCost?: (modelFamily: string, writeTokens: number, readTokens: number) => number,
+    source?: TurnSource,
   ): CacheSavingsMetrics {
     if (!this.db) {
       return {
@@ -633,7 +824,7 @@ export class CostDatabase implements CostReader, CostWriter, CostMaintenance {
         byModel: [],
       };
     }
-    return metrics.getCacheSavingsMetrics(this.db, sinceMs, workspace, calculateSavingsCost);
+    return metrics.getCacheSavingsMetrics(this.db, sinceMs, workspace, calculateSavingsCost, source);
   }
 
   // ── Context Awareness ───────────────────────────────

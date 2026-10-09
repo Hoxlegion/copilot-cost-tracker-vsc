@@ -6,6 +6,7 @@ export const AGENT_LABEL_MAP: Record<string, string> = {
   'summarizeConversationHistory': 'Context Summarization',
   'progressMessages': 'Background Processing',
   'title': 'Title Generation',
+  'copilot-cli': 'Copilot CLI',
 };
 
 export function friendlyAgentName(raw: string | null): string {

@@ -4,6 +4,31 @@ All notable changes to the **Copilot Cost Tracker** extension will be documented
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.0] - 2026-10-09
+
+GitHub Copilot CLI as a separate data source, with GitHub's billed credits and deduplication.
+
+### Features
+- **Copilot CLI tracking**: usage is imported from the CLI's session logs (`~/.copilot/session-state/<id>/events.jsonl`, or under `COPILOT_HOME`) as its own source next to Copilot Chat. Credits come from the billed amount GitHub reports in those logs; only usage without a billed amount is estimated from token prices
+- Newer CLIs write a usage record for every model call, and each call becomes a row. Older CLIs only save usage when a session exits normally; that usage becomes one row per exit and model
+- **Deduplication**: a changed log is re-read in full and replaces that session's earlier rows, so re-reading a log, appended events, and resumed sessions never count twice. Session snapshots only add usage that no per-call record covers. When Copilot Chat recorded the same session, the Chat data is kept, and a session found in several CLI folders is counted once from its newest log
+- **Dashboard source filter**: an All / Chat / CLI switch in the filter bar, shown once CLI data exists. Totals, charts, breakdowns, sessions, and insight metrics follow the filter; Turn Explorer, alerts, and context insights stay Chat-only. CLI sessions get a badge in the Activity tab
+- **Sidebar**: period credits split into Copilot Chat and Copilot CLI, a CLI badge in recent sessions, and a hint with the number of CLI sessions this period whose usage was not fully saved
+- **Turns count model calls**: a CLI row that combines several calls counts each call, so turn counts and cost per turn stay comparable between sources
+- **Export**: CSV and JSON exports include `source` and `requestCount`
+- New settings: `cliEnabled` (default on), `cliHomePaths` for other CLI homes such as a WSL home, and `includeCliInBudget` (default on). With `includeCliInBudget` off, CLI credits are left out of the budget, pace, status bar, and sidebar totals
+
+### Bug Fixes
+- Sorting a numeric dashboard table column puts placeholders such as "—" below real numbers instead of in arbitrary order
+
+### Internal
+- Turns get `source` (`chat`/`cli`) and `request_count` columns; existing turns become Chat turns of one request. A new `cli_sources` table keeps a fingerprint of every CLI log, so unchanged logs are not re-read and a re-import without changes writes nothing
+- The Chat watermark and the latency, context, and alert queries only use Chat rows
+- The legacy session-merge migration skips CLI sessions, whose generated titles can repeat
+- Git remote parsing moved to `src/shared/gitRemote.ts`, so CLI sessions get the same `Org/Repo` workspace labels as Chat sessions
+- `scripts/inspect-cli-sessions.js` prints the structure and usage numbers of local CLI logs without their content
+- New tests cover the CLI parser (legacy, cumulative, and mixed sessions, resumes, duplicate records, partial and half-written logs, missing billed amounts, BYOK), the CLI ingester against a real database, source filters, the database upgrade, and the dashboard filter messages
+
 ## [0.7.1] - 2026-10-09
 
 Lower refresh memory and bounded ingestion for large traces databases.

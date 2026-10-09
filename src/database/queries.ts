@@ -1,5 +1,6 @@
 import type { Database } from "sql.js";
-import type { AggregatedCost, ModelBreakdown, AgentBreakdown, DailyAgentBreakdown, ModelLatencySample, SessionSummary, SessionModelBreakdownRow, StoredTurn, SessionContextInfo, ContextTimelinePoint, SessionContextDistribution } from "./types";
+import type { AggregatedCost, ModelBreakdown, AgentBreakdown, DailyAgentBreakdown, ModelLatencySample, SessionSummary, SessionModelBreakdownRow, StoredTurn, SessionContextInfo, ContextTimelinePoint, SessionContextDistribution, SourceCost } from "./types";
+import type { TurnSource } from "../parser/types";
 import { getBillingPeriodStartMs } from "../billing";
 
 type SqlBindings = Record<string, number | string | null>;
@@ -44,12 +45,19 @@ function sinceWorkspaceBindings(since: number, workspace?: string): SqlBindings 
   return { ":since": since, ":workspace": workspace ?? null };
 }
 
+/** Bindings for queries that also filter with `(:source IS NULL OR source = :source)`. */
+function filterBindings(since: number, workspace?: string, source?: TurnSource): SqlBindings {
+  return { ":since": since, ":workspace": workspace ?? null, ":source": source ?? null };
+}
+
+// Per-request heuristics (latency, context weight) only make sense for Copilot Chat rows.
 export function getModelLatencySamples(db: Database, days: number = 30, workspace?: string): ModelLatencySample[] {
   const since = daysToSinceMs(days);
   return queryRows(db, `
     SELECT model_family, duration
     FROM turns
     WHERE timestamp >= :since
+      AND source = 'chat'
       AND (:workspace IS NULL OR workspace = :workspace)
     ORDER BY model_family, duration
   `, sinceWorkspaceBindings(since, workspace), (row) => ({
@@ -66,24 +74,25 @@ function safeSinceMs(sinceMs: number): number {
   return Number.isFinite(sinceMs) ? Math.floor(sinceMs) : 0;
 }
 
-export function getDailyCosts(db: Database, days: number = 30, workspace?: string): AggregatedCost[] {
-  return getDailyCostsSince(db, daysToSinceMs(days), workspace);
+export function getDailyCosts(db: Database, days: number = 30, workspace?: string, source?: TurnSource): AggregatedCost[] {
+  return getDailyCostsSince(db, daysToSinceMs(days), workspace, source);
 }
 
-export function getDailyCostsSince(db: Database, sinceMs: number, workspace?: string): AggregatedCost[] {
+export function getDailyCostsSince(db: Database, sinceMs: number, workspace?: string, source?: TurnSource): AggregatedCost[] {
   const since = safeSinceMs(sinceMs);
   return queryRows(db, `
     SELECT
       date(timestamp / 1000, 'unixepoch', 'localtime') as period,
       SUM(cost_usd) as total_cost_usd,
       SUM(credits) as total_credits,
-      COUNT(*) as turn_count
+      SUM(request_count) as turn_count
     FROM turns
     WHERE timestamp >= :since
       AND (:workspace IS NULL OR workspace = :workspace)
+      AND (:source IS NULL OR source = :source)
     GROUP BY period
     ORDER BY period DESC
-  `, sinceWorkspaceBindings(since, workspace), (row) => ({
+  `, filterBindings(since, workspace, source), (row) => ({
     period: row.period as string,
     totalCostUsd: row.total_cost_usd as number,
     totalCredits: row.total_credits as number,
@@ -91,24 +100,25 @@ export function getDailyCostsSince(db: Database, sinceMs: number, workspace?: st
   }));
 }
 
-export function getModelBreakdown(db: Database, days: number = 30, workspace?: string): ModelBreakdown[] {
-  return getModelBreakdownSince(db, daysToSinceMs(days), workspace);
+export function getModelBreakdown(db: Database, days: number = 30, workspace?: string, source?: TurnSource): ModelBreakdown[] {
+  return getModelBreakdownSince(db, daysToSinceMs(days), workspace, source);
 }
 
-export function getModelBreakdownSince(db: Database, sinceMs: number, workspace?: string): ModelBreakdown[] {
+export function getModelBreakdownSince(db: Database, sinceMs: number, workspace?: string, source?: TurnSource): ModelBreakdown[] {
   const since = safeSinceMs(sinceMs);
   const rows = queryRows(db, `
     SELECT
       model_family,
       SUM(cost_usd) as total_cost_usd,
       SUM(credits) as total_credits,
-      COUNT(*) as turn_count
+      SUM(request_count) as turn_count
     FROM turns
     WHERE timestamp >= :since
       AND (:workspace IS NULL OR workspace = :workspace)
+      AND (:source IS NULL OR source = :source)
     GROUP BY model_family
     ORDER BY total_cost_usd DESC
-  `, sinceWorkspaceBindings(since, workspace), (row): ModelBreakdown => ({
+  `, filterBindings(since, workspace, source), (row): ModelBreakdown => ({
     model: row.model_family as string,
     totalCostUsd: row.total_cost_usd as number,
     totalCredits: row.total_credits as number,
@@ -123,20 +133,21 @@ export function getModelBreakdownSince(db: Database, sinceMs: number, workspace?
   return rows;
 }
 
-export function getAgentBreakdown(db: Database, days: number = 30, workspace?: string): AgentBreakdown[] {
-  return getAgentBreakdownSince(db, daysToSinceMs(days), workspace);
+export function getAgentBreakdown(db: Database, days: number = 30, workspace?: string, source?: TurnSource): AgentBreakdown[] {
+  return getAgentBreakdownSince(db, daysToSinceMs(days), workspace, source);
 }
 
-export function getAgentBreakdownSince(db: Database, sinceMs: number, workspace?: string): AgentBreakdown[] {
+export function getAgentBreakdownSince(db: Database, sinceMs: number, workspace?: string, source?: TurnSource): AgentBreakdown[] {
   const since = safeSinceMs(sinceMs);
   const rows = queryRows(db, `
-    SELECT agent_name, SUM(cost_usd) as total_cost_usd, SUM(credits) as total_credits, COUNT(*) as turn_count
+    SELECT agent_name, SUM(cost_usd) as total_cost_usd, SUM(credits) as total_credits, SUM(request_count) as turn_count
     FROM turns
     WHERE timestamp >= :since
       AND (:workspace IS NULL OR workspace = :workspace)
+      AND (:source IS NULL OR source = :source)
     GROUP BY agent_name
     ORDER BY total_cost_usd DESC
-  `, sinceWorkspaceBindings(since, workspace), (row): AgentBreakdown => ({
+  `, filterBindings(since, workspace, source), (row): AgentBreakdown => ({
     agentName: (row.agent_name as string) || "unknown",
     totalCostUsd: row.total_cost_usd as number,
     totalCredits: row.total_credits as number,
@@ -151,7 +162,7 @@ export function getAgentBreakdownSince(db: Database, sinceMs: number, workspace?
   return rows;
 }
 
-export function getDailyAgentBreakdown(db: Database, days: number = 365, workspace?: string): DailyAgentBreakdown[] {
+export function getDailyAgentBreakdown(db: Database, days: number = 365, workspace?: string, source?: TurnSource): DailyAgentBreakdown[] {
   const since = daysToSinceMs(days);
   return queryRows(db, `
     SELECT
@@ -159,13 +170,14 @@ export function getDailyAgentBreakdown(db: Database, days: number = 365, workspa
       agent_name,
       SUM(cost_usd) as total_cost_usd,
       SUM(credits) as total_credits,
-      COUNT(*) as turn_count
+      SUM(request_count) as turn_count
     FROM turns
     WHERE timestamp >= :since
       AND (:workspace IS NULL OR workspace = :workspace)
+      AND (:source IS NULL OR source = :source)
     GROUP BY period, agent_name
     ORDER BY period ASC, total_cost_usd DESC
-  `, sinceWorkspaceBindings(since, workspace), (row) => ({
+  `, filterBindings(since, workspace, source), (row) => ({
     period: row.period as string,
     agentName: (row.agent_name as string) || "unknown",
     totalCostUsd: row.total_cost_usd as number,
@@ -174,50 +186,73 @@ export function getDailyAgentBreakdown(db: Database, days: number = 365, workspa
   }));
 }
 
-export function getCurrentMonthTotal(db: Database, billingStartDay: number = 1, workspace?: string): { costUsd: number; credits: number; turns: number } {
+export function getCurrentMonthTotal(db: Database, billingStartDay: number = 1, workspace?: string, source?: TurnSource): { costUsd: number; credits: number; turns: number } {
   const periodStart = getBillingPeriodStartMs(billingStartDay);
-  return queryOne(db, `
-    SELECT
-      COALESCE(SUM(cost_usd), 0) as total_cost,
-      COALESCE(SUM(credits), 0) as total_credits,
-      COUNT(*) as turn_count
-    FROM turns
-    WHERE timestamp >= :since
-      AND (:workspace IS NULL OR workspace = :workspace)
-  `, sinceWorkspaceBindings(periodStart, workspace), (row) => ({
-    costUsd: row.total_cost as number,
-    credits: row.total_credits as number,
-    turns: row.turn_count as number,
-  }), { costUsd: 0, credits: 0, turns: 0 });
+  return getCostSince(db, periodStart, workspace, source);
 }
 
-export function getCreditsSince(db: Database, sinceMs: number): number {
+export function getCreditsSince(db: Database, sinceMs: number, source?: TurnSource): number {
   const since = safeSinceMs(sinceMs);
-  return queryOne(db, "SELECT COALESCE(SUM(credits), 0) as total_credits FROM turns WHERE timestamp >= :since",
-    { ":since": since }, (row) => row.total_credits as number, 0);
+  return queryOne(db, `
+    SELECT COALESCE(SUM(credits), 0) as total_credits
+    FROM turns
+    WHERE timestamp >= :since
+      AND (:source IS NULL OR source = :source)
+  `, { ":since": since, ":source": source ?? null }, (row) => row.total_credits as number, 0);
 }
 
 export function getMostRecentModel(db: Database): string | null {
-  const result = db.exec("SELECT model_family FROM turns ORDER BY timestamp DESC LIMIT 1");
+  const result = db.exec("SELECT model_family FROM turns WHERE source = 'chat' ORDER BY timestamp DESC LIMIT 1");
   if (result.length === 0 || result[0].values.length === 0) return null;
   return (result[0].values[0][0] as string) || null;
 }
 
-export function getCostSince(db: Database, sinceMs: number, workspace?: string): { costUsd: number; credits: number; turns: number } {
+export function getCostSince(db: Database, sinceMs: number, workspace?: string, source?: TurnSource): { costUsd: number; credits: number; turns: number } {
   const since = safeSinceMs(sinceMs);
   return queryOne(db, `
     SELECT
       COALESCE(SUM(cost_usd), 0) as total_cost,
       COALESCE(SUM(credits), 0) as total_credits,
-      COUNT(*) as turn_count
+      COALESCE(SUM(request_count), 0) as turn_count
     FROM turns
     WHERE timestamp >= :since
       AND (:workspace IS NULL OR workspace = :workspace)
-  `, sinceWorkspaceBindings(since, workspace), (row) => ({
+      AND (:source IS NULL OR source = :source)
+  `, filterBindings(since, workspace, source), (row) => ({
     costUsd: row.total_cost as number,
     credits: row.total_credits as number,
     turns: row.turn_count as number,
   }), { costUsd: 0, credits: 0, turns: 0 });
+}
+
+export function getCostBySourceSince(db: Database, sinceMs: number, workspace?: string): SourceCost[] {
+  const since = safeSinceMs(sinceMs);
+  return queryRows(db, `
+    SELECT
+      source,
+      COALESCE(SUM(cost_usd), 0) as total_cost,
+      COALESCE(SUM(credits), 0) as total_credits,
+      COALESCE(SUM(request_count), 0) as turn_count
+    FROM turns
+    WHERE timestamp >= :since
+      AND (:workspace IS NULL OR workspace = :workspace)
+    GROUP BY source
+    ORDER BY source
+  `, sinceWorkspaceBindings(since, workspace), (row) => ({
+    source: row.source as TurnSource,
+    costUsd: row.total_cost as number,
+    credits: row.total_credits as number,
+    turns: row.turn_count as number,
+  }));
+}
+
+export function countCliSessionsWithoutUsage(db: Database, sinceMs: number): number {
+  return queryOne(db, `
+    SELECT COUNT(*) as session_count
+    FROM cli_sources
+    WHERE status IN ('no_usage', 'partial')
+      AND last_event_ms >= :since
+  `, { ":since": safeSinceMs(sinceMs) }, (row) => row.session_count as number, 0);
 }
 
 export function getWorkspaces(db: Database): string[] {
@@ -226,7 +261,7 @@ export function getWorkspaces(db: Database): string[] {
   return result[0].values.map((row) => row[0] as string);
 }
 
-export function getSessionSummaries(db: Database, workspace?: string, limit: number = 50): SessionSummary[] {
+export function getSessionSummaries(db: Database, workspace?: string, limit: number = 50, source?: TurnSource): SessionSummary[] {
   const safeLimit = clampInt(limit, 1, 500);
   const stmt = db.prepare(`
     SELECT
@@ -234,31 +269,33 @@ export function getSessionSummaries(db: Database, workspace?: string, limit: num
       t.workspace,
       MIN(t.timestamp) as start_timestamp,
       MAX(t.timestamp) as last_timestamp,
-      COUNT(*) as turn_count,
+      SUM(t.request_count) as turn_count,
       SUM(t.input_tokens) as total_input_tokens,
       SUM(t.output_tokens) as total_output_tokens,
       SUM(t.cached_tokens) as total_cached_tokens,
       SUM(t.cost_usd) as total_cost_usd,
       SUM(t.credits) as total_credits,
       AVG(t.duration) as avg_duration_ms,
+      MAX(t.source) as source,
       pm.primary_model,
       s.title
     FROM turns t
     LEFT JOIN (
       SELECT session_id, model_family AS primary_model,
-             ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY COUNT(*) DESC) AS rn
+             ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY SUM(request_count) DESC) AS rn
       FROM turns
       GROUP BY session_id, model_family
     ) pm ON pm.session_id = t.session_id AND pm.rn = 1
     LEFT JOIN sessions s ON s.session_id = t.session_id
     WHERE (:workspace IS NULL OR t.workspace = :workspace)
+      AND (:source IS NULL OR t.source = :source)
     GROUP BY t.session_id, t.workspace
     HAVING (total_cost_usd > 0 OR total_input_tokens > 0)
       AND NOT (turn_count <= 2 AND total_cost_usd = 0)
     ORDER BY start_timestamp DESC
     LIMIT :limit
   `);
-  stmt.bind({ ":workspace": workspace ?? null, ":limit": safeLimit });
+  stmt.bind({ ":workspace": workspace ?? null, ":source": source ?? null, ":limit": safeLimit });
 
   const rows: SessionSummary[] = [];
   while (stmt.step()) {
@@ -277,6 +314,7 @@ export function getSessionSummaries(db: Database, workspace?: string, limit: num
       avgDurationMs: row.avg_duration_ms as number,
       primaryModel: row.primary_model as string,
       title: (row.title as string) ?? null,
+      source: ((row.source as TurnSource) ?? "chat"),
     });
   }
   stmt.free();
@@ -299,7 +337,7 @@ export function getSessionModelBreakdowns(db: Database, sessionIds: string[]): S
       SELECT
         session_id,
         model_family,
-        COUNT(*) as turn_count,
+        SUM(request_count) as turn_count,
         SUM(input_tokens) as total_input_tokens,
         SUM(output_tokens) as total_output_tokens,
         SUM(cached_tokens) as total_cached_tokens,
@@ -337,7 +375,7 @@ export function getSessionModelBreakdowns(db: Database, sessionIds: string[]): S
 
 export function getTurnsForSession(db: Database, sessionId: string, limit: number = 50): StoredTurn[] {
   const stmt = db.prepare(
-    `SELECT id, session_id, timestamp, duration, agent_name, model, model_family, input_tokens, output_tokens, cached_tokens, cache_write_tokens, total_tokens, cost_usd, credits, workspace, status, cost_source
+    `SELECT id, session_id, timestamp, duration, agent_name, model, model_family, input_tokens, output_tokens, cached_tokens, cache_write_tokens, total_tokens, cost_usd, credits, workspace, status, cost_source, source, request_count
      FROM turns
      WHERE session_id = :sessionId
      ORDER BY timestamp DESC
@@ -347,26 +385,7 @@ export function getTurnsForSession(db: Database, sessionId: string, limit: numbe
 
   const rows: StoredTurn[] = [];
   while (stmt.step()) {
-    const row = stmt.getAsObject();
-    rows.push({
-      id: row.id as number,
-      sessionId: row.session_id as string,
-      timestamp: row.timestamp as number,
-      duration: row.duration as number,
-      agentName: row.agent_name as string,
-      model: row.model as string,
-      modelFamily: row.model_family as string,
-      inputTokens: row.input_tokens as number,
-      outputTokens: row.output_tokens as number,
-      cachedTokens: row.cached_tokens as number,
-      cacheWriteTokens: row.cache_write_tokens as number,
-      totalTokens: row.total_tokens as number,
-      costUsd: row.cost_usd as number,
-      credits: row.credits as number,
-      workspace: row.workspace as string,
-      status: row.status as string,
-      costSource: (row.cost_source as "real" | "estimated") ?? "estimated",
-    });
+    rows.push(mapExportTurn(stmt.getAsObject()));
   }
   stmt.free();
   return rows;
@@ -391,6 +410,8 @@ function mapExportTurn(row: Record<string, unknown>): StoredTurn {
     workspace: row.workspace as string,
     status: row.status as string,
     costSource: (row.cost_source as "real" | "estimated") ?? "estimated",
+    source: (row.source as TurnSource) ?? "chat",
+    requestCount: (row.request_count as number) ?? 1,
   };
 }
 
@@ -407,7 +428,7 @@ export function* iterateAllTurns(db: Database): IterableIterator<StoredTurn> {
   const pageSize = 500;
   while (true) {
     const page: StoredTurn[] = queryRows(db,
-      `SELECT id, session_id, timestamp, duration, agent_name, model, model_family, input_tokens, output_tokens, cached_tokens, cache_write_tokens, total_tokens, cost_usd, credits, workspace, status, cost_source
+      `SELECT id, session_id, timestamp, duration, agent_name, model, model_family, input_tokens, output_tokens, cached_tokens, cache_write_tokens, total_tokens, cost_usd, credits, workspace, status, cost_source, source, request_count
        FROM turns
        WHERE id <= :maxId
          AND (:lastTimestamp IS NULL OR timestamp > :lastTimestamp OR (timestamp = :lastTimestamp AND id > :lastId))
@@ -424,8 +445,9 @@ export function* iterateAllTurns(db: Database): IterableIterator<StoredTurn> {
   }
 }
 
+// Copilot Chat's ingestion watermark; CLI rows have their own fingerprints and must not move it.
 export function getMaxTimestamp(db: Database): number {
-  const result = db.exec("SELECT MAX(timestamp) FROM turns");
+  const result = db.exec("SELECT MAX(timestamp) FROM turns WHERE source = 'chat'");
   if (result.length > 0 && result[0].values.length > 0 && result[0].values[0][0] != null) {
     return result[0].values[0][0] as number;
   }
@@ -467,6 +489,7 @@ export function getMostRecentSessionContext(db: Database, sinceMs: number, works
         ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY timestamp DESC) AS rn
       FROM turns
       WHERE timestamp >= :since
+        AND source = 'chat'
         AND (:workspace IS NULL OR workspace = :workspace)
     )
     SELECT
@@ -513,6 +536,7 @@ export function getSessionContextTimeline(db: Database, sessionId: string): Cont
       (input_tokens + cached_tokens) AS current_context_weight
     FROM turns
     WHERE session_id = :sessionId
+      AND source = 'chat'
     ORDER BY timestamp ASC
   `);
   stmt.bind({ ":sessionId": sessionId });
@@ -547,6 +571,7 @@ export function getSessionContextDistribution(db: Database, sinceMs: number): Se
         ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY timestamp ASC) AS rn_asc
       FROM turns
       WHERE timestamp >= :since
+        AND source = 'chat'
     )
     SELECT
       session_id,

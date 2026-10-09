@@ -6,6 +6,7 @@ import { TelemetrySource, ConfigManager } from "../config";
 import { Logger } from "../logger";
 import { FileWatcherStrategy } from "./fileWatcherStrategy";
 import { TelemetrySourceResolver } from "./telemetrySourceResolver";
+import type { CliIngester } from "./cliIngester";
 
 type IngesterDatabase = CostWriter & CostMaintenance;
 
@@ -14,6 +15,8 @@ export interface TracesIngesterOptions {
   batchSize?: number;
   /** How far before the watermark incremental passes re-read to catch spans that were written late. */
   overlapMs?: number;
+  /** Copilot CLI source, ingested after Copilot Chat in the same serialized pass. */
+  cliIngester?: Pick<CliIngester, "ingest">;
 }
 
 interface PassTotals {
@@ -40,6 +43,7 @@ export class TracesIngester implements vscode.Disposable {
   private readonly overlapMs: number;
   private readonly onDataChanged: vscode.EventEmitter<void>;
   private readonly sourceResolver: TelemetrySourceResolver;
+  private readonly cliIngester: Pick<CliIngester, "ingest"> | undefined;
   private watcher: FileWatcherStrategy | undefined;
   private isDisposed: boolean = false;
 
@@ -68,6 +72,7 @@ export class TracesIngester implements vscode.Disposable {
     this.workspaceId = workspaceId;
     this.batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;
     this.overlapMs = options.overlapMs ?? DEFAULT_WATERMARK_OVERLAP_MS;
+    this.cliIngester = options.cliIngester;
     this.onDataChanged = new vscode.EventEmitter<void>();
     this.onDidDataChange = this.onDataChanged.event;
     this.sourceResolver = new TelemetrySourceResolver();
@@ -152,9 +157,25 @@ export class TracesIngester implements vscode.Disposable {
       count = await this.ingestFromJsonl();
     }
 
+    count += await this.ingestFromCli(sinceOverride === 0);
+
     this.syncSessionTitles();
 
     return count;
+  }
+
+  private async ingestFromCli(force: boolean): Promise<number> {
+    if (!this.cliIngester || this.isDisposed) return 0;
+    try {
+      const { sessions, turns } = await this.cliIngester.ingest({ force });
+      if (sessions > 0 && !this.isDisposed) {
+        this.onDataChanged.fire();
+      }
+      return turns;
+    } catch (err) {
+      this.logger.error("Failed to ingest Copilot CLI session logs", err);
+      return 0;
+    }
   }
 
   /**

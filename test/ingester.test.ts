@@ -16,7 +16,7 @@ import { TracesIngester, type TracesIngesterOptions } from "../src/watcher/trace
 import { CostDatabase, setWasmPath } from "../src/database/costDatabase";
 import { TracesDbReader } from "../src/parser/tracesDbReader";
 import { setUserDataPathOverride } from "../src/shared/paths";
-import type { TraceSpan } from "../src/parser/types";
+import type { ParsedTurn, TraceSpan } from "../src/parser/types";
 
 type IngesterArgs = ConstructorParameters<typeof TracesIngester>;
 
@@ -506,6 +506,50 @@ describe("bounded trace ingestion", () => {
       expect(await ingester.fullIngest()).toBe(1);
       expect(await ingester.fullIngest()).toBe(0);
       expect(creditTotal()).toBe(13);
+      ingester.dispose();
+    });
+
+    it("runs the Copilot CLI step after Chat without moving the Chat watermark", async () => {
+      const cliTimestamp = BASE_MS + 60 * 60_000;
+      const cliTurn: ParsedTurn = {
+        sessionId: "cli-1", timestamp: cliTimestamp, duration: 0, agentName: "copilot-cli", model: "gpt-5",
+        modelFamily: "gpt-5", inputTokens: 10, outputTokens: 1, cachedTokens: 0, cacheWriteTokens: 0,
+        totalTokens: 11, status: "ok", costSource: "real", source: "cli", requestCount: 2,
+      };
+      const cliIngester = {
+        ingest: vi.fn(async () => {
+          database.replaceCliSession(
+            { sessionId: "cli-1", filePath: "events.jsonl", size: 1, mtimeMs: 1, status: "ok", lastEventMs: cliTimestamp },
+            { workspace: "Org/Repo", startTimestamp: cliTimestamp, lastTimestamp: cliTimestamp, copilotVersion: null, title: null },
+            [{ turn: cliTurn, costUsd: 0.05, credits: 5, workspace: "Org/Repo" }],
+          );
+          return { sessions: 1, turns: 1 };
+        }),
+      };
+      const spans = [traceSpan("chat", BASE_MS)];
+      const { ingester } = createIngester(spanReader(spans), database, { cliIngester });
+
+      expect(await ingester.ingest()).toBe(2);
+      expect(cliIngester.ingest).toHaveBeenLastCalledWith({ force: false });
+      await ingester.fullIngest();
+      expect(cliIngester.ingest).toHaveBeenLastCalledWith({ force: true });
+      ingester.dispose();
+
+      // A restart recovers the Chat watermark, so a Chat span older than the CLI row is still read.
+      expect(database.getMaxTimestamp()).toBe(BASE_MS);
+      spans.push(traceSpan("chat-late", BASE_MS + 1_000));
+      const { ingester: restarted } = createIngester(spanReader(spans), database, { overlapMs: 0 });
+      expect(await restarted.ingest()).toBe(1);
+      expect(creditTotal()).toBe(7);
+      restarted.dispose();
+    });
+
+    it("keeps Chat results when the Copilot CLI step fails", async () => {
+      const cliIngester = { ingest: vi.fn(async () => { throw new Error("unreadable"); }) };
+      const { ingester, logger } = createIngester(spanReader([traceSpan("chat", BASE_MS)]), database, { cliIngester });
+
+      expect(await ingester.ingest()).toBe(1);
+      expect(logger.error).toHaveBeenCalledWith("Failed to ingest Copilot CLI session logs", expect.any(Error));
       ingester.dispose();
     });
 

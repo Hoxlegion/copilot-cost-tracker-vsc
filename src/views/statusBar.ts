@@ -68,12 +68,13 @@ export class StatusBarIndicator implements vscode.Disposable {
   private async showQuickPick(): Promise<void> {
     const cfg = this.configManager.config;
     const periodStartMs = getBillingPeriodStartMs(cfg.billingCycleStartDay);
+    const budgetSource = cfg.includeCliInBudget ? undefined : "chat";
     // Use the same source as update() to avoid drift between the status bar text and this menu.
-    const periodCredits = this.database.getCostSince(periodStartMs).credits;
+    const periodCredits = this.database.getCostSince(periodStartMs, undefined, budgetSource).credits;
     const budget = cfg.budgetCredits;
     const pct = budget > 0 ? ((periodCredits / budget) * 100).toFixed(1) : "0";
 
-    const models = this.database.getModelBreakdown(30);
+    const models = this.database.getModelBreakdown(30, undefined, budgetSource);
 
     type QuickPickAction = "dashboard" | "refresh" | "settings" | "treeview";
     interface ActionQuickPickItem extends vscode.QuickPickItem {
@@ -150,11 +151,12 @@ export class StatusBarIndicator implements vscode.Disposable {
     const cfg = this.configManager.config;
     const periodStartMs = getBillingPeriodStartMs(cfg.billingCycleStartDay);
     const periodEndMs = getBillingPeriodEndMs(cfg.billingCycleStartDay);
+    const budgetSource = cfg.includeCliInBudget ? undefined : "chat";
 
     // "Since window opened" — scoped to this window's repo so windows stay independent.
-    const windowTotals = this.database.getCostSince(this.activationTimestamp, this.workspaceRepo ?? undefined);
+    const windowTotals = this.database.getCostSince(this.activationTimestamp, this.workspaceRepo ?? undefined, budgetSource);
     // Period total stays global: budget is one plan across all repos.
-    const periodTotals = this.database.getCostSince(periodStartMs);
+    const periodTotals = this.database.getCostSince(periodStartMs, undefined, budgetSource);
     const periodUsd = periodTotals.costUsd;
     const periodCredits = periodTotals.credits;
     const pace = assessBudgetPace(periodStartMs, periodEndMs, periodCredits, cfg.budgetCredits);

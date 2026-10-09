@@ -48,6 +48,12 @@ export interface LlmRequestEntry extends BaseLogEntry {
 
 export type LogEntry = SessionStartEntry | LlmRequestEntry | BaseLogEntry;
 
+/** Product that produced a turn's usage. */
+export type TurnSource = "chat" | "cli";
+
+/** Agent name stored on every GitHub Copilot CLI usage row. */
+export const CLI_AGENT_NAME = "copilot-cli";
+
 export interface ParsedTurn {
   sessionId: string;
   timestamp: number;
@@ -63,6 +69,10 @@ export interface ParsedTurn {
   status: string;
   /** Whether credits are from real billing data or token-based estimates. */
   costSource?: "real" | "estimated";
+  /** Defaults to "chat". */
+  source?: TurnSource;
+  /** Model requests this row represents; defaults to 1. */
+  requestCount?: number;
 }
 
 export interface ParsedSession {

@@ -1,9 +1,30 @@
 <script lang="ts">
   import { filterState, applyPreset, applyCustomRange, resetFilter, type FilterPreset } from '../../stores/filter';
   import { dashboardData } from '../../stores/dashboard';
+  import { postToExtension } from '../../vscodeApi';
+  import type { DashboardSourceFilter } from '../../types';
   
   $: billingPeriodStartMs = $dashboardData?.billingPeriodStartMs ?? 0;
   $: lastUpdatedMs = $dashboardData?.lastUpdatedMs ?? Date.now();
+
+  const sourceOptions: Array<{ value: DashboardSourceFilter; label: string }> = [
+    { value: 'all', label: 'All' },
+    { value: 'chat', label: 'Chat' },
+    { value: 'cli', label: 'CLI' },
+  ];
+  // Highlight the clicked source right away; the extension echoes it back with the new data.
+  let requestedSource: DashboardSourceFilter | null = null;
+  $: dataSource = $dashboardData?.sourceFilter ?? 'all';
+  $: if (requestedSource !== null && dataSource === requestedSource) requestedSource = null;
+  $: activeSource = requestedSource ?? dataSource;
+  $: showSourceFilter = ($dashboardData?.hasCliData ?? false) || dataSource !== 'all';
+  $: cliSessionsWithoutUsage = $dashboardData?.cliSessionsWithoutUsage ?? 0;
+
+  function handleSourceClick(source: DashboardSourceFilter) {
+    if (source === activeSource) return;
+    requestedSource = source;
+    postToExtension({ command: 'setSourceFilter', source });
+  }
   
   let customFrom = '';
   let customTo = '';
@@ -41,6 +62,20 @@
 
 <div class="global-filter">
   <div class="filter-controls">
+    {#if showSourceFilter}
+      <div class="preset-buttons source-buttons" role="group" aria-label="Usage source">
+        {#each sourceOptions as option}
+          <button
+            class:active={activeSource === option.value}
+            aria-pressed={activeSource === option.value}
+            on:click={() => handleSourceClick(option.value)}
+          >
+            {option.label}
+          </button>
+        {/each}
+      </div>
+    {/if}
+
     <div class="preset-buttons">
       <button 
         class:active={$filterState.preset === 'today'}
@@ -89,6 +124,20 @@
     Updated: {freshnessLabel}
   </div>
 </div>
+
+{#if showSourceFilter && (activeSource === 'cli' || cliSessionsWithoutUsage > 0)}
+  <div class="source-notes">
+    {#if activeSource === 'cli'}
+      <span>Turn Explorer, alerts and context insights use Copilot Chat data only.</span>
+    {/if}
+    {#if cliSessionsWithoutUsage > 0}
+      <span>
+        {cliSessionsWithoutUsage} Copilot CLI session{cliSessionsWithoutUsage === 1 ? '' : 's'} this period with missing usage data
+        (closed without a normal exit, or an older CLI).
+      </span>
+    {/if}
+  </div>
+{/if}
 
 <style>
   .global-filter {
@@ -178,5 +227,15 @@
     font-size: 11px;
     color: var(--vscode-descriptionForeground);
     white-space: nowrap;
+  }
+
+  .source-notes {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 4px 16px 6px;
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground);
+    border-bottom: 1px solid var(--vscode-panel-border);
   }
 </style>

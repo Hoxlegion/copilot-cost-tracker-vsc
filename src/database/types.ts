@@ -1,34 +1,38 @@
-import type { ParsedTurn } from "../parser/types";
+import type { ParsedTurn, TurnSource } from "../parser/types";
 
 // ── Role interfaces ───────────────────────────────────
 // Consumers import only the slice they need, reducing coupling.
+// An omitted `source` argument means all sources (Copilot Chat and CLI).
 
 /** Read-only query access to cost data. */
 export interface CostReader {
-  getSessionSummaries(workspace?: string, limit?: number): SessionSummary[];
+  getSessionSummaries(workspace?: string, limit?: number, source?: TurnSource): SessionSummary[];
   getSessionModelBreakdowns(sessionIds: string[]): SessionModelBreakdownRow[];
   getTurnsForSession(sessionId: string, limit?: number): StoredTurn[];
   getAllTurns(): StoredTurn[];
   iterateAllTurns(): Iterable<StoredTurn>;
   getModelLatencySamples(days?: number, workspace?: string): ModelLatencySample[];
-  getDailyCosts(days?: number, workspace?: string): AggregatedCost[];
-  getDailyCostsSince(sinceMs: number, workspace?: string): AggregatedCost[];
-  getModelBreakdown(days?: number, workspace?: string): ModelBreakdown[];
-  getModelBreakdownSince(sinceMs: number, workspace?: string): ModelBreakdown[];
-  getAgentBreakdown(days?: number, workspace?: string): AgentBreakdown[];
-  getAgentBreakdownSince(sinceMs: number, workspace?: string): AgentBreakdown[];
-  getDailyAgentBreakdown(days?: number, workspace?: string): DailyAgentBreakdown[];
-  getCurrentMonthTotal(billingStartDay?: number, workspace?: string): { costUsd: number; credits: number; turns: number };
-  getCreditsSince(sinceMs: number): number;
+  getDailyCosts(days?: number, workspace?: string, source?: TurnSource): AggregatedCost[];
+  getDailyCostsSince(sinceMs: number, workspace?: string, source?: TurnSource): AggregatedCost[];
+  getModelBreakdown(days?: number, workspace?: string, source?: TurnSource): ModelBreakdown[];
+  getModelBreakdownSince(sinceMs: number, workspace?: string, source?: TurnSource): ModelBreakdown[];
+  getAgentBreakdown(days?: number, workspace?: string, source?: TurnSource): AgentBreakdown[];
+  getAgentBreakdownSince(sinceMs: number, workspace?: string, source?: TurnSource): AgentBreakdown[];
+  getDailyAgentBreakdown(days?: number, workspace?: string, source?: TurnSource): DailyAgentBreakdown[];
+  getCurrentMonthTotal(billingStartDay?: number, workspace?: string, source?: TurnSource): { costUsd: number; credits: number; turns: number };
+  getCreditsSince(sinceMs: number, source?: TurnSource): number;
   getMostRecentModel(): string | null;
-  getCostSince(sinceMs: number, workspace?: string): { costUsd: number; credits: number; turns: number };
+  getCostSince(sinceMs: number, workspace?: string, source?: TurnSource): { costUsd: number; credits: number; turns: number };
+  getCostBySourceSince(sinceMs: number, workspace?: string): SourceCost[];
+  countCliSessionsWithoutUsage(sinceMs: number): number;
   getWorkspaces(): string[];
-  getInsightMetrics(days?: number): InsightMetrics;
+  getInsightMetrics(days?: number, source?: TurnSource): InsightMetrics;
   getAlertMetrics(sinceMs: number, thresholds?: Partial<AlertThresholdConfig>): AlertMetrics;
   getCacheSavingsMetrics(
     sinceMs: number,
     workspace?: string,
     calculateSavingsCost?: (modelFamily: string, writeTokens: number, readTokens: number) => number,
+    source?: TurnSource,
   ): CacheSavingsMetrics;
   getMostRecentSessionContext(sinceMs: number, workspace?: string): SessionContextInfo | null;
   getSessionContextTimeline(sessionId: string): ContextTimelinePoint[];
@@ -71,7 +75,64 @@ export interface CostMaintenance {
   readonly didRecoverFromCorruption: boolean;
 }
 
+/** Ingestion state and writes for Copilot CLI session logs. */
+export interface CliStore {
+  getCliSourceStates(): Map<string, CliSourceState>;
+  /**
+   * Replaces all CLI rows of one session in a single transaction and records its fingerprint.
+   * Leaves the rows untouched when the stored usage already matches. Returns true when the
+   * session's usage or status changed.
+   */
+  replaceCliSession(state: CliSourceState, session: CliSessionInfo | null, rows: CostedTurn[]): boolean;
+  /** Records a fingerprint without touching the session's rows. */
+  markCliSource(state: CliSourceState): void;
+  hasChatTurns(sessionId: string): boolean;
+  /** Removes CLI rows for sessions that Copilot Chat already recorded; returns their ids. */
+  deleteCliTurnsShadowedByChat(): string[];
+}
+
 // ── Data types ────────────────────────────────────────
+
+/**
+ * - ok: usage rows stored
+ * - partial: usage stored, but later activity has no usage data on disk
+ * - no_usage: the session made model calls but wrote no usage data
+ * - empty: no model calls
+ * - shadowed: Copilot Chat already recorded this session
+ * - error: the log could not be read
+ */
+export type CliSourceStatus = "ok" | "partial" | "no_usage" | "empty" | "shadowed" | "error";
+
+export interface CliSourceState {
+  sessionId: string;
+  filePath: string;
+  size: number;
+  mtimeMs: number;
+  status: CliSourceStatus;
+  lastEventMs: number;
+}
+
+export interface CliSessionInfo {
+  workspace: string;
+  startTimestamp: number;
+  lastTimestamp: number;
+  copilotVersion: string | null;
+  title: string | null;
+}
+
+export interface CostedTurn {
+  turn: ParsedTurn;
+  costUsd: number;
+  credits: number;
+  workspace: string;
+}
+
+export interface SourceCost {
+  source: TurnSource;
+  costUsd: number;
+  credits: number;
+  turns: number;
+}
 
 export interface StoredTurn {
   id: number;
@@ -91,6 +152,8 @@ export interface StoredTurn {
   workspace: string;
   status: string;
   costSource: "real" | "estimated";
+  source: TurnSource;
+  requestCount: number;
 }
 
 export interface SessionSummary {
@@ -107,6 +170,7 @@ export interface SessionSummary {
   primaryModel: string;
   avgDurationMs: number;
   title: string | null;
+  source: TurnSource;
 }
 
 export interface SessionModelBreakdownRow {

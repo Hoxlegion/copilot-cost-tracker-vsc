@@ -75,16 +75,19 @@
     const cacheBase = s.totalInputTokens + s.totalCachedTokens;
     const cachePct = cacheBase > 0 ? (s.totalCachedTokens / cacheBase) * 100 : 0;
     const totalTokens = s.totalInputTokens + s.totalOutputTokens + s.totalCachedTokens;
+    const isCli = s.source === 'cli';
+    const label = s.title ? `${s.title} · ${date}` : date;
     return {
       id: s.sessionId,
-      date: s.title ? `${s.title} · ${date}` : date,
+      date: isCli ? `CLI · ${label}` : label,
       model: s.primaryModel,
       turns: s.turnCount,
       cost: $formatUsd(s.totalCostUsd),
       credits: s.totalCredits.toFixed(1),
       tokens: totalTokens.toLocaleString(),
       cachePct: cachePct.toFixed(1),
-      avgLatency: Math.round(s.avgDurationMs),
+      // CLI sessions include usage snapshots without timing, so an average would mislead.
+      avgLatency: isCli ? '—' : Math.round(s.avgDurationMs),
       _raw: s,
     };
   });
@@ -175,6 +178,9 @@
           <div class="session-card" class:expensive={isExpensive}>
             <div class="sc-header">
               <span class="sc-time">{timeLabel}</span>
+              {#if s.source === 'cli'}
+                <span class="sc-source" title="GitHub Copilot CLI">CLI</span>
+              {/if}
               <span class="sc-workspace" title={s.workspace}>{s.workspace}</span>
               {#if s.title}
                 <span class="sc-title" title={s.title}>{s.title}</span>
@@ -426,6 +432,15 @@
     font-size: 11px;
     font-weight: 600;
     color: var(--vscode-descriptionForeground);
+  }
+
+  .sc-source {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--cct-purple, #ba68c8);
+    border: 1px solid rgba(186, 104, 200, 0.5);
+    border-radius: 4px;
+    padding: 0 5px;
   }
   
   .sc-workspace {
