@@ -27,6 +27,15 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Typecheck (extension)
+        run: npm run typecheck:src
+
+      - name: Typecheck (tests)
+        run: npm run typecheck:test
+
+      - name: Typecheck (webview)
+        run: npm run typecheck:webview
+
       - name: Build
         run: npm run build
 

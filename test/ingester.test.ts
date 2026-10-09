@@ -1,4 +1,8 @@
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, beforeEach, describe, it, expect, vi, type Mock } from "vitest";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
 vi.mock("vscode", () => ({
   EventEmitter: class {
@@ -8,8 +12,63 @@ vi.mock("vscode", () => ({
   },
 }));
 
-import { TracesIngester } from "../src/watcher/tracesIngester";
+import { TracesIngester, type TracesIngesterOptions } from "../src/watcher/tracesIngester";
+import { CostDatabase, setWasmPath } from "../src/database/costDatabase";
+import { TracesDbReader } from "../src/parser/tracesDbReader";
+import { setUserDataPathOverride } from "../src/shared/paths";
 import type { TraceSpan } from "../src/parser/types";
+
+type IngesterArgs = ConstructorParameters<typeof TracesIngester>;
+
+const BASE_MS = 1_790_000_000_000;
+
+function traceSpan(spanId: string, startTimeMs: number, overrides: Partial<TraceSpan> = {}): TraceSpan {
+  return {
+    spanId, traceId: `trace-${spanId}`, parentSpanId: null, name: "chat",
+    startTimeMs, endTimeMs: startTimeMs + 100, statusCode: 0, operationName: null,
+    providerName: null, agentName: "panel/editAgent", conversationId: null,
+    requestModel: "gpt-5", responseModel: "gpt-5", inputTokens: 10, outputTokens: 2,
+    cachedTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, toolName: null,
+    chatSessionId: `session-${spanId}`, turnIndex: 1, ttftMs: null, realCredits: 1,
+    workspaceRepo: null,
+    ...overrides,
+  };
+}
+
+/** A reader over an in-memory span list that honours the bound and batch size like the real one. */
+function spanReader(spans: TraceSpan[]) {
+  return {
+    exists: () => true,
+    path: "agent-traces.db",
+    getLastRefresh: () => undefined,
+    iterateSpanBatches: vi.fn(async function* (sinceMs: number | undefined, batchSize: number) {
+      const visible = spans
+        .filter((span) => sinceMs === undefined || span.startTimeMs > sinceMs)
+        .sort((a, b) => a.startTimeMs - b.startTimeMs);
+      for (let index = 0; index < visible.length; index += batchSize) yield visible.slice(index, index + batchSize);
+    }),
+  };
+}
+
+function createIngester(reader: unknown, database: unknown, options: TracesIngesterOptions = {}) {
+  const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+  const ingester = new TracesIngester(
+    reader as IngesterArgs[0],
+    { discoverSessionTitles: () => new Map<string, string>() } as unknown as IngesterArgs[1],
+    { calculateCost: () => 0.01, costToCredits: (costUsd: number) => costUsd * 100 } as unknown as IngesterArgs[2],
+    database as IngesterArgs[3],
+    { config: { excludedModels: ["gpt-4o-mini"] } } as unknown as IngesterArgs[4],
+    logger as unknown as IngesterArgs[5],
+    "workspace",
+    options,
+  );
+  ingester.setTelemetrySource("database");
+  const internals = ingester as unknown as {
+    onDataChanged: { fire: Mock };
+    sourceResolver: { recordEmptyDbPoll(): void; recordSuccessfulDbPoll(): void };
+  };
+  return { ingester, logger, fire: internals.onDataChanged.fire, sourceResolver: internals.sourceResolver };
+}
 
 // Unit tests for Ingester failover and polling logic
 describe("Ingester Failover & Polling", () => {
@@ -102,36 +161,28 @@ describe("Ingester Failover & Polling", () => {
     });
 
     it("runs a requested full scan after an ongoing incremental ingest", async () => {
-      let finishFirstRead!: (spans: never[]) => void;
+      let finishFirstRead!: () => void;
+      const firstRead = new Promise<void>((resolve) => { finishFirstRead = resolve; });
       const reader = {
-        querySpans: vi.fn()
-          .mockImplementationOnce(() => new Promise<never[]>((resolve) => { finishFirstRead = resolve; }))
-          .mockResolvedValueOnce([]),
+        getLastRefresh: () => undefined,
+        iterateSpanBatches: vi.fn()
+          .mockImplementationOnce(async function* () { await firstRead; })
+          .mockImplementationOnce(async function* () {}),
       };
       const database = {
         getMaxTimestamp: () => 1000,
         recomputeCacheTokenSemantics: () => false,
       };
-      const parser = { discoverSessionTitles: () => new Map<string, string>() };
-      const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
-      const ingester = new TracesIngester(
-        reader as unknown as ConstructorParameters<typeof TracesIngester>[0],
-        parser as unknown as ConstructorParameters<typeof TracesIngester>[1],
-        {} as ConstructorParameters<typeof TracesIngester>[2],
-        database as unknown as ConstructorParameters<typeof TracesIngester>[3],
-        {} as ConstructorParameters<typeof TracesIngester>[4],
-        logger as unknown as ConstructorParameters<typeof TracesIngester>[5],
-      );
-      ingester.setTelemetrySource("database");
+      const { ingester } = createIngester(reader, database);
 
       const incremental = ingester.ingest();
-      await vi.waitFor(() => expect(reader.querySpans).toHaveBeenCalledTimes(1));
+      await vi.waitFor(() => expect(reader.iterateSpanBatches).toHaveBeenCalledTimes(1));
       const fullScan = ingester.fullIngest();
-      finishFirstRead([]);
+      finishFirstRead();
 
       await Promise.all([incremental, fullScan]);
-      expect(reader.querySpans).toHaveBeenCalledTimes(2);
-      expect(reader.querySpans).toHaveBeenNthCalledWith(2, undefined);
+      expect(reader.iterateSpanBatches).toHaveBeenCalledTimes(2);
+      expect(reader.iterateSpanBatches).toHaveBeenNthCalledWith(2, undefined, expect.any(Number));
       ingester.dispose();
     });
 
@@ -200,43 +251,22 @@ describe("Ingester Failover & Polling", () => {
     });
 
     it("does not advance the watermark for skipped spans", async () => {
-      const span: TraceSpan = {
-        spanId: "span-1", traceId: "trace-1", parentSpanId: null, name: "llm_call",
-        startTimeMs: 1200, endTimeMs: 1250, statusCode: 0, operationName: null,
-        providerName: null, agentName: "panel/editAgent", conversationId: null,
-        requestModel: "model", responseModel: "model", inputTokens: 0, outputTokens: 0,
-        cachedTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, toolName: null,
-        chatSessionId: "session-1", turnIndex: 1, ttftMs: null, realCredits: undefined,
-        workspaceRepo: null,
-      };
-      const reader = {
-        querySpans: vi.fn()
-          .mockResolvedValueOnce([span])
-          .mockResolvedValueOnce([{ ...span, inputTokens: 10 }]),
-      };
+      const span = traceSpan("span-1", 1200, { inputTokens: 0, outputTokens: 0, realCredits: undefined });
+      const spans = [span];
+      const reader = spanReader(spans);
       const database = {
         getMaxTimestamp: () => 1000,
         recomputeCacheTokenSemantics: () => false,
         beginTransaction: vi.fn(), commitTransaction: vi.fn(), rollbackTransaction: vi.fn(),
-        insertTurn: vi.fn(),
+        insertTurn: vi.fn(() => true),
       };
-      const pricing = { calculateCost: () => 0.01, costToCredits: () => 1 };
-      const parser = { discoverSessionTitles: () => new Map<string, string>() };
-      const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
-      const ingester = new TracesIngester(
-        reader as unknown as ConstructorParameters<typeof TracesIngester>[0],
-        parser as unknown as ConstructorParameters<typeof TracesIngester>[1],
-        pricing as unknown as ConstructorParameters<typeof TracesIngester>[2],
-        database as unknown as ConstructorParameters<typeof TracesIngester>[3],
-        { config: { excludedModels: [] } } as unknown as ConstructorParameters<typeof TracesIngester>[4],
-        logger as unknown as ConstructorParameters<typeof TracesIngester>[5],
-      );
-      ingester.setTelemetrySource("database");
+      const { ingester } = createIngester(reader, database, { overlapMs: 0 });
 
       expect(await ingester.ingest()).toBe(0);
+      spans[0] = { ...span, inputTokens: 10 };
       expect(await ingester.ingest()).toBe(1);
 
-      expect(reader.querySpans).toHaveBeenNthCalledWith(2, 1000);
+      expect(reader.iterateSpanBatches).toHaveBeenNthCalledWith(2, 1000, expect.any(Number));
       expect(database.insertTurn).toHaveBeenCalledTimes(1);
       ingester.dispose();
     });
@@ -340,6 +370,191 @@ describe("Ingester Failover & Polling", () => {
       expect(newTurns).toHaveLength(2);
       expect(newTurns[0].timestamp).toBe(250);
       expect(newTurns[1].timestamp).toBe(300);
+    });
+  });
+});
+
+describe("bounded trace ingestion", () => {
+  function fakeDatabase(failOnSpanStart?: number) {
+    return {
+      getMaxTimestamp: () => 0,
+      recomputeCacheTokenSemantics: () => false,
+      beginTransaction: vi.fn(),
+      commitTransaction: vi.fn(),
+      rollbackTransaction: vi.fn(),
+      save: vi.fn(),
+      insertTurn: vi.fn((turn: { timestamp: number; sessionId: string }) => {
+        if (turn.timestamp === failOnSpanStart) throw new Error("insert failed");
+        return true;
+      }),
+    };
+  }
+
+  it("writes every batch in its own transaction, yields between batches, and never saves", async () => {
+    const spans = Array.from({ length: 2_500 }, (_, index) => traceSpan(`span-${index}`, BASE_MS + index));
+    const database = fakeDatabase();
+    const { ingester } = createIngester(spanReader(spans), database);
+    let commitsAtNextTick = -1;
+    setImmediate(() => { commitsAtNextTick = database.commitTransaction.mock.calls.length; });
+
+    expect(await ingester.ingest()).toBe(2_500);
+
+    expect(database.beginTransaction).toHaveBeenCalledTimes(3);
+    expect(database.commitTransaction).toHaveBeenCalledTimes(3);
+    expect(commitsAtNextTick).toBe(1);
+    expect(database.save).not.toHaveBeenCalled();
+    ingester.dispose();
+  });
+
+  it("keeps spans with equal start times that straddle a batch boundary", async () => {
+    const spans = [
+      traceSpan("a", BASE_MS + 100),
+      traceSpan("b", BASE_MS + 200),
+      traceSpan("c", BASE_MS + 200),
+      traceSpan("d", BASE_MS + 300),
+    ];
+    const database = { ...fakeDatabase(), getMaxTimestamp: () => BASE_MS };
+    const { ingester } = createIngester(spanReader(spans), database, { batchSize: 2, overlapMs: 0 });
+
+    expect(await ingester.ingest()).toBe(4);
+    expect(database.insertTurn.mock.calls.map(([turn]) => turn.sessionId))
+      .toEqual(["session-a", "session-b", "session-c", "session-d"]);
+    ingester.dispose();
+  });
+
+  it("keeps earlier batches and their watermark when a later batch fails", async () => {
+    const spans = [1, 2, 3, 4].map((index) => traceSpan(`span-${index}`, BASE_MS + index));
+    const reader = spanReader(spans);
+    const database = { ...fakeDatabase(BASE_MS + 4), getMaxTimestamp: () => BASE_MS };
+    const { ingester, logger, fire } = createIngester(reader, database, { batchSize: 2, overlapMs: 0 });
+
+    expect(await ingester.ingest()).toBe(2);
+    expect(database.rollbackTransaction).toHaveBeenCalledTimes(1);
+    expect(logger.error).toHaveBeenCalledWith("Failed during batch insert, rolling back transaction", expect.any(Error));
+    expect(fire).toHaveBeenCalledTimes(1);
+
+    await ingester.ingest();
+    expect(reader.iterateSpanBatches).toHaveBeenLastCalledWith(BASE_MS + 2, 2);
+    ingester.dispose();
+  });
+
+  it("counts a poll as empty when only spans inside the overlap window are found", async () => {
+    const spans = [traceSpan("seen", BASE_MS)];
+    const { ingester, sourceResolver } = createIngester(spanReader(spans), { ...fakeDatabase(), getMaxTimestamp: () => BASE_MS });
+    const empty = vi.spyOn(sourceResolver, "recordEmptyDbPoll");
+    const successful = vi.spyOn(sourceResolver, "recordSuccessfulDbPoll");
+
+    await ingester.ingest();
+    expect(empty).toHaveBeenCalledTimes(1);
+    expect(successful).not.toHaveBeenCalled();
+
+    spans.push(traceSpan("new", BASE_MS + 1_000));
+    await ingester.ingest();
+    expect(successful).toHaveBeenCalledTimes(1);
+    ingester.dispose();
+  });
+
+  describe("with a real cost database", () => {
+    let storageDir: string;
+    let database: CostDatabase;
+
+    beforeEach(async () => {
+      setWasmPath(require.resolve("sql.js/dist/sql-wasm.wasm"));
+      storageDir = await mkdtemp(join(tmpdir(), "cost-ingest-"));
+      database = new CostDatabase(storageDir);
+      await database.initialize();
+    });
+
+    afterEach(async () => {
+      database.close();
+      await rm(storageDir, { recursive: true, force: true });
+    });
+
+    function creditTotal(): number {
+      return database.getAllTurns().reduce((sum, turn) => sum + turn.credits, 0);
+    }
+
+    it("re-reads the overlap window without double counting or change events", async () => {
+      const spans = [traceSpan("a", BASE_MS + 1_000), traceSpan("b", BASE_MS + 2_000, { realCredits: 2 })];
+      const reader = spanReader(spans);
+      const { ingester, fire } = createIngester(reader, database);
+
+      expect(await ingester.ingest()).toBe(2);
+      // The first pass also fires for the one-time data migration of a fresh database.
+      const firesAfterFirstPass = fire.mock.calls.length;
+      expect(await ingester.ingest()).toBe(0);
+
+      expect(reader.iterateSpanBatches).toHaveBeenLastCalledWith(BASE_MS + 2_000 - 15 * 60_000, expect.any(Number));
+      expect(fire).toHaveBeenCalledTimes(firesAfterFirstPass);
+      expect(database.getAllTurns()).toHaveLength(2);
+      expect(creditTotal()).toBe(3);
+      ingester.dispose();
+    });
+
+    it("ingests a late span inside the overlap window and leaves older ones to a full scan", async () => {
+      const spans = [traceSpan("latest", BASE_MS + 30 * 60_000)];
+      const { ingester } = createIngester(spanReader(spans), database);
+      expect(await ingester.ingest()).toBe(1);
+
+      spans.push(
+        traceSpan("late-in-window", BASE_MS + 25 * 60_000, { realCredits: 4 }),
+        traceSpan("late-before-window", BASE_MS, { realCredits: 8 }),
+      );
+      expect(await ingester.ingest()).toBe(1);
+      expect(creditTotal()).toBe(5);
+
+      expect(await ingester.fullIngest()).toBe(1);
+      expect(await ingester.fullIngest()).toBe(0);
+      expect(creditTotal()).toBe(13);
+      ingester.dispose();
+    });
+
+    it("ingests WAL appends from the real traces reader without double counting", async () => {
+      const userDataDir = await mkdtemp(join(tmpdir(), "cost-ingest-traces-"));
+      const storage = join(userDataDir, "globalStorage", "github.copilot-chat");
+      await mkdir(storage, { recursive: true });
+      setUserDataPathOverride(userDataDir);
+      const writer = new DatabaseSync(join(storage, "agent-traces.db"));
+      const reader = new TracesDbReader(require.resolve("sql.js/dist/sql-wasm.wasm"));
+      try {
+        writer.exec(`
+          CREATE TABLE spans (
+            span_id TEXT PRIMARY KEY, trace_id TEXT, parent_span_id TEXT, name TEXT,
+            start_time_ms INTEGER, end_time_ms INTEGER, status_code INTEGER DEFAULT 0,
+            operation_name TEXT, provider_name TEXT, agent_name TEXT DEFAULT 'panel/editAgent',
+            conversation_id TEXT, request_model TEXT, response_model TEXT DEFAULT 'gpt-5',
+            input_tokens INTEGER DEFAULT 10, output_tokens INTEGER DEFAULT 2, cached_tokens INTEGER DEFAULT 0,
+            reasoning_tokens INTEGER DEFAULT 0, tool_name TEXT, chat_session_id TEXT,
+            turn_index INTEGER, ttft_ms INTEGER
+          );
+          CREATE TABLE span_attributes (span_id TEXT, key TEXT, value TEXT);
+          PRAGMA journal_mode = WAL;
+          PRAGMA wal_autocheckpoint = 0;
+        `);
+        const insert = (spanId: string, startMs: number, nanoAiu: string) => {
+          writer.prepare("INSERT INTO spans (span_id, start_time_ms, end_time_ms, chat_session_id) VALUES (?, ?, ?, ?)")
+            .run(spanId, startMs, startMs + 100, `session-${spanId}`);
+          writer.prepare("INSERT INTO span_attributes VALUES (?, 'copilot_chat.copilot_usage_nano_aiu', ?)").run(spanId, nanoAiu);
+        };
+        const { ingester } = createIngester(reader, database);
+
+        insert("first", BASE_MS, "2000000000");
+        expect(await ingester.ingest()).toBe(1);
+        insert("second", BASE_MS + 1_000, "3000000000");
+        expect(await ingester.ingest()).toBe(1);
+        expect(reader.getLastRefresh()?.mode).toBe("incremental");
+        expect(await ingester.ingest()).toBe(0);
+        expect(await ingester.fullIngest()).toBe(0);
+
+        expect(database.getAllTurns()).toHaveLength(2);
+        expect(creditTotal()).toBe(5);
+        ingester.dispose();
+      } finally {
+        reader.dispose();
+        writer.close();
+        setUserDataPathOverride(undefined);
+        await rm(userDataDir, { recursive: true, force: true });
+      }
     });
   });
 });

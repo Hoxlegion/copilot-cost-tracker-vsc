@@ -23,4 +23,17 @@ export default [
       '@typescript-eslint/no-explicit-any': 'off',
     },
   },
+
+  // VS Code ^1.85 runs extensions on Node 18, which has no built-in SQLite.
+  {
+    files: ['src/**/*.ts'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        paths: [
+          { name: 'node:sqlite', message: 'Not available in VS Code ^1.85 (Node 18); read traces through the sql.js snapshot.' },
+          { name: 'sqlite', message: 'Not available in VS Code ^1.85 (Node 18); read traces through the sql.js snapshot.' },
+        ],
+      }],
+    },
+  },
 ];

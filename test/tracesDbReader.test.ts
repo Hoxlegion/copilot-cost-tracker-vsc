@@ -12,8 +12,21 @@ const mockCloseSync = vi.fn();
 const mockPromisesOpen = vi.fn();
 const mockPromisesStat = vi.fn();
 const mockFhStat = vi.fn();
-const mockFhReadFile = vi.fn();
+const mockFhRead = vi.fn();
 const mockFhClose = vi.fn();
+const mainBytes = Buffer.from([100, 98]);
+
+async function readMain(buffer: Buffer, offset: number, length: number, position: number) {
+  const bytesRead = Math.max(0, Math.min(length, mainBytes.length - position));
+  mainBytes.copy(buffer, offset, position, position + bytesRead);
+  return { bytesRead, buffer };
+}
+
+function prepareSpanRows(statement: object): void {
+  mockPrepare.mockImplementation((sql: string) => sql.includes("FROM spans s")
+    ? statement
+    : { step: () => false, getAsObject: () => ({}), free: vi.fn(), bind: vi.fn() });
+}
 
 vi.mock("node:os", () => ({
   homedir: () => "C:/Users/test",
@@ -71,18 +84,18 @@ describe("TracesDbReader", () => {
     mockFstatSync.mockReturnValue({ mtimeMs: 1, size: 2 });
     mockCloseSync.mockReturnValue(undefined);
     mockFhStat.mockReset();
-    mockFhReadFile.mockReset();
+    mockFhRead.mockReset();
     mockFhClose.mockReset();
     mockPromisesOpen.mockReset();
     mockPromisesStat.mockReset();
     mockFhStat.mockResolvedValue({ mtimeMs: 1, size: 2 });
-    mockFhReadFile.mockResolvedValue(new Uint8Array([100, 98]));
+    mockFhRead.mockImplementation(readMain);
     mockFhClose.mockResolvedValue(undefined);
     mockPromisesOpen.mockImplementation(async (filePath: string) => {
       if (filePath.endsWith("-wal")) throw Object.assign(new Error("no WAL"), { code: "ENOENT" });
       return {
         stat: (...args: unknown[]) => mockFhStat(...args),
-        readFile: (...args: unknown[]) => mockFhReadFile(...args),
+        read: (...args: unknown[]) => mockFhRead(...args),
         close: (...args: unknown[]) => mockFhClose(...args),
       };
     });
@@ -93,24 +106,26 @@ describe("TracesDbReader", () => {
   });
 
   it("shares a single async file read across simultaneous queries", async () => {
-    let completeRead!: (bytes: Uint8Array) => void;
-    mockFhReadFile.mockImplementationOnce(() => new Promise<Uint8Array>((resolve) => { completeRead = resolve; }));
+    let completeRead!: () => void;
+    mockFhRead.mockImplementationOnce((buffer: Buffer, offset: number, length: number, position: number) =>
+      new Promise((resolve) => { completeRead = () => resolve(readMain(buffer, offset, length, position)); }));
     mockPrepare.mockImplementation(() => ({ step: () => false, free: vi.fn(), bind: vi.fn() }));
     const reader = new TracesDbReader();
 
     const first = reader.querySpans();
     const second = reader.querySpans();
-    await vi.waitFor(() => expect(mockFhReadFile).toHaveBeenCalledTimes(1));
-    completeRead(new Uint8Array([100, 98]));
+    await vi.waitFor(() => expect(mockFhRead).toHaveBeenCalledTimes(1));
+    completeRead();
 
     expect(await Promise.all([first, second])).toEqual([[], []]);
+    expect(mockFhRead).toHaveBeenCalledTimes(1);
     expect(mockPromisesOpen).toHaveBeenCalledTimes(2);
     expect(mockFhClose).toHaveBeenCalledTimes(1);
     expect(mockReadFileSync).not.toHaveBeenCalled();
   });
 
   it("releases the shared load after a read error so the next query can retry", async () => {
-    mockFhReadFile.mockRejectedValueOnce(new Error("read failed"));
+    mockFhRead.mockRejectedValueOnce(new Error("read failed"));
     mockPrepare.mockImplementation(() => ({ step: () => false, free: vi.fn(), bind: vi.fn() }));
     const reader = new TracesDbReader();
 
@@ -119,6 +134,36 @@ describe("TracesDbReader", () => {
 
     expect(mockPromisesOpen).toHaveBeenCalledTimes(4);
     expect(mockFhClose).toHaveBeenCalledTimes(2);
+  });
+
+  it("opens the snapshot read-only and reuses it while the source is unchanged", async () => {
+    mockPrepare.mockImplementation(() => ({ step: () => false, free: vi.fn(), bind: vi.fn() }));
+    const reader = new TracesDbReader();
+
+    await reader.querySpans();
+    await reader.querySpans();
+
+    expect(mockExec).toHaveBeenCalledWith("PRAGMA query_only = ON");
+    expect(mockExec).toHaveBeenCalledTimes(1);
+    expect(mockFhRead).toHaveBeenCalledTimes(1);
+    expect(reader.getLastRefresh()).toMatchObject({ mode: "unchanged", bytesRead: 0, snapshotBytes: 2 });
+  });
+
+  it("streams spans in bounded batches", async () => {
+    const rows = [1, 2, 3].map((index) => ({ span_id: `span-${index}`, start_time_ms: index, input_tokens: 1 }));
+    let next = 0;
+    prepareSpanRows({
+      bind: vi.fn(),
+      step: () => next < rows.length,
+      getAsObject: () => rows[next++],
+      free: vi.fn(),
+    });
+    const reader = new TracesDbReader();
+
+    const batches: string[][] = [];
+    for await (const batch of reader.iterateSpanBatches(undefined, 2)) batches.push(batch.map((span) => span.spanId));
+
+    expect(batches).toEqual([["span-1", "span-2"], ["span-3"]]);
   });
 
   it("reads spans from DB and defaults cacheWriteTokens to 0 (column removed from schema)", async () => {
@@ -163,7 +208,7 @@ describe("TracesDbReader", () => {
       free: vi.fn(),
     };
 
-    mockPrepare.mockReturnValue(statement);
+    prepareSpanRows(statement);
 
     const reader = new TracesDbReader();
     const spans = await reader.querySpans();
@@ -218,7 +263,7 @@ describe("TracesDbReader", () => {
       free: vi.fn(),
     };
 
-    mockPrepare.mockReturnValue(statement);
+    prepareSpanRows(statement);
 
     const reader = new TracesDbReader();
     const spans = await reader.querySpans();
@@ -260,7 +305,7 @@ describe("TracesDbReader", () => {
       free: vi.fn(),
     };
 
-    mockPrepare.mockReturnValue(statement);
+    prepareSpanRows(statement);
 
     const reader = new TracesDbReader();
     const spans = await reader.querySpans();

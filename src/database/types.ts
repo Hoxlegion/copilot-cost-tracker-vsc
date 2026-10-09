@@ -37,7 +37,8 @@ export interface CostReader {
 
 /** Write access for ingestion and session management. */
 export interface CostWriter {
-  insertTurn(turn: ParsedTurn, costUsd: number, credits: number, workspace: string): void;
+  /** Inserts or upgrades a turn; returns false when an identical turn was already stored. */
+  insertTurn(turn: ParsedTurn, costUsd: number, credits: number, workspace: string): boolean;
   markSessionProcessed(
     sessionId: string, workspace: string, startTimestamp: number, lastTimestamp: number,
     copilotVersion: string, vscodeVersion: string, title?: string,

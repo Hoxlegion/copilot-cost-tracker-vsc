@@ -8,7 +8,17 @@ import { formatAgentName } from "./surfaceLabels";
 import { buildTurnDiscovery } from "./turnDiscovery";
 import { AGGREGATE_AGENT_NAME } from "./types";
 import { getVscodeUserDataPath } from "../shared/paths";
-import { readSqliteSnapshot } from "./sqliteSnapshot";
+import { IncrementalSqliteSnapshot, type SnapshotRefreshMode } from "./sqliteSnapshot";
+
+export interface TracesRefreshStats {
+  mode: SnapshotRefreshMode;
+  bytesRead: number;
+  durationMs: number;
+  snapshotBytes: number;
+  capacityBytes: number;
+}
+
+const QUERY_BATCH_SIZE = 1_000;
 
 /**
  * Convert a git remote URL into a friendly "Org/Repo" workspace label.
@@ -36,14 +46,18 @@ export function repoUrlToName(url: string | null | undefined): string | null {
 
 export class TracesDbReader {
   private readonly dbPath: string;
+  private readonly snapshot: IncrementalSqliteSnapshot;
   private wasmPath: string | undefined;
   private cachedSqlPromise: ReturnType<typeof initSqlJs> | undefined;
   private cachedDb: Database | undefined;
-  private cachedFingerprint: string | undefined;
+  private repoBySession: Map<string, string> | undefined;
+  private lastRefresh: TracesRefreshStats | undefined;
+  private pins = 0;
   private _loadingPromise: Promise<Database> | null = null;
 
   constructor(wasmPath?: string) {
     this.dbPath = path.join(getVscodeUserDataPath(), "globalStorage", "github.copilot-chat", "agent-traces.db");
+    this.snapshot = new IncrementalSqliteSnapshot(this.dbPath);
     this.wasmPath = wasmPath;
   }
 
@@ -111,11 +125,12 @@ export class TracesDbReader {
   }
 
   /**
-  * Cache a sql.js snapshot containing the main file and committed WAL pages.
-  * Reload only when either source version changes; reading never checkpoints
-  * or modifies Copilot's database.
+   * Return the sql.js view of the traces snapshot (main file plus committed WAL pages), refreshing
+   * it first unless a span iteration has pinned it. Reading never checkpoints or modifies
+   * Copilot's database.
    */
   private async getDb(): Promise<Database> {
+    if (this.pins > 0 && this.cachedDb) return this.cachedDb;
     // Promise-singleton: concurrent callers await the same in-flight load rather
     // than each re-entering and racing on the cache fields.
     if (this._loadingPromise) {
@@ -131,32 +146,66 @@ export class TracesDbReader {
   }
 
   private async loadDb(): Promise<Database> {
-    const snapshot = await readSqliteSnapshot(this.dbPath, this.cachedFingerprint);
-    if (!snapshot.data && this.cachedDb) return this.cachedDb;
-    if (!snapshot.data) throw new Error("Traces snapshot data is unavailable");
-    this.cachedDb?.close();
-    this.cachedDb = undefined;
+    const refresh = await this.snapshot.refresh(() => this.closeDb());
+    this.lastRefresh = {
+      mode: refresh.mode,
+      bytesRead: refresh.bytesRead,
+      durationMs: refresh.durationMs,
+      snapshotBytes: refresh.data.length,
+      capacityBytes: this.snapshot.capacity,
+    };
+    if (!refresh.changed && this.cachedDb) return this.cachedDb;
+    this.closeDb();
     const SQL = await this.getSqlJs();
-    this.cachedDb = new SQL.Database(snapshot.data);
-    this.cachedFingerprint = snapshot.fingerprint;
-    return this.cachedDb;
+    // sql.js keeps a view of this buffer rather than a copy, so the snapshot stays the only full image.
+    const db = new SQL.Database(refresh.data);
+    db.exec("PRAGMA query_only = ON");
+    this.cachedDb = db;
+    return db;
   }
 
-  /** Release the cached database handle. Call on extension deactivation. */
-  dispose(): void {
+  private closeDb(): void {
     this.cachedDb?.close();
     this.cachedDb = undefined;
-    this.cachedFingerprint = undefined;
+    this.repoBySession = undefined;
+  }
+
+  /** Statistics of the most recent snapshot refresh, for diagnostics. */
+  getLastRefresh(): TracesRefreshStats | undefined {
+    return this.lastRefresh;
+  }
+
+  /** Release the cached database handle and snapshot memory. Call on extension deactivation. */
+  dispose(): void {
+    this.closeDb();
+    this.snapshot.release();
+    this.lastRefresh = undefined;
   }
 
   async querySpans(sinceMs?: number): Promise<TraceSpan[]> {
-    if (!this.exists()) return [];
+    const spans: TraceSpan[] = [];
+    for await (const batch of this.iterateSpanBatches(sinceMs, QUERY_BATCH_SIZE)) {
+      spans.push(...batch);
+    }
+    return spans;
+  }
+
+  /**
+   * Stream token-bearing spans that started after `sinceMs`, ordered by start time, in batches of
+   * at most `batchSize`. The snapshot stays pinned until the iteration ends so a refresh cannot
+   * invalidate the open statement.
+   */
+  async *iterateSpanBatches(sinceMs: number | undefined, batchSize: number): AsyncGenerator<TraceSpan[]> {
+    if (!this.exists()) return;
 
     const db = await this.getDb();
-
-    const { clause, params } = this.buildTokenFilter(sinceMs, undefined, "s");
-
-    const stmt = db.prepare(
+    this.pins++;
+    try {
+      // The repo attribute is sparse per span but reliable per session, so map
+      // chat_session_id -> repo once per snapshot and apply it to every span.
+      const repoBySession = this.getSessionRepoMap(db);
+      const { clause, params } = this.buildTokenFilter(sinceMs, undefined, "s");
+      const stmt = db.prepare(
         `SELECT s.span_id, s.trace_id, s.parent_span_id, s.name, s.start_time_ms, s.end_time_ms,
                 s.status_code, s.operation_name, s.provider_name, s.agent_name, s.conversation_id,
                 s.request_model, s.response_model, s.input_tokens, s.output_tokens, s.cached_tokens,
@@ -168,29 +217,34 @@ export class TracesDbReader {
          ${clause}
          ORDER BY s.start_time_ms ASC`
       );
-
-      if (params.length > 0) {
-        stmt.bind(params);
-      }
-
-      const results: TraceSpan[] = [];
-      while (stmt.step()) {
-        results.push(this.mapSpan(stmt.getAsObject() as Record<string, unknown>));
-      }
-      stmt.free();
-
-      // Attribute each span to its session's git repo (if any). The repo
-      // attribute is sparse per span but reliable per session, so we map
-      // chat_session_id -> repo once and apply it to every span in the batch.
-      const repoBySession = this.buildSessionRepoMap(db);
-      if (repoBySession.size > 0) {
-        for (const span of results) {
+      try {
+        if (params.length > 0) {
+          stmt.bind(params);
+        }
+        let batch: TraceSpan[] = [];
+        while (stmt.step()) {
+          const span = this.mapSpan(stmt.getAsObject() as Record<string, unknown>);
           if (span.chatSessionId) {
             span.workspaceRepo = repoBySession.get(span.chatSessionId) ?? null;
           }
+          batch.push(span);
+          if (batch.length >= batchSize) {
+            yield batch;
+            batch = [];
+          }
         }
+        if (batch.length > 0) yield batch;
+      } finally {
+        stmt.free();
       }
-      return results;
+    } finally {
+      this.pins--;
+    }
+  }
+
+  private getSessionRepoMap(db: Database): Map<string, string> {
+    this.repoBySession ??= this.buildSessionRepoMap(db);
+    return this.repoBySession;
   }
 
   /** Map each chat session to a friendly "Org/Repo" label from its git repo attribute. */
