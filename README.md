@@ -1,10 +1,10 @@
 # Copilot Cost Tracker
 
-[![Version](https://img.shields.io/badge/version-0.7.1-blue.svg)](https://github.com/Hoxlegion/copilot-cost-tracker-vsc/releases)
+[![Version](https://img.shields.io/badge/version-0.8.0-blue.svg)](https://github.com/Hoxlegion/copilot-cost-tracker-vsc/releases)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![VS Code](https://img.shields.io/badge/VS%20Code-%5E1.85.0-blue.svg)](https://code.visualstudio.com/)
 
-💰 **Real-time cost tracking for your GitHub Copilot usage. See exactly what you are spending as you work.**
+💰 **Real-time cost tracking for your GitHub Copilot usage in Copilot Chat and the Copilot CLI. See exactly what you are spending as you work.**
 
 Get live updates on AI credit consumption with an always-visible status bar, budget alerts, and dashboards. No API keys required.
 
@@ -21,6 +21,7 @@ Get live updates on AI credit consumption with an always-visible status bar, bud
 - [Quick Start](#quick-start)
 - [Essential Configuration](#essential-configuration)
 - [Commands](#commands)
+- [Copilot CLI](#copilot-cli)
 - [UI Components](#ui-components)
 - [Troubleshooting](#troubleshooting)
 - [Advanced: Pricing & Configuration](#advanced-pricing--configuration)
@@ -59,6 +60,8 @@ Get live updates on AI credit consumption with an always-visible status bar, bud
 | File watcher strategy | Event-driven updates with 2s debounce for near-instant status bar refresh (sub-second after data arrival) |
 | Response latency metrics | Tracks model response times and displays avg latency and P90 per model |
 | DB + JSONL failover | Reads `agent-traces.db` directly; falls back to JSONL debug logs automatically |
+| Copilot CLI tracking | Imports Copilot CLI usage with GitHub's billed credits from the CLI's session logs, without double counting resumed or re-read sessions |
+| Source filter | Switch the dashboard between all usage, Copilot Chat, and Copilot CLI; the sidebar splits period credits by source |
 | Watermark recovery | On restart, resumes from the last processed timestamp and re-reads a 15-minute overlap; unchanged turns are ignored, so nothing is counted twice |
 | Periodic persistence | In-memory SQLite flushed to disk every 60 seconds, only when something changed |
 
@@ -95,6 +98,8 @@ If VS Code policy/settings scope blocks automatic updates, set it manually.
 ```
 
 **That's it.** The extension reads data that Copilot Chat already creates - no external APIs or authentication needed.
+
+Copilot CLI usage needs no setup; see [Copilot CLI](#copilot-cli).
 
 *(Optional: enable JSONL fallback logs if the database becomes unavailable)*
 
@@ -156,6 +161,9 @@ Most users won't need to change anything. These are the most common settings:
 | `currency` | string | `"USD"` | Display currency code (e.g. `EUR`, `GBP`). Requires `exchangeRate`. |
 | `exchangeRate` | number | `1` | Exchange rate from USD to the configured `currency`. |
 | `userDataPath` | string | `""` | Manual override for the editor user-data path (see fork support below). |
+| `cliEnabled` | boolean | `true` | Track Copilot CLI usage from the CLI's session logs. |
+| `cliHomePaths` | array | `[]` | Copilot CLI home folders to read (the folders that contain `session-state`). Empty uses `COPILOT_HOME` or `~/.copilot`. |
+| `includeCliInBudget` | boolean | `true` | Count Copilot CLI credits toward the budget, pace, status bar, and sidebar totals. |
 | `alertWindowHours` | number | `24` | Lookback window (hours) for efficiency alerts (1–168). |
 | `dashboardSessionLimit` | number | `200` | Max recent sessions loaded when opening the dashboard (10–1000). |
 | `weekStartDay` | enum | `"monday"` | First day of the week for the sidebar's weekly total (`monday`/`sunday`). |
@@ -196,6 +204,23 @@ Copilot Cost Tracker automatically locates the editor's user-data directory for 
 
 If auto-detection fails (unusual install location, remote setup, etc.), set `copilotCostTracker.userDataPath` to the absolute path of your editor's `User` data directory as a manual override.
 
+## Copilot CLI
+
+GitHub Copilot CLI usage is tracked as a separate source next to Copilot Chat. No setup is needed: the extension reads the CLI's own session logs in `~/.copilot/session-state/<session-id>/events.jsonl`, or under `COPILOT_HOME` when that is set.
+
+- **Credits**: the CLI logs the amount GitHub bills for its model calls, and the extension uses that amount as is. Only usage without a billed amount is estimated from token prices.
+- **Turns**: a turn is one model call. Newer CLIs log every call; older CLIs only log totals when a session exits, so one of their rows can count several calls.
+- **No double counting**: when a log changes, it is re-read in full and replaces that session's earlier rows. Resumed sessions, appended events, and re-reading a log never add usage twice. When Copilot Chat recorded the same session, the Chat data is kept. A session found in several CLI folders is counted once, from its newest log.
+- **Budget**: CLI credits count toward the budget, pace, status bar, and sidebar totals. Set `includeCliInBudget` to `false` to leave them out. The dashboard's All / Chat / CLI filter works independently of this setting.
+- **WSL or other folders**: list CLI home folders (the folders that contain `session-state`) in `cliHomePaths`, for example `\\wsl$\Ubuntu\home\me\.copilot`. Only the listed folders are read, so include your local `~/.copilot` as well if you use both.
+
+Limitations:
+- Older CLI versions, such as 1.0.71, save usage only when a session exits normally. A session closed another way, or a resumed session that is still running, has no or incomplete usage data on disk. Its usage is not estimated; the sidebar and dashboard show how many CLI sessions this period are affected.
+- Per-call details such as latency, context weight, and tool calls are not available, so the Turn Explorer, alerts, and context insights use Copilot Chat data only.
+- Turning `cliEnabled` off stops reading CLI logs. CLI usage that was already imported stays until `retentionDays` removes it.
+
+Privacy: the session logs contain your full CLI conversations. The extension only parses session, context, and usage events and stores model names, token counts, credits, timestamps, the workspace label, and the session title. Prompts, responses, and tool output are not parsed or stored, and nothing leaves your machine.
+
 ## UI Components
 
 ### Status Bar
@@ -215,6 +240,7 @@ Styled panel in the Activity Bar:
 - 14-day credit sparkline
 - Today / This Week totals and projected pace
 - Model and workspace breakdowns
+- Copilot Chat and Copilot CLI credits for the period, once CLI usage exists
 - Recent sessions with cost, model, and turn counts
 
 ### Dashboard
@@ -225,7 +251,7 @@ Styled panel in the Activity Bar:
 - **Efficiency**: Optimization score, cache/context/IO metrics, context scatter & growth charts, surface breakdown, alerts, and a savings playbook
 - **Budget**: Budget gauge, pacing status, forecast, and timeline
 
-All tabs respond to the global date range filter for focused analysis.
+All tabs respond to the global date range filter for focused analysis. Once Copilot CLI usage exists, an **All / Chat / CLI** switch next to the date presets limits the totals, charts, breakdowns, and sessions to one source.
 
 The Turn Explorer (Activity tab) includes:
 - `Expand all` / `Collapse all`
@@ -249,6 +275,11 @@ Open via **Copilot Cost Tracker: Open Dashboard** command or the graph icon in t
 - Add custom rates via `copilotCostTracker.customModelRates` setting
 - Unknown models default to GPT-5.4-tier fallback rates; check logs for warnings
 
+**Copilot CLI usage is missing**
+- Older CLIs only save usage when a session exits normally; other sessions appear in the "missing usage data" hint instead of the totals
+- If you set `COPILOT_HOME`, VS Code must see the same environment variable, or add that folder to `cliHomePaths`
+- Check that `cliEnabled` is on, then run **Copilot Cost Tracker: Refresh Cost Data** to re-read all CLI logs
+
 **Budget period shows wrong start date**
 - Verify `billingCycleStartDay` matches your GitHub billing cycle (GitHub → Settings → Billing and plans)
 - If `startDay=31` and the month has fewer days, it correctly uses the last day of that month
@@ -264,9 +295,9 @@ Open via **Copilot Cost Tracker: Open Dashboard** command or the graph icon in t
 
 ### Full Configuration Reference
 All settings under `copilotCostTracker.*`:
-- **Billing**: `billingCycleStartDay`, `budgetCredits`, `budgetWarningThresholds`
+- **Billing**: `billingCycleStartDay`, `budgetCredits`, `budgetWarningThresholds`, `includeCliInBudget`
 - **Pricing**: `customModelRates`, `excludedModels`, `pricingUrl`  
-- **Data**: `telemetrySource`, `pollIntervalMax`, `initialScanDays`, `userDataPath`
+- **Data**: `telemetrySource`, `pollIntervalMax`, `initialScanDays`, `userDataPath`, `cliEnabled`, `cliHomePaths`
 - **Display**: `currency`, `exchangeRate`, `weekStartDay`, `showStatusBar`
 - **Insights**: `alertWindowHours`, `dashboardSessionLimit`
 - **Debug**: `logLevel`
@@ -299,7 +330,7 @@ This extension is built with:
 - **File watcher strategy**: Event-driven file monitoring with debouncing for responsive UI updates
 - **Context tracking**: Real-time session context weight monitoring with granular alerts
 
-Data flows from VS Code's internal telemetry → traces database → cost calculation → in-memory DB → UI.
+Data flows from VS Code's internal telemetry (traces database) and the Copilot CLI's session logs → cost calculation → in-memory DB → UI.
 
 For deeper implementation details, inspect the source under `src/` and tests under `test/`.
 
@@ -376,7 +407,7 @@ src/
   config.ts           # Settings management
   billing.ts          # Billing period calculations
   database/           # In-memory SQL database
-  parser/             # Trace data parsing
+  parser/             # Trace data and Copilot CLI log parsing
   pricing/            # Cost calculation engine
   watcher/            # Data polling & ingestion
   views/              # UI: status bar, sidebar, dashboard

@@ -39,11 +39,25 @@ export function createTables(db: Database): void {
   ensureTurnsSchema(db);
   ensureSessionsSchema(db);
 
+  // Fingerprints of ingested Copilot CLI session logs, so unchanged files are not re-parsed.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS cli_sources (
+      session_id TEXT PRIMARY KEY,
+      file_path TEXT NOT NULL,
+      size INTEGER NOT NULL,
+      mtime_ms INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      last_event_ms INTEGER NOT NULL DEFAULT 0,
+      parsed_at INTEGER NOT NULL
+    )
+  `);
+
   db.run(`CREATE INDEX IF NOT EXISTS idx_turns_session ON turns(session_id)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_turns_timestamp ON turns(timestamp)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_turns_workspace ON turns(workspace)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_turns_model ON turns(model_family)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_turns_agent ON turns(agent_name)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_turns_source_timestamp ON turns(source, timestamp)`);
 }
 
 function ensureSessionsSchema(db: Database): void {
@@ -66,6 +80,8 @@ function ensureTurnsSchema(db: Database): void {
   addTurnsColumnIfMissing(existingColumns, db, "cache_write_tokens", "INTEGER NOT NULL DEFAULT 0");
   addTurnsColumnIfMissing(existingColumns, db, "model_family", "TEXT NOT NULL DEFAULT 'unknown'");
   addTurnsColumnIfMissing(existingColumns, db, "cost_source", "TEXT NOT NULL DEFAULT 'estimated'");
+  addTurnsColumnIfMissing(existingColumns, db, "source", "TEXT NOT NULL DEFAULT 'chat'");
+  addTurnsColumnIfMissing(existingColumns, db, "request_count", "INTEGER NOT NULL DEFAULT 1");
 }
 
 function getTurnsColumnNames(db: Database): Set<string> {

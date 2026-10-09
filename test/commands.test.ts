@@ -51,7 +51,7 @@ describe("export command", () => {
       agentName: " \t@SUM(1,2)", model: "+SUM(1,2)", modelFamily: "model",
       inputTokens: 1, outputTokens: 2, cachedTokens: 0, cacheWriteTokens: 0,
       totalTokens: 3, costUsd: 0.01, credits: 1, workspace: "-cmd",
-      status: 'a,b"c', costSource: "real",
+      status: 'a,b"c', costSource: "real", source: "cli", requestCount: 4,
     };
     mocks.showQuickPick.mockResolvedValue({ label: "CSV" });
     const targetPath = join(exportDir, "export.csv");
@@ -69,7 +69,8 @@ describe("export command", () => {
     expect(csv).toContain(',"\'+SUM(1,2)",');
     expect(csv).toContain(',"\'-cmd",');
     expect(csv).toContain(',-2,');
-    expect(csv).toContain(',"a,b""c",');
+    expect(csv).toContain(',"a,b""c",real,cli,4');
+    expect(csv.split("\r\n")[0]).toMatch(/,costSource,source,requestCount$/);
   });
 
   it("writes many JSON turns without loading all turns at once", async () => {
@@ -84,6 +85,7 @@ describe("export command", () => {
           agentName: "agent", model: "model", modelFamily: "model", inputTokens: 1,
           outputTokens: 0, cachedTokens: 0, cacheWriteTokens: 0, totalTokens: 1,
           costUsd: 0, credits: 0, workspace: "repo", status: "ok", costSource: "real",
+          source: "chat", requestCount: 1,
         } satisfies StoredTurn;
       }
     });

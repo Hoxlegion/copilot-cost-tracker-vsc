@@ -57,9 +57,15 @@
       const aVal = a[sortKey];
       const bVal = b[sortKey];
       if (isNumber) {
+        // Placeholders such as "—" sort below every real number.
+        const aNum = Number(aVal);
+        const bNum = Number(bVal);
+        const aSafe = Number.isFinite(aNum) ? aNum : -Infinity;
+        const bSafe = Number.isFinite(bNum) ? bNum : -Infinity;
+        if (aSafe === bSafe) return 0;
         return sortDir === 'asc' 
-          ? Number(aVal) - Number(bVal) 
-          : Number(bVal) - Number(aVal);
+          ? (aSafe < bSafe ? -1 : 1) 
+          : (aSafe < bSafe ? 1 : -1);
       }
       const cmp = String(aVal).localeCompare(String(bVal));
       return sortDir === 'asc' ? cmp : -cmp;

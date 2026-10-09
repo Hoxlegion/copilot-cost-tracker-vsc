@@ -1,4 +1,6 @@
 import * as vscode from "vscode";
+import * as os from "node:os";
+import * as path from "node:path";
 
 /**
  * Log level for the extension's OutputChannel logger.
@@ -37,6 +39,12 @@ export interface ExtensionConfig {
   initialScanDays: number;
   retentionDays: number;
   userDataPath: string;
+
+  // Copilot CLI
+  cliEnabled: boolean;
+  /** Absolute CLI home directories; empty means `COPILOT_HOME` or `~/.copilot`. */
+  cliHomePaths: string[];
+  includeCliInBudget: boolean;
 
   // Pricing
   customModelRates: Record<string, ModelRate>;
@@ -149,6 +157,21 @@ function readConfig(): ExtensionConfig {
   const retentionDays = clamp(Math.round(cfg.get<number>("retentionDays") ?? 90), 1, 3650);
   const userDataPath = (cfg.get<string>("userDataPath") ?? "").trim();
 
+  const cliEnabled = cfg.get<boolean>("cliEnabled") ?? true;
+  const rawCliHomePaths = cfg.get<string[]>("cliHomePaths") ?? [];
+  const cliHomePaths = Array.isArray(rawCliHomePaths)
+    ? Array.from(
+      new Set(
+        rawCliHomePaths
+          .slice(0, 10)
+          .filter((p): p is string => typeof p === "string")
+          .map((p) => p.trim().replace(/^~(?=$|[\\/])/, os.homedir()))
+          .filter((p) => p.length > 0 && path.isAbsolute(p))
+      )
+    )
+    : [];
+  const includeCliInBudget = cfg.get<boolean>("includeCliInBudget") ?? true;
+
   const rawCustomRates = cfg.get<Record<string, ModelRate>>("customModelRates") ?? {};
   const customModelRates = parseCustomModelRates(rawCustomRates);
 
@@ -208,6 +231,9 @@ function readConfig(): ExtensionConfig {
     initialScanDays,
     retentionDays,
     userDataPath,
+    cliEnabled,
+    cliHomePaths,
+    includeCliInBudget,
     customModelRates,
     pricingUrl,
     excludeUnknownModelsFromTotals,

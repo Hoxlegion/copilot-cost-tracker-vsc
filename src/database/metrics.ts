@@ -1,5 +1,6 @@
 import type { Database } from "sql.js";
 import type { AlertMetrics, AlertThresholdConfig, InsightMetrics, CacheSavingsMetrics, AlertMetricAccumulator } from "./types";
+import type { TurnSource } from "../parser/types";
 import { DEFAULT_ALERT_THRESHOLDS } from "../insights/alertThresholds";
 
 export function getAlertThresholdConfig(thresholds?: Partial<AlertThresholdConfig>): AlertThresholdConfig {
@@ -55,20 +56,23 @@ function applyAlertMetricRow(
   acc.previousTimestamp = timestamp;
 }
 
-export function getInsightMetrics(db: Database, days: number = 30): InsightMetrics {
+export function getInsightMetrics(db: Database, days: number = 30, source?: TurnSource): InsightMetrics {
   const safeDays = clampIntForMetrics(days, 1, 3650);
   const since = Date.now() - safeDays * 24 * 60 * 60 * 1000;
+  const bindings = { ":since": since, ":source": source ?? null };
 
   const totalsStmt = db.prepare(`
     SELECT
       COALESCE(SUM(input_tokens), 0),
       COALESCE(SUM(output_tokens), 0),
       COALESCE(SUM(cached_tokens), 0),
-      COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END), 0),
-      COUNT(*)
-    FROM turns WHERE timestamp >= :since
+      COALESCE(SUM(CASE WHEN status = 'error' THEN request_count ELSE 0 END), 0),
+      COALESCE(SUM(request_count), 0)
+    FROM turns
+    WHERE timestamp >= :since
+      AND (:source IS NULL OR source = :source)
   `);
-  totalsStmt.bind({ ":since": since });
+  totalsStmt.bind(bindings);
 
   let totalInputTokens = 0, totalOutputTokens = 0, totalCachedTokens = 0, errorTurns = 0, totalTurns = 0;
   if (totalsStmt.step()) {
@@ -90,10 +94,12 @@ export function getInsightMetrics(db: Database, days: number = 30): InsightMetri
     SELECT
       date(timestamp / 1000, 'unixepoch', 'localtime') as period,
       SUM(input_tokens), SUM(output_tokens), SUM(cached_tokens)
-    FROM turns WHERE timestamp >= :since
+    FROM turns
+    WHERE timestamp >= :since
+      AND (:source IS NULL OR source = :source)
     GROUP BY period ORDER BY period ASC
   `);
-  dailyStmt.bind({ ":since": since });
+  dailyStmt.bind(bindings);
 
   const ioRatioDays: InsightMetrics["ioRatioDays"] = [];
   while (dailyStmt.step()) {
@@ -118,7 +124,8 @@ export function getAlertMetrics(
   const cfg = getAlertThresholdConfig(thresholds);
 
   // Single-pass query: compute verbosity, session totals, idle gaps, and per-row
-  // threshold metrics in one scan using window functions.
+  // threshold metrics in one scan using window functions. Chat only: these heuristics
+  // assume one row per model request.
   const stmt = db.prepare(`
     SELECT
       session_id,
@@ -131,6 +138,7 @@ export function getAlertMetrics(
       LAG(timestamp) OVER (PARTITION BY session_id ORDER BY timestamp) AS prev_timestamp
     FROM turns
     WHERE timestamp >= :since
+      AND source = 'chat'
     ORDER BY session_id ASC, timestamp ASC
   `);
   stmt.bind({ ":since": sinceMs });
@@ -214,6 +222,7 @@ export function getCacheSavingsMetrics(
   sinceMs: number,
   workspace?: string,
   calculateSavingsCost?: (modelFamily: string, writeTokens: number, readTokens: number) => number,
+  source?: TurnSource,
 ): CacheSavingsMetrics {
   const safeSince = Number.isFinite(sinceMs) ? Math.floor(sinceMs) : 0;
 
@@ -225,10 +234,11 @@ export function getCacheSavingsMetrics(
     FROM turns
     WHERE timestamp >= :since
       AND (:workspace IS NULL OR workspace = :workspace)
+      AND (:source IS NULL OR source = :source)
     GROUP BY model_family
     ORDER BY total_write_tokens + total_read_tokens DESC
   `);
-  stmt.bind({ ":since": safeSince, ":workspace": workspace ?? null });
+  stmt.bind({ ":since": safeSince, ":workspace": workspace ?? null, ":source": source ?? null });
 
   const byModel: CacheSavingsMetrics["byModel"] = [];
   let totalWriteTokens = 0;

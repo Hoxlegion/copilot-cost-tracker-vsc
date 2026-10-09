@@ -5,6 +5,9 @@ import { PricingEngine } from '../pricing';
 import { TracesDbReader } from '../parser';
 import { ConfigManager } from '../config';
 import { DashboardDataAssembler } from './dashboardDataAssembler';
+import type { DashboardSourceFilter } from '../shared/dashboardTypes';
+
+const SOURCE_FILTERS: ReadonlySet<string> = new Set<DashboardSourceFilter>(['all', 'chat', 'cli']);
 
 export class DashboardPanel {
   private static _currentPanel: DashboardPanel | undefined;
@@ -16,6 +19,7 @@ export class DashboardPanel {
   private readonly assembler: DashboardDataAssembler;
   private disposables: vscode.Disposable[] = [];
   private htmlLoaded = false;
+  private sourceFilter: DashboardSourceFilter = 'all';
 
   public static get currentPanel(): DashboardPanel | undefined {
     return this._currentPanel;
@@ -44,8 +48,11 @@ export class DashboardPanel {
     
     this.panel.webview.onDidReceiveMessage(
       (message) => {
-        if (message.command === 'refresh') {
+        if (message?.command === 'refresh') {
           vscode.commands.executeCommand('copilotCostTracker.refresh');
+        } else if (message?.command === 'setSourceFilter' && SOURCE_FILTERS.has(message.source)) {
+          this.sourceFilter = message.source as DashboardSourceFilter;
+          void this.update();
         }
       },
       null,
@@ -93,9 +100,12 @@ export class DashboardPanel {
         this.htmlLoaded = true;
       }
 
-      const { billingCycleStartDay, budgetCredits, currency, exchangeRate, alertWindowHours, dashboardSessionLimit } = this.configManager.config;
+      const { billingCycleStartDay, budgetCredits, currency, exchangeRate, alertWindowHours, dashboardSessionLimit, includeCliInBudget } = this.configManager.config;
 
-      const rawData = await this.assembler.assemble(billingCycleStartDay, budgetCredits, currency, exchangeRate, alertWindowHours, dashboardSessionLimit);
+      const rawData = await this.assembler.assemble(
+        billingCycleStartDay, budgetCredits, currency, exchangeRate, alertWindowHours, dashboardSessionLimit,
+        { sourceFilter: this.sourceFilter, includeCliInBudget },
+      );
       
       this.panel.webview.postMessage({
         type: 'dashboardData',

@@ -145,7 +145,7 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
         const headers: (keyof StoredTurn)[] = [
           "id", "sessionId", "timestamp", "duration", "agentName", "model", "modelFamily",
           "inputTokens", "outputTokens", "cachedTokens", "cacheWriteTokens", "totalTokens",
-          "costUsd", "credits", "workspace", "status", "costSource",
+          "costUsd", "credits", "workspace", "status", "costSource", "source", "requestCount",
         ];
         const escape = (value: string | number): string => {
           const text = value == null ? "" : String(value);

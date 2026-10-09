@@ -1,4 +1,44 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+import { homedir } from "node:os";
+import { resolve } from "node:path";
+
+const settings = vi.hoisted(() => ({ values: {} as Record<string, unknown> }));
+
+vi.mock("vscode", () => ({
+  EventEmitter: class {
+    event = vi.fn();
+    fire = vi.fn();
+    dispose = vi.fn();
+  },
+  workspace: {
+    getConfiguration: () => ({ get: (key: string) => settings.values[key] }),
+    onDidChangeConfiguration: () => ({ dispose: vi.fn() }),
+  },
+}));
+
+import { ConfigManager } from "../src/config";
+
+describe("Copilot CLI settings", () => {
+  it("defaults to tracking the CLI and counting it toward the budget", () => {
+    settings.values = {};
+    expect(new ConfigManager().config).toMatchObject({ cliEnabled: true, cliHomePaths: [], includeCliInBudget: true });
+  });
+
+  it("keeps absolute CLI homes, expands ~, and drops relative or duplicate entries", () => {
+    const absolute = resolve("/cli-home");
+    settings.values = {
+      cliEnabled: false,
+      includeCliInBudget: false,
+      cliHomePaths: [` ${absolute} `, absolute, "relative/home", "", "~/.copilot", 42],
+    };
+
+    expect(new ConfigManager().config).toMatchObject({
+      cliEnabled: false,
+      includeCliInBudget: false,
+      cliHomePaths: [absolute, `${homedir()}/.copilot`],
+    });
+  });
+});
 
 /**
  * Unit tests for configuration validation logic.

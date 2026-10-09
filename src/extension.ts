@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { TracesDbReader, LogParser } from "./parser";
 import { PricingEngine } from "./pricing";
 import { CostDatabase, setWasmPath } from "./database";
-import { TracesIngester } from "./watcher";
+import { TracesIngester, CliIngester } from "./watcher";
 import { DashboardPanel, StatusBarIndicator, ContextTracker, SidebarPanel, getCurrentWorkspaceRepo } from "./views";
 import { ConfigManager } from "./config";
 import { Logger } from "./logger";
@@ -80,8 +80,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     ? path.basename(path.dirname(context.storageUri.fsPath))
     : "unknown";
 
-  // Ingestion pipeline
-  const ingester = new TracesIngester(reader, logParser, pricing, database, configManager, logger, workspaceStorageHash);
+  // Ingestion pipeline (Copilot CLI runs after Copilot Chat in the same serialized pass)
+  const cliIngester = new CliIngester(database, pricing, configManager, logger);
+  const ingester = new TracesIngester(reader, logParser, pricing, database, configManager, logger, workspaceStorageHash, { cliIngester });
   ingester.setTelemetrySource(configManager.config.telemetrySource);
 
   // UI components
@@ -117,12 +118,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   ingester.onDidDataChange(() => refreshAll());
 
+  const cliSettingsKey = (cfg: typeof configManager.config) => JSON.stringify([cfg.cliEnabled, cfg.cliHomePaths]);
+  let lastCliSettings = cliSettingsKey(configManager.config);
+
   configManager.onDidChange((cfg) => {
     contextTracker.setNotificationsEnabled(cfg.contextWeightNotifications);
     statusBar.updateVisibility();
     sidebarProvider.refresh();
+    if (DashboardPanel.currentPanel) {
+      void DashboardPanel.currentPanel.update();
+    }
     ingester.setTelemetrySource(cfg.telemetrySource);
     ingester.updateWatchOptions(cfg.refreshDebounceMs, cfg.pollIntervalMax);
+
+    const nextCliSettings = cliSettingsKey(cfg);
+    if (nextCliSettings !== lastCliSettings) {
+      lastCliSettings = nextCliSettings;
+      cliIngester.invalidate();
+      void ingester.ingest();
+    }
   });
 
   // Commands

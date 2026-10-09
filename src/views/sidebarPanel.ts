@@ -1,11 +1,12 @@
 import * as vscode from "vscode";
 import { randomBytes } from "crypto";
-import { CostReader } from "../database";
+import { CostReader, SessionSummary } from "../database";
 import { PricingEngine } from "../pricing";
 import { ConfigManager } from "../config";
 import { getBillingPeriodStartMs, getBillingPeriodEndMs } from "../billing";
 import { simplifyModelName, formatDuration } from "./treeViewFormatting";
 import { formatAgentName } from "../parser/surfaceLabels";
+import type { TurnSource } from "../parser/types";
 import { resolveWorkspaceName } from "./helpers/workspaceResolver";
 
 /**
@@ -65,18 +66,21 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
   }
 
   private getData() {
-    const budgetCredits = this.configManager.config.budgetCredits;
-    const billingCycleStartDay = this.configManager.config.billingCycleStartDay;
+    const { budgetCredits, billingCycleStartDay, includeCliInBudget } = this.configManager.config;
     const periodStartMs = getBillingPeriodStartMs(billingCycleStartDay);
     const periodEndMs = getBillingPeriodEndMs(billingCycleStartDay);
+    // Usage totals follow what counts toward the budget.
+    const source: TurnSource | undefined = includeCliInBudget ? undefined : "chat";
 
-    const period = this.database.getCostSince(periodStartMs);
-    const today = this.getToday();
-    const yesterday = this.getYesterday();
-    const week = this.getWeek();
-    const models = this.database.getModelBreakdownSince(periodStartMs);
-    const agents = this.database.getAgentBreakdownSince(periodStartMs);
+    const period = this.database.getCostSince(periodStartMs, undefined, source);
+    const today = this.getToday(source);
+    const yesterday = this.getYesterday(source);
+    const week = this.getWeek(source);
+    const models = this.database.getModelBreakdownSince(periodStartMs, undefined, source);
+    const agents = this.database.getAgentBreakdownSince(periodStartMs, undefined, source);
     const sessions = this.database.getSessionSummaries(undefined, 10);
+    const bySource = this.database.getCostBySourceSince(periodStartMs);
+    const cliSessionsWithoutUsage = this.database.countCliSessionsWithoutUsage(periodStartMs);
 
     const msDay = 86400000;
     const totalDays = Math.max(1, Math.ceil((periodEndMs - periodStartMs) / msDay));
@@ -88,16 +92,17 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
     const workspaces = this.database.getWorkspaces();
     const wsBreakdown = workspaces.length > 1
       ? workspaces.map((ws) => {
-          const data = this.database.getCostSince(periodStartMs, ws);
+          const data = this.database.getCostSince(periodStartMs, ws, source);
           return { name: resolveWorkspaceName(ws), ...data };
         }).filter((ws) => ws.turns > 0).sort((a, b) => b.credits - a.credits)
       : [];
 
-    const daily14 = this.getDailySeries(14);
+    const daily14 = this.getDailySeries(14, source);
 
     return {
       budgetCredits,
       billingCycleStartDay,
+      includeCliInBudget,
       period,
       today,
       yesterday,
@@ -105,6 +110,9 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
       models,
       agents,
       sessions,
+      chatCredits: bySource.find((s) => s.source === "chat")?.credits ?? 0,
+      cliCredits: bySource.find((s) => s.source === "cli")?.credits ?? 0,
+      cliSessionsWithoutUsage,
       totalDays,
       daysSince,
       daysRemaining,
@@ -119,8 +127,8 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
    * Daily credit totals for the last `days` calendar days (UTC, oldest → newest),
    * with missing days filled as 0. Used to render the sidebar sparkline.
    */
-  private getDailySeries(days: number): number[] {
-    const rows = this.database.getDailyCosts(days + 1);
+  private getDailySeries(days: number, source?: TurnSource): number[] {
+    const rows = this.database.getDailyCosts(days + 1, undefined, source);
     const map = new Map(rows.map((r) => [r.period, r.totalCredits]));
     const out: number[] = [];
     for (let i = days - 1; i >= 0; i--) {
@@ -130,18 +138,18 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
     return out;
   }
 
-  private getToday() {
+  private getToday(source?: TurnSource) {
     const now = new Date();
     const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    return this.database.getCostSince(start);
+    return this.database.getCostSince(start, undefined, source);
   }
 
-  private getYesterday() {
+  private getYesterday(source?: TurnSource) {
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
     const yesterdayStart = todayStart - 86400000;
-    const sinceYesterday = this.database.getCostSince(yesterdayStart);
-    const today = this.database.getCostSince(todayStart);
+    const sinceYesterday = this.database.getCostSince(yesterdayStart, undefined, source);
+    const today = this.database.getCostSince(todayStart, undefined, source);
     return {
       costUsd: sinceYesterday.costUsd - today.costUsd,
       credits: sinceYesterday.credits - today.credits,
@@ -149,14 +157,14 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
     };
   }
 
-  private getWeek() {
+  private getWeek(source?: TurnSource) {
     const now = new Date();
     const dow = now.getDay();
     const weekStartDay = this.configManager.config.weekStartDay;
     const offset =
       weekStartDay === "sunday" ? dow : dow === 0 ? 6 : dow - 1;
     const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - offset).getTime();
-    return this.database.getCostSince(weekStart);
+    return this.database.getCostSince(weekStart, undefined, source);
   }
 
   // ── HTML rendering ──────────────────────────────────────
@@ -266,6 +274,8 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
       </div>
     </div>
 
+    ${this.buildSourceSection(d.chatCredits, d.cliCredits, d.cliSessionsWithoutUsage, d.includeCliInBudget)}
+
     ${this.buildSparklineSection(d.daily14)}
 
     ${paceHtml}
@@ -291,6 +301,27 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
       return `<span class="trend down">↓ vs yesterday</span>`;
     }
     return "";
+  }
+
+  private buildSourceSection(chatCredits: number, cliCredits: number, cliSessionsWithoutUsage: number, cliCounted: boolean): string {
+    if (cliCredits <= 0 && cliSessionsWithoutUsage === 0) return "";
+    const notCounted = cliCounted ? "" : `<div class="source-note">CLI is not counted toward the budget</div>`;
+    const hint = cliSessionsWithoutUsage > 0
+      ? `<div class="source-note">${cliSessionsWithoutUsage} CLI session${cliSessionsWithoutUsage === 1 ? "" : "s"} this period with missing usage data (closed without a normal exit, or an older CLI)</div>`
+      : "";
+    return `
+      <div class="source-split">
+        <div class="source-row">
+          <span><span class="source-dot chat"></span>Copilot Chat</span>
+          <span class="source-val">${fmtNum(chatCredits)} cr</span>
+        </div>
+        <div class="source-row">
+          <span><span class="source-dot cli"></span>Copilot CLI</span>
+          <span class="source-val">${fmtNum(cliCredits)} cr</span>
+        </div>
+        ${notCounted}
+        ${hint}
+      </div>`;
   }
 
   private buildSparklineSection(values: number[]): string {
@@ -412,20 +443,26 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
       </div>`;
   }
 
-  private buildSessionsRows(sessions: { lastTimestamp: number; primaryModel: string; workspace: string; totalCostUsd: number; title: string | null; turnCount: number; avgDurationMs: number }[]): string {
+  private buildSessionsRows(sessions: SessionSummary[]): string {
     return sessions.map((s) => {
       const time = new Date(s.lastTimestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
       const model = simplifyModelName(s.primaryModel);
       const wsName = resolveWorkspaceName(s.workspace);
       const isExpensive = s.totalCostUsd >= 50;
       const costClass = isExpensive ? "session-cost expensive" : "session-cost";
+      const isCli = s.source === "cli";
       const titleLine = s.title
         ? `<div class="session-title" title="${esc(s.title)}">${esc(s.title)}</div>`
         : "";
+      // CLI rows include usage snapshots without timing, so an average latency would mislead.
+      const latency = isCli
+        ? ""
+        : `<span class="session-sep">·</span><span>${formatDuration(s.avgDurationMs)} avg</span>`;
       return `
         <div class="session-row${isExpensive ? " expensive" : ""}">
           <div class="session-top">
             <span class="session-time">${time}</span>
+            ${isCli ? `<span class="source-badge">CLI</span>` : ""}
             <span class="session-ws" title="${esc(s.workspace)}">${esc(wsName)}</span>
             <span class="${costClass}">${this.fmtUsd(s.totalCostUsd)}</span>
           </div>
@@ -434,8 +471,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
             <span class="session-model">${esc(model)}</span>
             <span class="session-sep">·</span>
             <span>${s.turnCount} turns</span>
-            <span class="session-sep">·</span>
-            <span>${formatDuration(s.avgDurationMs)} avg</span>
+            ${latency}
           </div>
         </div>`;
     }).join("");
@@ -585,6 +621,39 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
       }
       .trend.up { color: #e57373; }
       .trend.down { color: #81c784; }
+
+      /* ── Source split (Chat vs CLI) ── */
+      .source-split { margin-bottom: 14px; }
+      .source-row {
+        display: flex;
+        justify-content: space-between;
+        font-size: 11px;
+        padding: 2px 0;
+        color: var(--vscode-foreground);
+      }
+      .source-val { font-weight: 600; }
+      .source-dot {
+        display: inline-block;
+        width: 7px; height: 7px;
+        border-radius: 50%;
+        margin-right: 6px;
+      }
+      .source-dot.chat { background: #4fc3f7; }
+      .source-dot.cli { background: #ba68c8; }
+      .source-note {
+        font-size: 10px;
+        color: var(--vscode-descriptionForeground);
+        margin-top: 4px;
+      }
+      .source-badge {
+        font-size: 9px;
+        font-weight: 700;
+        color: #ba68c8;
+        border: 1px solid rgba(186, 104, 200, 0.5);
+        border-radius: 4px;
+        padding: 0 4px;
+        flex-shrink: 0;
+      }
 
       /* ── Sparkline ── */
       .spark-section { margin-bottom: 14px; }

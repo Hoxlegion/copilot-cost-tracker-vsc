@@ -6,6 +6,7 @@
 export type {
   DashboardMessage,
   DashboardRawData,
+  DashboardSourceFilter,
   InsightMetrics,
   CacheSavingsMetrics,
   DashboardAlert,

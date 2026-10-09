@@ -7,6 +7,9 @@
 
 // ── Aggregated sub-types ──────────────────────────────
 
+/** Which product's usage the dashboard shows. */
+export type DashboardSourceFilter = "all" | "chat" | "cli";
+
 export interface InsightMetrics {
   totalInputTokens: number;
   totalOutputTokens: number;
@@ -123,6 +126,7 @@ export interface SessionEntry {
   primaryModel: string;
   avgDurationMs: number;
   title?: string | null;
+  source?: "chat" | "cli";
   modelBreakdown: SessionModelBreakdownEntry[];
 }
 
@@ -153,6 +157,11 @@ export interface DashboardRawData {
   contextTimelines: ContextTimelineData[];
   currency: string;
   exchangeRate: number;
+  sourceFilter: DashboardSourceFilter;
+  /** True once any Copilot CLI usage has been imported. */
+  hasCliData: boolean;
+  /** CLI sessions this billing period with model calls whose usage was not (fully) saved. */
+  cliSessionsWithoutUsage: number;
 }
 
 export interface DashboardMessage {

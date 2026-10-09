@@ -1,3 +1,5 @@
+import { CLI_AGENT_NAME } from "./types";
+
 export function formatAgentName(agentName: string | null): string {
   if (!agentName) return "Other";
   switch (agentName) {
@@ -8,6 +10,7 @@ export function formatAgentName(agentName: string | null): string {
     case "progressMessages": return "Background Processing";
     case "title": return "Title Generation";
     case "unknown": return "Unknown";
+    case CLI_AGENT_NAME: return "Copilot CLI";
     default: return agentName;
   }
 }
