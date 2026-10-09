@@ -17,6 +17,7 @@ const DEFAULT_FALLBACK_RATE: ModelPricing = {
 // Matched by normalized-name prefix because the codename suffix changes over time
 // (e.g. "copilot-nes-oct", "copilot-suggestions-himalia-001").
 const FREE_MODEL_PREFIXES = ["copilot-nes", "copilot-suggestions"];
+const MAX_PRICING_RESPONSE_BYTES = 512 * 1024;
 
 export interface UnknownModelDiagnostics {
   fallbackModelCount: number;
@@ -86,9 +87,19 @@ export class PricingEngine {
 
     try {
       const response = await fetch(url, { signal: AbortSignal.timeout(10_000) });
-      if (!response.ok) return false;
+      if (!response.ok) {
+        await response.body?.cancel();
+        return false;
+      }
 
-      const remote = (await response.json()) as PricingData;
+      const contentType = response.headers.get("content-type") ?? "";
+      if (!contentType.toLowerCase().includes("application/json")) {
+        await response.body?.cancel();
+        this.logger?.warn(`Remote pricing response has non-JSON Content-Type ("${contentType}"); using built-in pricing`);
+        return false;
+      }
+
+      const remote = await this.readPricingResponse(response);
       const validationError = this.validatePricingData(remote);
       if (validationError) {
         this.logger?.warn(`Remote pricing JSON failed validation: ${validationError}; using built-in pricing`);
@@ -103,6 +114,34 @@ export class PricingEngine {
       this.logger?.warn("Failed to fetch remote pricing; using built-in pricing", err);
       return false;
     }
+  }
+
+  private async readPricingResponse(response: Response): Promise<PricingData> {
+    const sizeError = () => new Error("Remote pricing response exceeds the 512 KiB limit");
+    if (Number(response.headers.get("content-length")) > MAX_PRICING_RESPONSE_BYTES) {
+      await response.body?.cancel();
+      throw sizeError();
+    }
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("Remote pricing response has no body");
+
+    const buffer = new Uint8Array(MAX_PRICING_RESPONSE_BYTES);
+    let length = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value.byteLength > MAX_PRICING_RESPONSE_BYTES - length) throw sizeError();
+        buffer.set(value, length);
+        length += value.byteLength;
+      }
+    } catch (error) {
+      await reader.cancel().catch(() => undefined);
+      throw error;
+    } finally {
+      reader.releaseLock();
+    }
+    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, length))) as PricingData;
   }
 
   getModelPricing(modelFamily: string): ModelPricing | undefined {
@@ -208,10 +247,24 @@ export class PricingEngine {
     const customRates = this.configManager.config.customModelRates;
     const normalized = this.normalizeModelName(modelFamily);
 
+    const matches = Object.entries(customRates)
+      .map(([key, rate]) => ({ key: this.normalizeModelName(key), rate }))
+      .sort((first, second) => second.key.length - first.key.length);
+    const preciseMatch = matches.find(({ key }) =>
+      normalized === key || normalized.startsWith(`${key}-`) || normalized.startsWith(`${key}.`)
+    )?.rate;
+    const substringMatch = matches.find(({ key }) => {
+      const start = normalized.indexOf(key);
+      const end = start + key.length;
+      return start > 0 && /[.:-]/.test(normalized[start - 1])
+        && (end === normalized.length || /[.:-]/.test(normalized[end]));
+    })?.rate;
+
     const rate: ModelRate | undefined =
       customRates[modelFamily]
       ?? customRates[normalized]
-      ?? Object.entries(customRates).find(([key]) => normalized.includes(this.normalizeModelName(key)))?.[1];
+      ?? preciseMatch
+      ?? substringMatch;
 
     if (rate) {
       // Custom rates are in credits/1M tokens. Convert to USD: credits × 0.01
@@ -276,8 +329,13 @@ export class PricingEngine {
     const d = data as Record<string, unknown>;
     if (!d.version || typeof d.version !== "string") return "missing or invalid 'version'";
     if (!d.models || typeof d.models !== "object") return "missing or invalid 'models'";
+    const modelEntries = Object.entries(d.models as Record<string, unknown>);
+    const MAX_MODELS = 500;
+    if (modelEntries.length > MAX_MODELS) {
+      return `too many model entries (${modelEntries.length} > ${MAX_MODELS})`;
+    }
     const MAX_RATE = 1000;
-    for (const [key, val] of Object.entries(d.models as Record<string, unknown>)) {
+    for (const [key, val] of modelEntries) {
       if (!val || typeof val !== "object") return `model "${key}": value is not an object`;
       const m = val as Record<string, unknown>;
       if (typeof m.input !== "number" || typeof m.output !== "number" || typeof m.cached !== "number") {

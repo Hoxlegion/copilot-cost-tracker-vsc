@@ -11,23 +11,30 @@ function shortenWorkspaceName(workspace: string): string {
 }
 
 const SAFE_HASH_RE = /^[a-f0-9]{32,64}$/i;
+const MAX_CACHE_SIZE = 500;
 const workspaceNameCache = new Map<string, string>();
+
+/** Insert into the cache, evicting the oldest entry when the size limit is exceeded. */
+function cacheSet(hash: string, value: string): string {
+  workspaceNameCache.set(hash, value);
+  if (workspaceNameCache.size > MAX_CACHE_SIZE) {
+    const oldest = workspaceNameCache.keys().next().value;
+    if (oldest !== undefined) workspaceNameCache.delete(oldest);
+  }
+  return value;
+}
 
 export function resolveWorkspaceName(hash: string): string {
   const cached = workspaceNameCache.get(hash);
   if (cached !== undefined) return cached;
   if (!hash || hash === "unknown") return hash || "unknown";
   if (hash.includes("/") || hash.includes("\\")) {
-    const short = shortenWorkspaceName(hash);
-    workspaceNameCache.set(hash, short);
-    return short;
+    return cacheSet(hash, shortenWorkspaceName(hash));
   }
 
   // Reject hashes that don't look like hex digests to prevent path traversal
   if (!SAFE_HASH_RE.test(hash)) {
-    const fallback = hash.slice(0, 12) + "…";
-    workspaceNameCache.set(hash, fallback);
-    return fallback;
+    return cacheSet(hash, hash.slice(0, 12) + "…");
   }
 
   try {
@@ -45,11 +52,8 @@ export function resolveWorkspaceName(hash: string): string {
     const parts = decoded.split("/").filter(Boolean);
     const tail = parts.slice(-2).join("/") || decoded;
     const result = tail.length > 34 ? `${tail.slice(0, 31)}…` : tail;
-    workspaceNameCache.set(hash, result);
-    return result;
+    return cacheSet(hash, result);
   } catch {
-    const fallback = hash.slice(0, 12) + "…";
-    workspaceNameCache.set(hash, fallback);
-    return fallback;
+    return cacheSet(hash, hash.slice(0, 12) + "…");
   }
 }

@@ -1,6 +1,8 @@
 import * as vscode from "vscode";
+import { randomBytes } from "crypto";
 import { CostReader } from "../database";
 import { PricingEngine } from "../pricing";
+import { ConfigManager } from "../config";
 import { getBillingPeriodStartMs, getBillingPeriodEndMs } from "../billing";
 import { simplifyModelName, formatDuration } from "./treeViewFormatting";
 import { formatAgentName } from "../parser/surfaceLabels";
@@ -16,10 +18,12 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
   private view?: vscode.WebviewView;
   private readonly database: CostReader;
   private readonly pricing: PricingEngine;
+  private readonly configManager: ConfigManager;
 
-  constructor(database: CostReader, pricing: PricingEngine) {
+  constructor(database: CostReader, pricing: PricingEngine, configManager: ConfigManager) {
     this.database = database;
     this.pricing = pricing;
+    this.configManager = configManager;
   }
 
   resolveWebviewView(
@@ -33,23 +37,36 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
         vscode.commands.executeCommand("copilotCostTracker.refresh");
       } else if (msg.command === "openDashboard") {
         vscode.commands.executeCommand("copilotCostTracker.openDashboard");
+      } else if (msg.command === "ready") {
+        this.postUpdate();
       }
     });
 
-    this.refresh();
+    // Set the shell HTML once; subsequent refreshes push data via postMessage
+    // so the webview updates in place (no flicker or scroll reset).
+    webviewView.webview.html = this.buildShellHtml();
+    this.postUpdate();
   }
 
   refresh(): void {
+    this.postUpdate();
+  }
+
+  private postUpdate(): void {
     if (!this.view) return;
-    this.view.webview.html = this.buildHtml();
+    this.view.webview.postMessage({ type: "update", html: this.buildContentHtml() });
   }
 
   // ── Data gathering ──────────────────────────────────────
 
+  private fmtUsd(amount: number): string {
+    const { currency, exchangeRate } = this.configManager.config;
+    return formatMoney(amount, currency, exchangeRate);
+  }
+
   private getData() {
-    const config = vscode.workspace.getConfiguration("copilotCostTracker");
-    const budgetCredits = config.get<number>("budgetCredits", 0);
-    const billingCycleStartDay = config.get<number>("billingCycleStartDay", 1);
+    const budgetCredits = this.configManager.config.budgetCredits;
+    const billingCycleStartDay = this.configManager.config.billingCycleStartDay;
     const periodStartMs = getBillingPeriodStartMs(billingCycleStartDay);
     const periodEndMs = getBillingPeriodEndMs(billingCycleStartDay);
 
@@ -135,14 +152,56 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
   private getWeek() {
     const now = new Date();
     const dow = now.getDay();
-    const offset = dow === 0 ? 6 : dow - 1;
+    const weekStartDay = this.configManager.config.weekStartDay;
+    const offset =
+      weekStartDay === "sunday" ? dow : dow === 0 ? 6 : dow - 1;
     const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - offset).getTime();
     return this.database.getCostSince(weekStart);
   }
 
   // ── HTML rendering ──────────────────────────────────────
 
-  private buildHtml(): string {
+  private buildShellHtml(): string {
+    const nonce = this.getNonce();
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
+  <style>${this.getStyles()}</style>
+</head>
+<body>
+  <div class="sidebar">
+    <div id="content">
+      <div class="status-bar"><span class="status-dot"></span><span>Loading…</span></div>
+    </div>
+
+    <!-- Actions -->
+    <div class="section-divider"></div>
+    <div class="actions">
+      <button id="btnDashboard">Open Dashboard</button>
+      <button id="btnRefresh">Refresh</button>
+    </div>
+  </div>
+
+  <script nonce="${nonce}">
+    const vscode = acquireVsCodeApi();
+    function post(cmd) { vscode.postMessage({ command: cmd }); }
+    document.getElementById('btnDashboard').addEventListener('click', () => post('openDashboard'));
+    document.getElementById('btnRefresh').addEventListener('click', () => post('refresh'));
+    window.addEventListener('message', (e) => {
+      const msg = e.data;
+      if (msg && msg.type === 'update') {
+        document.getElementById('content').innerHTML = msg.html;
+      }
+    });
+    post('ready');
+  </script>
+</body>
+</html>`;
+  }
+
+  private buildContentHtml(): string {
     const d = this.getData();
     const usagePct = d.budgetCredits > 0 ? (d.period.credits / d.budgetCredits) * 100 : 0;
 
@@ -158,16 +217,9 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
     const wsHtml = this.buildWsSection(d.wsBreakdown);
     const sessionsRows = this.buildSessionsRows(d.sessions);
     const sessionsHtml = this.buildSessionsSection(sessionsRows, d.sessions.length);
+    const weekLabel = this.configManager.config.weekStartDay === "sunday" ? "Sunday" : "Monday";
 
-    return `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline';">
-  <style>${this.getStyles()}</style>
-</head>
-<body>
-  <div class="sidebar">
+    return `
     <!-- Status -->
     <div class="status-bar">
       <span class="status-dot"></span>
@@ -197,7 +249,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
       <div class="budget-block">
         <div class="budget-label">PERIOD TOTAL</div>
         <div class="budget-value">${fmtNum(d.period.credits)} credits</div>
-        <div class="budget-sub"><span>${fmtUsd(d.period.costUsd)}</span><span>${d.period.turns} turns</span></div>
+        <div class="budget-sub"><span>${this.fmtUsd(d.period.costUsd)}</span><span>${d.period.turns} turns</span></div>
       </div>
     `}
 
@@ -210,7 +262,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
       <div class="twin-stat">
         <div class="section-label">THIS WEEK</div>
         <div class="twin-value">${fmtNum(d.week.credits)}</div>
-        <div class="twin-unit">credits (since Monday)</div>
+        <div class="twin-unit">credits (since ${weekLabel})</div>
       </div>
     </div>
 
@@ -222,22 +274,11 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
 
     ${wsHtml}
 
-    ${sessionsHtml}
+    ${sessionsHtml}`;
+  }
 
-    <!-- Actions -->
-    <div class="section-divider"></div>
-    <div class="actions">
-      <button onclick="post('openDashboard')">Open Dashboard</button>
-      <button onclick="post('refresh')">Refresh</button>
-    </div>
-  </div>
-
-  <script>
-    const vscode = acquireVsCodeApi();
-    function post(cmd) { vscode.postMessage({ command: cmd }); }
-  </script>
-</body>
-</html>`;
+  private getNonce(): string {
+    return randomBytes(16).toString("hex");
   }
 
   // ── Section builders ────────────────────────────────────
@@ -307,7 +348,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
         <div class="breakdown-row">
           <div class="breakdown-bar" style="width:${barW}%"></div>
           <span class="breakdown-name" title="${esc(m.model)}">${esc(simplifyModelName(m.model))}</span>
-          <span class="breakdown-val">${fmtUsd(m.totalCostUsd)}</span>
+          <span class="breakdown-val">${this.fmtUsd(m.totalCostUsd)}</span>
           <span class="breakdown-pct">${m.percentage.toFixed(0)}%</span>
         </div>`;
     }).join("");
@@ -322,7 +363,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
         <div class="breakdown-row">
           <div class="breakdown-bar agent-bar" style="width:${barW}%"></div>
           <span class="breakdown-name" title="${esc(a.agentName)}">${esc(formatAgentName(a.agentName))}</span>
-          <span class="breakdown-val">${fmtUsd(a.totalCostUsd)}</span>
+          <span class="breakdown-val">${this.fmtUsd(a.totalCostUsd)}</span>
           <span class="breakdown-pct">${a.percentage.toFixed(0)}%</span>
         </div>`;
     }).join("");
@@ -362,7 +403,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
                 <div class="breakdown-row">
                   <div class="breakdown-bar ws-bar" style="width:${barW}%"></div>
                   <span class="breakdown-name" title="${esc(ws.name)}">${esc(ws.name)}</span>
-                  <span class="breakdown-val">${fmtUsd(ws.costUsd)}</span>
+                  <span class="breakdown-val">${this.fmtUsd(ws.costUsd)}</span>
                   <span class="breakdown-pct">${ws.turns} t</span>
                 </div>`;
             }).join("")}
@@ -386,7 +427,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
           <div class="session-top">
             <span class="session-time">${time}</span>
             <span class="session-ws" title="${esc(s.workspace)}">${esc(wsName)}</span>
-            <span class="${costClass}">${fmtUsd(s.totalCostUsd)}</span>
+            <span class="${costClass}">${this.fmtUsd(s.totalCostUsd)}</span>
           </div>
           ${titleLine}
           <div class="session-bottom">
@@ -787,10 +828,7 @@ function fmtNum(n: number): string {
   return n.toFixed(2);
 }
 
-function fmtUsd(amount: number): string {
-  const config = vscode.workspace.getConfiguration("copilotCostTracker");
-  const currency = config.get<string>("currency", "USD");
-  const exchangeRate = config.get<number>("exchangeRate", 1);
+function formatMoney(amount: number, currency: string, exchangeRate: number): string {
   if (currency === "USD") return `$${amount.toFixed(2)}`;
   const local = amount * exchangeRate;
   try {

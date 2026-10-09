@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import * as readline from "node:readline";
 import {
   BaseLogEntry,
   LogEntry,
@@ -77,66 +78,58 @@ export class LogParser {
   /**
    * Parse a single session directory (main.jsonl + models.json).
    */
-  parseSession(sessionDir: string): ParsedSession | null {
+  async parseSession(sessionDir: string): Promise<ParsedSession | null> {
     const mainJsonlPath = path.join(sessionDir, "main.jsonl");
 
     if (!fs.existsSync(mainJsonlPath)) {
       return null;
     }
 
-    const content = fs.readFileSync(mainJsonlPath, "utf-8");
-    const lines = content.split("\n").filter((l) => l.trim());
-
-    if (lines.length === 0) {
+    let firstEntry: LogEntry | undefined;
+    let lastStart: LogEntry | undefined;
+    let lastActivity: number | undefined;
+    const turns: ParsedTurn[] = [];
+    let skippedLines = 0;
+    try {
+      const rl = readline.createInterface({
+        input: fs.createReadStream(mainJsonlPath, { encoding: "utf-8" }),
+        crlfDelay: Infinity,
+      });
+      for await (const rawLine of rl) {
+        const line = rawLine.trim();
+        if (!line) continue;
+        try {
+          const entry = JSON.parse(line) as LogEntry;
+          firstEntry ??= entry;
+          lastActivity = entry.ts;
+          if (entry.type === "session_start") lastStart = entry;
+          if (entry.type === "LLM_request" || entry.type === "llm_request" || entry.name === "llm_request") {
+            turns.push(this.parseModelTurn(entry, firstEntry.sid));
+          }
+        } catch {
+          skippedLines++;
+        }
+      }
+    } catch {
       return null;
     }
 
-    const entries: LogEntry[] = [];
-    let skippedLines = 0;
-    for (const line of lines) {
-      try {
-        entries.push(JSON.parse(line) as LogEntry);
-      } catch {
-        skippedLines++;
-      }
-    }
     if (skippedLines > 0) {
       console.warn(`[LogParser] Skipped ${skippedLines} malformed line(s) in ${mainJsonlPath}`);
     }
 
-    if (entries.length === 0) {
-      return null;
-    }
-
-    // Find session start info
-    const sessionStarts = entries.filter((e) => e.type === "session_start");
-    const lastStart = sessionStarts.at(-1);
-
-    const sessionId = entries[0].sid;
-    const workspace = this.getWorkspaceId(sessionDir);
+    if (!firstEntry) return null;
 
     const session: ParsedSession = {
-      sessionId,
-      startTimestamp: lastStart?.ts ?? entries[0].ts,
-      lastActivity: entries.at(-1)?.ts ?? entries[0].ts,
+      sessionId: firstEntry.sid,
+      startTimestamp: lastStart?.ts ?? firstEntry.ts,
+      lastActivity: lastActivity ?? firstEntry.ts,
       copilotVersion:
         (lastStart?.attrs?.copilotVersion as string) ?? "unknown",
       vscodeVersion: (lastStart?.attrs?.vscodeVersion as string) ?? "unknown",
-      turns: [],
-      workspace,
+      turns,
+      workspace: this.getWorkspaceId(sessionDir),
     };
-
-    // Extract LLM request entries (model turns)
-    const llmEntries = entries.filter(
-      (e) => e.type === "LLM_request" || e.type === "llm_request" || e.name === "llm_request"
-    );
-
-    for (const entry of llmEntries) {
-      const turn = this.parseModelTurn(entry, sessionId);
-      if (turn) {
-        session.turns.push(turn);
-      }
-    }
 
     return session;
   }
@@ -147,7 +140,7 @@ export class LogParser {
   private parseModelTurn(
     entry: BaseLogEntry,
     sessionId: string
-  ): ParsedTurn | null {
+  ): ParsedTurn {
     const attrs = entry.attrs || {};
 
     // Try multiple possible field names (format may vary across versions)
@@ -240,12 +233,12 @@ export class LogParser {
   /**
    * Parse all sessions across all workspaces.
    */
-  parseAllSessions(): ParsedSession[] {
+  async parseAllSessions(): Promise<ParsedSession[]> {
     const dirs = this.discoverLogDirectories();
     const sessions: ParsedSession[] = [];
 
     for (const dir of dirs) {
-      const session = this.parseSession(dir);
+      const session = await this.parseSession(dir);
       if (session) {
         sessions.push(session);
       }

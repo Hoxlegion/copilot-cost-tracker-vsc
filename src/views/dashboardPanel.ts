@@ -1,7 +1,9 @@
 import * as vscode from 'vscode';
+import { randomBytes } from 'node:crypto';
 import { CostReader } from '../database';
 import { PricingEngine } from '../pricing';
 import { TracesDbReader } from '../parser';
+import { ConfigManager } from '../config';
 import { DashboardDataAssembler } from './dashboardDataAssembler';
 
 export class DashboardPanel {
@@ -10,6 +12,7 @@ export class DashboardPanel {
   private readonly extensionUri: vscode.Uri;
   private readonly database: CostReader;
   private readonly pricing: PricingEngine;
+  private readonly configManager: ConfigManager;
   private readonly assembler: DashboardDataAssembler;
   private disposables: vscode.Disposable[] = [];
   private htmlLoaded = false;
@@ -27,12 +30,14 @@ export class DashboardPanel {
     extensionUri: vscode.Uri,
     database: CostReader,
     pricing: PricingEngine,
-    reader: TracesDbReader
+    reader: TracesDbReader,
+    configManager: ConfigManager
   ) {
     this.panel = panel;
     this.extensionUri = extensionUri;
     this.database = database;
     this.pricing = pricing;
+    this.configManager = configManager;
     this.assembler = new DashboardDataAssembler(database, reader, pricing);
     
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
@@ -52,7 +57,8 @@ export class DashboardPanel {
     extensionUri: vscode.Uri,
     database: CostReader,
     pricing: PricingEngine,
-    reader: TracesDbReader
+    reader: TracesDbReader,
+    configManager: ConfigManager
   ): void {
     const column = vscode.ViewColumn.Beside;
 
@@ -76,7 +82,7 @@ export class DashboardPanel {
       }
     );
 
-    DashboardPanel.currentPanel = new DashboardPanel(panel, extensionUri, database, pricing, reader);
+    DashboardPanel.currentPanel = new DashboardPanel(panel, extensionUri, database, pricing, reader, configManager);
     void DashboardPanel.currentPanel.update();
   }
 
@@ -87,13 +93,9 @@ export class DashboardPanel {
         this.htmlLoaded = true;
       }
 
-      const config = vscode.workspace.getConfiguration('copilotCostTracker');
-      const billingCycleStartDay = config.get<number>('billingCycleStartDay', 1);
-      const budgetCredits = config.get<number>('budgetCredits', 180);
-      const currency = config.get<string>('currency', 'USD');
-      const exchangeRate = config.get<number>('exchangeRate', 1);
+      const { billingCycleStartDay, budgetCredits, currency, exchangeRate, alertWindowHours, dashboardSessionLimit } = this.configManager.config;
 
-      const rawData = await this.assembler.assemble(billingCycleStartDay, budgetCredits, currency, exchangeRate);
+      const rawData = await this.assembler.assemble(billingCycleStartDay, budgetCredits, currency, exchangeRate, alertWindowHours, dashboardSessionLimit);
       
       this.panel.webview.postMessage({
         type: 'dashboardData',
@@ -132,12 +134,7 @@ export class DashboardPanel {
   }
 
   private getNonce(): string {
-    let text = '';
-    const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    for (let i = 0; i < 32; i++) {
-      text += possible.charAt(Math.floor(Math.random() * possible.length));
-    }
-    return text;
+    return randomBytes(16).toString('hex');
   }
 
   private dispose(): void {

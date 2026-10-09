@@ -4,6 +4,47 @@ All notable changes to the **Copilot Cost Tracker** extension will be documented
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.7.0] - 2026-10-09
+
+Architecture review hardening across ingestion, parsing, views, pricing, and configuration.
+
+### Bug Fixes
+- **Traces WAL visibility**: committed turns and billing attributes are read from a checksum-validated main/WAL snapshot before checkpointing; the watcher follows WAL creation, updates, and resets without changing Copilot's database
+- **Ingestion watermark** no longer advances when a span batch produces zero new turns, so turns hidden by an excluded-model filter reappear if settings change
+- **Concurrent ingestion** is now serialized with a mutex, preventing SQLite "cannot start a transaction within a transaction" errors when the file watcher and manual commands overlap
+- **Config reads** in the sidebar and dashboard now route through `ConfigManager` for consistent clamping/validation (fixes inconsistent budget defaults)
+- **Billing period** totals now respect `billingCycleStartDay` instead of always using the calendar month start
+- **Custom pricing rates** now match model names more precisely (exact or prefix match) before falling back to substring matching
+- **Day-1 pace** no longer triggers false "pace high" alerts caused by clamping fractional elapsed days to 1
+- **CSP nonce** for both webviews now uses a cryptographically secure random source
+- **Migration sentinel** replaced with `PRAGMA user_version`, removing the fake `__migration_merge_v2__` row from the sessions table
+- **Non-null assertion** in span batch processing is now guarded against empty input
+- **Repo name parsing** handles `git://` URLs and Windows local paths
+
+### Security
+- **Remote pricing responses** are limited to 512 KiB before JSON parsing, including streamed bodies with absent or misleading length headers; rejected responses are canceled and previously validated prices remain available
+
+### Performance
+- **Async DB reads**: the traces DB is now read with `fs.promises` instead of a blocking `readFileSync`, and a promise-singleton guards against a concurrency race in the loader
+- **JSONL backfill** is wrapped in a single transaction, dramatically speeding up first-run ingestion
+- **JSONL parsing** now streams line-by-line instead of loading the whole file into memory
+- **Dashboard session fetch** is capped (configurable) instead of always loading up to 1000 sessions
+- **Token counting** prefers cheap/mini local models instead of the most expensive ones
+- **Remote pricing fetch** enforces a 500-entry cap and JSON content-type check to bound memory
+- **Workspace name cache** is now size-bounded (max 500 entries)
+
+### Features
+- **Export command** (`Copilot Cost Tracker: Export Usage Data`) exports all turns to JSON or CSV
+- **VS Code fork support**: automatically detects Insiders, Cursor, Windsurf, and Portable Mode, with a `userDataPath` override
+- **New settings**: `currency`, `exchangeRate`, `userDataPath`, `alertWindowHours`, `dashboardSessionLimit`, `weekStartDay`
+- **Configurable alert window** replaces the hardcoded 24-hour lookback
+- **Sidebar** now updates in place via `postMessage` instead of rebuilding its HTML, eliminating flicker and scroll-position loss
+
+### Internal
+- Added real WAL integration tests for committed-only snapshots, checkpoint races, resets, checksum failures, source-file preservation, and watcher latency, plus a reproducible traces-ingestion measurement script
+- Alert threshold constants consolidated into `src/insights/alertThresholds.ts`
+- Removed the deprecated, unused `pollIntervalMin` config field
+
 ## [0.6.6] - 2026-10-09
 
 ### Security

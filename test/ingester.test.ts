@@ -1,4 +1,15 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+
+vi.mock("vscode", () => ({
+  EventEmitter: class {
+    event = vi.fn();
+    fire = vi.fn();
+    dispose = vi.fn();
+  },
+}));
+
+import { TracesIngester } from "../src/watcher/tracesIngester";
+import type { TraceSpan } from "../src/parser/types";
 
 // Unit tests for Ingester failover and polling logic
 describe("Ingester Failover & Polling", () => {
@@ -58,7 +69,7 @@ describe("Ingester Failover & Polling", () => {
     it("debounces rapid successive file change events into one ingestion", async () => {
       const debounceMs = 300;
       let ingestionCount = 0;
-      let debounceTimer: NodeJS.Timeout | undefined;
+      let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
       const triggerDebounced = () => {
         if (debounceTimer) { clearTimeout(debounceTimer); }
@@ -90,23 +101,38 @@ describe("Ingester Failover & Polling", () => {
       expect(ingestionCount).toBeGreaterThanOrEqual(3);
     });
 
-    it("concurrent ingestion guard prevents overlapping runs", async () => {
-      let isRunning = false;
-      let completedCount = 0;
-
-      const runCallback = async (): Promise<void> => {
-        if (isRunning) return;
-        isRunning = true;
-        try {
-          await new Promise((resolve) => setTimeout(resolve, 50));
-          completedCount++;
-        } finally {
-          isRunning = false;
-        }
+    it("runs a requested full scan after an ongoing incremental ingest", async () => {
+      let finishFirstRead!: (spans: never[]) => void;
+      const reader = {
+        querySpans: vi.fn()
+          .mockImplementationOnce(() => new Promise<never[]>((resolve) => { finishFirstRead = resolve; }))
+          .mockResolvedValueOnce([]),
       };
+      const database = {
+        getMaxTimestamp: () => 1000,
+        recomputeCacheTokenSemantics: () => false,
+      };
+      const parser = { discoverSessionTitles: () => new Map<string, string>() };
+      const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+      const ingester = new TracesIngester(
+        reader as unknown as ConstructorParameters<typeof TracesIngester>[0],
+        parser as unknown as ConstructorParameters<typeof TracesIngester>[1],
+        {} as ConstructorParameters<typeof TracesIngester>[2],
+        database as unknown as ConstructorParameters<typeof TracesIngester>[3],
+        {} as ConstructorParameters<typeof TracesIngester>[4],
+        logger as unknown as ConstructorParameters<typeof TracesIngester>[5],
+      );
+      ingester.setTelemetrySource("database");
 
-      await Promise.all([runCallback(), runCallback(), runCallback()]);
-      expect(completedCount).toBe(1);
+      const incremental = ingester.ingest();
+      await vi.waitFor(() => expect(reader.querySpans).toHaveBeenCalledTimes(1));
+      const fullScan = ingester.fullIngest();
+      finishFirstRead([]);
+
+      await Promise.all([incremental, fullScan]);
+      expect(reader.querySpans).toHaveBeenCalledTimes(2);
+      expect(reader.querySpans).toHaveBeenNthCalledWith(2, undefined);
+      ingester.dispose();
     });
 
     it("watcher path changes when source switches between database and JSONL", () => {
@@ -173,18 +199,46 @@ describe("Ingester Failover & Polling", () => {
       expect(toProcess[0].timestamp).toBe(16000);
     });
 
-    it("handles skipped zero-token calls in watermark", () => {
-      let lastProcessed = 1000;
-      const spans = [
-        { timestamp: 1100, tokens: 0 }, // Skip but advance watermark
-        { timestamp: 1200, tokens: 100 }, // Process normally
-      ];
+    it("does not advance the watermark for skipped spans", async () => {
+      const span: TraceSpan = {
+        spanId: "span-1", traceId: "trace-1", parentSpanId: null, name: "llm_call",
+        startTimeMs: 1200, endTimeMs: 1250, statusCode: 0, operationName: null,
+        providerName: null, agentName: "panel/editAgent", conversationId: null,
+        requestModel: "model", responseModel: "model", inputTokens: 0, outputTokens: 0,
+        cachedTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, toolName: null,
+        chatSessionId: "session-1", turnIndex: 1, ttftMs: null, realCredits: undefined,
+        workspaceRepo: null,
+      };
+      const reader = {
+        querySpans: vi.fn()
+          .mockResolvedValueOnce([span])
+          .mockResolvedValueOnce([{ ...span, inputTokens: 10 }]),
+      };
+      const database = {
+        getMaxTimestamp: () => 1000,
+        recomputeCacheTokenSemantics: () => false,
+        beginTransaction: vi.fn(), commitTransaction: vi.fn(), rollbackTransaction: vi.fn(),
+        insertTurn: vi.fn(),
+      };
+      const pricing = { calculateCost: () => 0.01, costToCredits: () => 1 };
+      const parser = { discoverSessionTitles: () => new Map<string, string>() };
+      const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+      const ingester = new TracesIngester(
+        reader as unknown as ConstructorParameters<typeof TracesIngester>[0],
+        parser as unknown as ConstructorParameters<typeof TracesIngester>[1],
+        pricing as unknown as ConstructorParameters<typeof TracesIngester>[2],
+        database as unknown as ConstructorParameters<typeof TracesIngester>[3],
+        { config: { excludedModels: [] } } as unknown as ConstructorParameters<typeof TracesIngester>[4],
+        logger as unknown as ConstructorParameters<typeof TracesIngester>[5],
+      );
+      ingester.setTelemetrySource("database");
 
-      for (const span of spans) {
-        lastProcessed = Math.max(lastProcessed, span.timestamp);
-      }
+      expect(await ingester.ingest()).toBe(0);
+      expect(await ingester.ingest()).toBe(1);
 
-      expect(lastProcessed).toBe(1200);
+      expect(reader.querySpans).toHaveBeenNthCalledWith(2, 1000);
+      expect(database.insertTurn).toHaveBeenCalledTimes(1);
+      ingester.dispose();
     });
   });
 

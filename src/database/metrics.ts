@@ -1,15 +1,16 @@
 import type { Database } from "sql.js";
 import type { AlertMetrics, AlertThresholdConfig, InsightMetrics, CacheSavingsMetrics, AlertMetricAccumulator } from "./types";
+import { DEFAULT_ALERT_THRESHOLDS } from "../insights/alertThresholds";
 
 export function getAlertThresholdConfig(thresholds?: Partial<AlertThresholdConfig>): AlertThresholdConfig {
   return {
-    microTurnGapMs: thresholds?.microTurnGapMs ?? 120_000,
-    microTurnMinCount: thresholds?.microTurnMinCount ?? 5,
-    microTurnMaxOutputTokens: thresholds?.microTurnMaxOutputTokens ?? 200,
-    rawPasteMinInputTokens: thresholds?.rawPasteMinInputTokens ?? 15_000,
-    premiumMisallocationMinCredits: thresholds?.premiumMisallocationMinCredits ?? 2,
-    premiumMisallocationMaxOutputTokens: thresholds?.premiumMisallocationMaxOutputTokens ?? 100,
-    agentSprawlMinInputTokens: thresholds?.agentSprawlMinInputTokens ?? 80_000,
+    microTurnGapMs: thresholds?.microTurnGapMs ?? DEFAULT_ALERT_THRESHOLDS.microTurnGapMs,
+    microTurnMinCount: thresholds?.microTurnMinCount ?? DEFAULT_ALERT_THRESHOLDS.microTurnMinCount,
+    microTurnMaxOutputTokens: thresholds?.microTurnMaxOutputTokens ?? DEFAULT_ALERT_THRESHOLDS.microTurnMaxOutputTokens,
+    rawPasteMinInputTokens: thresholds?.rawPasteMinInputTokens ?? DEFAULT_ALERT_THRESHOLDS.rawPasteMinInputTokens,
+    premiumMisallocationMinCredits: thresholds?.premiumMisallocationMinCredits ?? DEFAULT_ALERT_THRESHOLDS.premiumMisallocationMinCredits,
+    premiumMisallocationMaxOutputTokens: thresholds?.premiumMisallocationMaxOutputTokens ?? DEFAULT_ALERT_THRESHOLDS.premiumMisallocationMaxOutputTokens,
+    agentSprawlMinInputTokens: thresholds?.agentSprawlMinInputTokens ?? DEFAULT_ALERT_THRESHOLDS.agentSprawlMinInputTokens,
   };
 }
 

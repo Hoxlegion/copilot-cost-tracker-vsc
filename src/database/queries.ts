@@ -1,5 +1,6 @@
 import type { Database } from "sql.js";
 import type { AggregatedCost, ModelBreakdown, AgentBreakdown, DailyAgentBreakdown, ModelLatencySample, SessionSummary, SessionModelBreakdownRow, StoredTurn, SessionContextInfo, ContextTimelinePoint, SessionContextDistribution } from "./types";
+import { getBillingPeriodStartMs } from "../billing";
 
 type SqlBindings = Record<string, number | string | null>;
 
@@ -173,9 +174,8 @@ export function getDailyAgentBreakdown(db: Database, days: number = 365, workspa
   }));
 }
 
-export function getCurrentMonthTotal(db: Database, workspace?: string): { costUsd: number; credits: number; turns: number } {
-  const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+export function getCurrentMonthTotal(db: Database, billingStartDay: number = 1, workspace?: string): { costUsd: number; credits: number; turns: number } {
+  const periodStart = getBillingPeriodStartMs(billingStartDay);
   return queryOne(db, `
     SELECT
       COALESCE(SUM(cost_usd), 0) as total_cost,
@@ -184,7 +184,7 @@ export function getCurrentMonthTotal(db: Database, workspace?: string): { costUs
     FROM turns
     WHERE timestamp >= :since
       AND (:workspace IS NULL OR workspace = :workspace)
-  `, sinceWorkspaceBindings(monthStart, workspace), (row) => ({
+  `, sinceWorkspaceBindings(periodStart, workspace), (row) => ({
     costUsd: row.total_cost as number,
     credits: row.total_credits as number,
     turns: row.turn_count as number,
@@ -370,6 +370,58 @@ export function getTurnsForSession(db: Database, sessionId: string, limit: numbe
   }
   stmt.free();
   return rows;
+}
+
+function mapExportTurn(row: Record<string, unknown>): StoredTurn {
+  return {
+    id: row.id as number,
+    sessionId: row.session_id as string,
+    timestamp: row.timestamp as number,
+    duration: row.duration as number,
+    agentName: row.agent_name as string,
+    model: row.model as string,
+    modelFamily: row.model_family as string,
+    inputTokens: row.input_tokens as number,
+    outputTokens: row.output_tokens as number,
+    cachedTokens: row.cached_tokens as number,
+    cacheWriteTokens: row.cache_write_tokens as number,
+    totalTokens: row.total_tokens as number,
+    costUsd: row.cost_usd as number,
+    credits: row.credits as number,
+    workspace: row.workspace as string,
+    status: row.status as string,
+    costSource: (row.cost_source as "real" | "estimated") ?? "estimated",
+  };
+}
+
+export function getAllTurns(db: Database): StoredTurn[] {
+  return Array.from(iterateAllTurns(db));
+}
+
+export function* iterateAllTurns(db: Database): IterableIterator<StoredTurn> {
+  const maxId = db.exec("SELECT MAX(id) FROM turns")[0]?.values[0]?.[0] as number | null;
+  if (maxId == null) return;
+
+  let lastTimestamp: number | null = null;
+  let lastId: number | null = null;
+  const pageSize = 500;
+  while (true) {
+    const page: StoredTurn[] = queryRows(db,
+      `SELECT id, session_id, timestamp, duration, agent_name, model, model_family, input_tokens, output_tokens, cached_tokens, cache_write_tokens, total_tokens, cost_usd, credits, workspace, status, cost_source
+       FROM turns
+       WHERE id <= :maxId
+         AND (:lastTimestamp IS NULL OR timestamp > :lastTimestamp OR (timestamp = :lastTimestamp AND id > :lastId))
+       ORDER BY timestamp ASC, id ASC
+       LIMIT :pageSize`,
+      { ":maxId": maxId, ":lastTimestamp": lastTimestamp, ":lastId": lastId, ":pageSize": pageSize },
+      mapExportTurn,
+    );
+    yield* page;
+    const last = page.at(-1);
+    if (!last || page.length < pageSize) return;
+    lastTimestamp = last.timestamp;
+    lastId = last.id;
+  }
 }
 
 export function getMaxTimestamp(db: Database): number {

@@ -24,6 +24,7 @@ export class TracesIngester implements vscode.Disposable {
 
   private lastProcessedTimestamp: number = 0;
   private migrationsApplied: boolean = false;
+  private ongoingIngest: Promise<number> | null = null;
   private static readonly INGEST_BATCH_SIZE = 5_000;
 
   readonly onDidDataChange: vscode.Event<void>;
@@ -84,9 +85,29 @@ export class TracesIngester implements vscode.Disposable {
     return this.ingest(0);
   }
 
-  async ingest(sinceOverride?: number): Promise<number> {
-    if (this.isDisposed) return 0;
+  ingest(sinceOverride?: number): Promise<number> {
+    if (this.isDisposed) return Promise.resolve(0);
 
+    if (this.ongoingIngest) {
+      if (sinceOverride === undefined) {
+        this.logger.warn("Ingest already in progress, skipping concurrent invocation");
+        return Promise.resolve(0);
+      }
+      return this.ongoingIngest.then(
+        () => this.ingest(sinceOverride),
+        () => this.ingest(sinceOverride),
+      );
+    }
+
+    const run = this.runIngest(sinceOverride);
+    const tracked = run.finally(() => {
+      if (this.ongoingIngest === tracked) this.ongoingIngest = null;
+    });
+    this.ongoingIngest = tracked;
+    return tracked;
+  }
+
+  private async runIngest(sinceOverride?: number): Promise<number> {
     await this.applyDataMigrationsOnce();
 
     const source = this.sourceResolver.resolve({
@@ -252,6 +273,8 @@ export class TracesIngester implements vscode.Disposable {
   }
 
   private async processSpanBatch(spans: TraceSpan[], skipWatermark: boolean = false): Promise<number> {
+    if (spans.length === 0) return 0;
+
     let newCount = 0;
     let maxTimestamp = this.lastProcessedTimestamp;
 
@@ -279,8 +302,12 @@ export class TracesIngester implements vscode.Disposable {
 
       this.database.commitTransaction();
 
-      const batchMaxTimestamp = spans.at(-1)!.startTimeMs;
-      this.lastProcessedTimestamp = Math.max(maxTimestamp, batchMaxTimestamp);
+      // Only advance the watermark when spans were actually written. Advancing past
+      // filtered/skipped spans (e.g. excluded models) would permanently hide those
+      // turns if the user later changes their settings.
+      if (newCount > 0) {
+        this.lastProcessedTimestamp = maxTimestamp;
+      }
     } catch (err) {
       this.database.rollbackTransaction();
       this.logger.error("Failed during batch insert, rolling back transaction", err);
@@ -293,46 +320,56 @@ export class TracesIngester implements vscode.Disposable {
   private async ingestFromJsonl(): Promise<number> {
     let sessions;
     try {
-      sessions = this.logParser.parseAllSessions();
+      sessions = await this.logParser.parseAllSessions();
     } catch (err) {
       this.logger.error("Failed to parse JSONL sessions (fallback source)", err);
       return 0;
     }
 
     let newTurns = 0;
-    for (const session of sessions) {
-      const lastProcessedSessionTimestamp = this.database.getSessionLastTimestamp(session.sessionId);
-      const sessionTurns = lastProcessedSessionTimestamp == null
-        ? session.turns
-        : session.turns.filter((turn) => turn.timestamp > lastProcessedSessionTimestamp);
+    this.database.beginTransaction();
+    try {
+      for (const session of sessions) {
+        const lastProcessedSessionTimestamp = this.database.getSessionLastTimestamp(session.sessionId);
+        const sessionTurns = lastProcessedSessionTimestamp == null
+          ? session.turns
+          : session.turns.filter((turn) => turn.timestamp > lastProcessedSessionTimestamp);
 
-      if (sessionTurns.length === 0) continue;
+        if (sessionTurns.length === 0) continue;
 
-      for (const turn of sessionTurns) {
-        const costUsd = this.pricing.calculateCost(
-          turn.modelFamily,
-          turn.inputTokens,
-          turn.outputTokens,
-          turn.cachedTokens,
-          turn.cacheWriteTokens
+        for (const turn of sessionTurns) {
+          const costUsd = this.pricing.calculateCost(
+            turn.modelFamily,
+            turn.inputTokens,
+            turn.outputTokens,
+            turn.cachedTokens,
+            turn.cacheWriteTokens
+          );
+          const credits = this.pricing.costToCredits(costUsd);
+          turn.costSource = "estimated";
+          this.database.insertTurn(turn, costUsd, credits, session.workspace ?? "unknown");
+          newTurns++;
+        }
+
+        this.database.markSessionProcessed(
+          session.sessionId,
+          session.workspace ?? "unknown",
+          session.turns[0]?.timestamp ?? Date.now(),
+          session.turns.at(-1)?.timestamp ?? Date.now(),
+          session.copilotVersion ?? "unknown",
+          session.vscodeVersion ?? "unknown"
         );
-        const credits = this.pricing.costToCredits(costUsd);
-        turn.costSource = "estimated";
-        this.database.insertTurn(turn, costUsd, credits, session.workspace ?? "unknown");
-        newTurns++;
       }
 
-      this.database.markSessionProcessed(
-        session.sessionId,
-        session.workspace ?? "unknown",
-        session.turns[0]?.timestamp ?? Date.now(),
-        session.turns.at(-1)?.timestamp ?? Date.now(),
-        session.copilotVersion ?? "unknown",
-        session.vscodeVersion ?? "unknown"
-      );
+      this.database.commitTransaction();
+    } catch (err) {
+      this.database.rollbackTransaction();
+      this.logger.error("Failed during JSONL batch insert, rolling back transaction", err);
+      return 0;
     }
 
     if (newTurns > 0 && !this.isDisposed) {
+      await this.database.save();
       this.onDataChanged.fire();
     }
     return newTurns;

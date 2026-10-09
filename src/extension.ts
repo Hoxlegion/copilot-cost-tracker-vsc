@@ -10,6 +10,7 @@ import { Logger } from "./logger";
 import { PromptCostIntelligenceProvider } from "./promptCostIntelligence";
 import { registerCommands } from "./commands";
 import { setupTimers } from "./timers";
+import { setUserDataPathOverride } from "./shared/paths";
 
 let database: CostDatabase | undefined;
 const COPILOT_DB_SPAN_EXPORTER_KEY = "github.copilot.chat.otel.dbSpanExporter.enabled";
@@ -44,6 +45,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   logger.info("Activating Copilot Cost Tracker");
   await ensureCopilotDbSpanExporterEnabled(logger);
+
+  // Apply the user-data-path override (if any) before constructing path-dependent
+  // services so fork/portable layouts resolve correctly.
+  setUserDataPathOverride(configManager.config.userDataPath);
 
   // WASM path for sql.js
   const wasmPath = path.join(context.extensionPath, "dist", "sql-wasm.wasm");
@@ -84,7 +89,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   contextTracker.setNotificationsEnabled(configManager.config.contextWeightNotifications);
   const statusBar = new StatusBarIndicator(database, pricing, configManager, logger, contextTracker, getCurrentWorkspaceRepo());
   const promptIntelligence = new PromptCostIntelligenceProvider(configManager, logger);
-  const sidebarProvider = new SidebarPanel(database, pricing);
+  const sidebarProvider = new SidebarPanel(database, pricing, configManager);
 
   // Register sidebar webview, CodeLens, and Hover
   const sidebarView = vscode.window.registerWebviewViewProvider(
@@ -122,7 +127,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // Commands
   registerCommands(context, {
-    database, pricing, ingester, reader, statusBar,
+    database, pricing, ingester, reader, statusBar, configManager,
     extensionUri: context.extensionUri,
   });
 

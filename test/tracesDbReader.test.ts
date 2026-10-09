@@ -9,6 +9,11 @@ const mockStatSync = vi.fn();
 const mockOpenSync = vi.fn();
 const mockFstatSync = vi.fn();
 const mockCloseSync = vi.fn();
+const mockPromisesOpen = vi.fn();
+const mockPromisesStat = vi.fn();
+const mockFhStat = vi.fn();
+const mockFhReadFile = vi.fn();
+const mockFhClose = vi.fn();
 
 vi.mock("node:os", () => ({
   homedir: () => "C:/Users/test",
@@ -22,6 +27,10 @@ vi.mock("node:fs", () => ({
   openSync: (...args: unknown[]) => mockOpenSync(...args),
   fstatSync: (...args: unknown[]) => mockFstatSync(...args),
   closeSync: (...args: unknown[]) => mockCloseSync(...args),
+  promises: {
+    open: (...args: unknown[]) => mockPromisesOpen(...args),
+    stat: (...args: unknown[]) => mockPromisesStat(...args),
+  },
 }));
 
 vi.mock("sql.js", () => ({
@@ -61,6 +70,55 @@ describe("TracesDbReader", () => {
     mockOpenSync.mockReturnValue(3);
     mockFstatSync.mockReturnValue({ mtimeMs: 1, size: 2 });
     mockCloseSync.mockReturnValue(undefined);
+    mockFhStat.mockReset();
+    mockFhReadFile.mockReset();
+    mockFhClose.mockReset();
+    mockPromisesOpen.mockReset();
+    mockPromisesStat.mockReset();
+    mockFhStat.mockResolvedValue({ mtimeMs: 1, size: 2 });
+    mockFhReadFile.mockResolvedValue(new Uint8Array([100, 98]));
+    mockFhClose.mockResolvedValue(undefined);
+    mockPromisesOpen.mockImplementation(async (filePath: string) => {
+      if (filePath.endsWith("-wal")) throw Object.assign(new Error("no WAL"), { code: "ENOENT" });
+      return {
+        stat: (...args: unknown[]) => mockFhStat(...args),
+        readFile: (...args: unknown[]) => mockFhReadFile(...args),
+        close: (...args: unknown[]) => mockFhClose(...args),
+      };
+    });
+    mockPromisesStat.mockImplementation(async (filePath: string) => {
+      if (filePath.endsWith("-wal")) throw Object.assign(new Error("no WAL"), { code: "ENOENT" });
+      return { mtimeMs: 1, size: 2 };
+    });
+  });
+
+  it("shares a single async file read across simultaneous queries", async () => {
+    let completeRead!: (bytes: Uint8Array) => void;
+    mockFhReadFile.mockImplementationOnce(() => new Promise<Uint8Array>((resolve) => { completeRead = resolve; }));
+    mockPrepare.mockImplementation(() => ({ step: () => false, free: vi.fn(), bind: vi.fn() }));
+    const reader = new TracesDbReader();
+
+    const first = reader.querySpans();
+    const second = reader.querySpans();
+    await vi.waitFor(() => expect(mockFhReadFile).toHaveBeenCalledTimes(1));
+    completeRead(new Uint8Array([100, 98]));
+
+    expect(await Promise.all([first, second])).toEqual([[], []]);
+    expect(mockPromisesOpen).toHaveBeenCalledTimes(2);
+    expect(mockFhClose).toHaveBeenCalledTimes(1);
+    expect(mockReadFileSync).not.toHaveBeenCalled();
+  });
+
+  it("releases the shared load after a read error so the next query can retry", async () => {
+    mockFhReadFile.mockRejectedValueOnce(new Error("read failed"));
+    mockPrepare.mockImplementation(() => ({ step: () => false, free: vi.fn(), bind: vi.fn() }));
+    const reader = new TracesDbReader();
+
+    await expect(reader.querySpans()).rejects.toThrow("read failed");
+    await expect(reader.querySpans()).resolves.toEqual([]);
+
+    expect(mockPromisesOpen).toHaveBeenCalledTimes(4);
+    expect(mockFhClose).toHaveBeenCalledTimes(2);
   });
 
   it("reads spans from DB and defaults cacheWriteTokens to 0 (column removed from schema)", async () => {

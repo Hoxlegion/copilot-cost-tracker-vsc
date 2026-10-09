@@ -1,4 +1,10 @@
 import { CostReader, AlertMetrics } from "../database";
+import {
+  HIGH_VERBOSITY_AVG_OUTPUT_TOKENS,
+  CONTEXT_BLOAT_SESSION_INPUT_TOKENS,
+  CACHE_DECAY_IDLE_GAP_MS,
+  DEFAULT_ALERT_WINDOW_HOURS,
+} from "./alertThresholds";
 
 export interface DashboardAlert {
   id: string;
@@ -29,9 +35,7 @@ export interface AlertThresholds {
 }
 
 // Thresholds — named constants so they document intent
-const HIGH_VERBOSITY_AVG_OUTPUT_TOKENS = 600; // turns averaging >600 output tokens are paying for narration
-const CONTEXT_BLOAT_SESSION_INPUT_TOKENS = 40_000; // session accumulating >40K input tokens has dead weight
-const CACHE_DECAY_IDLE_GAP_MS = 5 * 60 * 1000; // >5 min idle likely busts the Copilot cache TTL
+// Display thresholds are consolidated in ./alertThresholds.ts
 
 // Format token counts as "1.2M" above 1M, "49.2K" above 1K, or plain number below.
 function formatTokens(tokens: number): string {
@@ -146,8 +150,9 @@ function checkMassiveContextTurn(metrics: AlertMetrics): DashboardAlert | null {
   };
 }
 
-export function getAlerts(database: CostReader, thresholds?: AlertThresholds): DashboardAlert[] {
-  const sinceMs = Date.now() - 24 * 60 * 60 * 1000; // last 24 hours
+export function getAlerts(database: CostReader, thresholds?: AlertThresholds, windowHours: number = DEFAULT_ALERT_WINDOW_HOURS): DashboardAlert[] {
+  const safeWindowHours = Number.isFinite(windowHours) && windowHours > 0 ? windowHours : DEFAULT_ALERT_WINDOW_HOURS;
+  const sinceMs = Date.now() - safeWindowHours * 60 * 60 * 1000;
   const metrics = database.getAlertMetrics(sinceMs, thresholds ? {
     microTurnGapMs: thresholds.microTurnGapMs,
     microTurnMinCount: thresholds.microTurnMinCount,
