@@ -10,6 +10,13 @@ import {
 } from "./types";
 import { getVscodeUserDataPath } from "../shared/paths";
 
+interface ParsedLogFile {
+  firstEntry: LogEntry;
+  lastStart: LogEntry | undefined;
+  lastActivity: number;
+  turns: ParsedTurn[];
+}
+
 export class LogParser {
   private readonly debugLogsBasePath: string;
   /** Per-file cache of extracted title entries, keyed by path, invalidated by mtime. */
@@ -76,7 +83,7 @@ export class LogParser {
   }
 
   /**
-   * Parse a single session directory (main.jsonl + models.json).
+   * Parse a session's main log and its delegated/title request logs.
    */
   async parseSession(sessionDir: string): Promise<ParsedSession | null> {
     const mainJsonlPath = path.join(sessionDir, "main.jsonl");
@@ -85,6 +92,41 @@ export class LogParser {
       return null;
     }
 
+    const main = await this.parseLogFile(mainJsonlPath);
+    if (!main) return null;
+    const turns = main.turns;
+    let lastActivity = main.lastActivity;
+    let files: string[];
+    try {
+      files = fs.readdirSync(sessionDir);
+    } catch {
+      files = [];
+    }
+    const delegatedLogs = await Promise.all(files
+      .filter((file) => file.endsWith(".jsonl") && (file.startsWith("runSubagent-") || file.startsWith("title-")))
+      .map((file) => {
+        const agentName = file.startsWith("runSubagent-") ? "tool/runSubagent" : "title";
+        return this.parseLogFile(path.join(sessionDir, file), main.firstEntry.sid, agentName);
+      }));
+    for (const delegated of delegatedLogs) {
+      if (!delegated) continue;
+      turns.push(...delegated.turns);
+      lastActivity = Math.max(lastActivity, delegated.lastActivity);
+    }
+    turns.sort((left, right) => left.timestamp - right.timestamp);
+
+    return {
+      sessionId: main.firstEntry.sid,
+      startTimestamp: main.lastStart?.ts ?? main.firstEntry.ts,
+      lastActivity,
+      copilotVersion: (main.lastStart?.attrs?.copilotVersion as string) ?? "unknown",
+      vscodeVersion: (main.lastStart?.attrs?.vscodeVersion as string) ?? "unknown",
+      turns,
+      workspace: this.getWorkspaceId(sessionDir),
+    };
+  }
+
+  private async parseLogFile(logPath: string, sessionId?: string, agentName = "unknown"): Promise<ParsedLogFile | null> {
     let firstEntry: LogEntry | undefined;
     let lastStart: LogEntry | undefined;
     let lastActivity: number | undefined;
@@ -92,7 +134,7 @@ export class LogParser {
     let skippedLines = 0;
     try {
       const rl = readline.createInterface({
-        input: fs.createReadStream(mainJsonlPath, { encoding: "utf-8" }),
+        input: fs.createReadStream(logPath, { encoding: "utf-8" }),
         crlfDelay: Infinity,
       });
       for await (const rawLine of rl) {
@@ -101,10 +143,10 @@ export class LogParser {
         try {
           const entry = JSON.parse(line) as LogEntry;
           firstEntry ??= entry;
-          lastActivity = entry.ts;
+          lastActivity = Math.max(lastActivity ?? entry.ts, entry.ts);
           if (entry.type === "session_start") lastStart = entry;
           if (entry.type === "LLM_request" || entry.type === "llm_request" || entry.name === "llm_request") {
-            turns.push(this.parseModelTurn(entry, firstEntry.sid));
+            turns.push(this.parseModelTurn(entry, sessionId ?? firstEntry.sid, agentName));
           }
         } catch {
           skippedLines++;
@@ -115,23 +157,17 @@ export class LogParser {
     }
 
     if (skippedLines > 0) {
-      console.warn(`[LogParser] Skipped ${skippedLines} malformed line(s) in ${mainJsonlPath}`);
+      console.warn(`[LogParser] Skipped ${skippedLines} malformed line(s) in ${logPath}`);
     }
 
     if (!firstEntry) return null;
 
-    const session: ParsedSession = {
-      sessionId: firstEntry.sid,
-      startTimestamp: lastStart?.ts ?? firstEntry.ts,
+    return {
+      firstEntry,
+      lastStart,
       lastActivity: lastActivity ?? firstEntry.ts,
-      copilotVersion:
-        (lastStart?.attrs?.copilotVersion as string) ?? "unknown",
-      vscodeVersion: (lastStart?.attrs?.vscodeVersion as string) ?? "unknown",
       turns,
-      workspace: this.getWorkspaceId(sessionDir),
     };
-
-    return session;
   }
 
   /**
@@ -139,7 +175,8 @@ export class LogParser {
    */
   private parseModelTurn(
     entry: BaseLogEntry,
-    sessionId: string
+    sessionId: string,
+    fallbackAgentName: string
   ): ParsedTurn {
     const attrs = entry.attrs || {};
 
@@ -160,7 +197,7 @@ export class LogParser {
       (attrs.agentName as string) ??
       (attrs.agent_name as string) ??
       (attrs.surface as string) ??
-      "unknown";
+      fallbackAgentName;
 
     const rawInputTokens =
       (attrs.inputTokens as number) ??
@@ -195,9 +232,12 @@ export class LogParser {
       (attrs.totalTokens as number) ??
       (attrs.total_tokens as number) ??
       inputTokens + outputTokens + cachedTokens + cacheWriteTokens;
+    const nanoAiu = attrs.copilotUsageNanoAiu == null ? undefined : Number(attrs.copilotUsageNanoAiu);
+    const realCredits = nanoAiu != null && Number.isFinite(nanoAiu) && nanoAiu >= 0 ? nanoAiu / 1_000_000_000 : undefined;
 
     return {
       sessionId,
+      spanId: typeof entry.spanId === "string" && entry.spanId.length > 0 ? entry.spanId : undefined,
       timestamp: entry.ts,
       duration: entry.dur,
       agentName,
@@ -209,6 +249,8 @@ export class LogParser {
       cacheWriteTokens,
       totalTokens,
       status: entry.status,
+      realCredits,
+      costSource: realCredits == null ? "estimated" : "real",
     };
   }
 

@@ -71,12 +71,25 @@ describe("CostDatabase persistence", () => {
     database.insertTurn(turn(), 0.5, 50, "workspace");
 
     expect(database.insertTurn(turn({ costSource: "real" }), 0.02, 2, "workspace")).toBe(true);
+    expect(database.insertTurn(turn({ costSource: "real" }), 0.03, 3, "workspace")).toBe(true);
     expect(database.insertTurn(turn({ costSource: "real" }), 0.03, 3, "workspace")).toBe(false);
-    expect(database.insertTurn(turn({ costSource: "real" }), 0.02, 2, "Org/Repo")).toBe(true);
+    expect(database.insertTurn(turn({ costSource: "real" }), 0.03, 3, "Org/Repo")).toBe(true);
     expect(database.insertTurn(turn(), 0.5, 50, "other-workspace")).toBe(false);
+    expect(database.insertTurn(turn(), 0.5, 50, "Another/Repo")).toBe(true);
 
     expect(database.getAllTurns()).toEqual([
-      expect.objectContaining({ credits: 2, costSource: "real", workspace: "Org/Repo" }),
+      expect.objectContaining({ credits: 3, costSource: "real", workspace: "Another/Repo" }),
+    ]);
+  });
+
+  it("refreshes a span's model without duplicating it or replacing a known agent with unknown", () => {
+    const original = turn({ spanId: "shared-span", costSource: "real" });
+    expect(database.insertTurn(original, 0.01, 1, "Org/Repo")).toBe(true);
+    expect(database.insertTurn({ ...original, agentName: "unknown" }, 0.01, 1, "Org/Repo")).toBe(false);
+    expect(database.insertTurn({ ...original, model: "claude-sonnet-4.6", modelFamily: "claude-sonnet-4.6" }, 0.02, 2, "Org/Repo"))
+      .toBe(true);
+    expect(database.getAllTurns()).toEqual([
+      expect.objectContaining({ model: "claude-sonnet-4.6", agentName: "panel/editAgent", credits: 2 }),
     ]);
   });
 
@@ -162,7 +175,7 @@ describe("CostDatabase with Copilot CLI rows", () => {
     await rm(storageDir, { recursive: true, force: true });
   });
 
-  it("upgrades a 0.7 database: existing turns become Chat turns of one request", async () => {
+  it("upgrades a 0.7 database and backfills span identities without duplicating existing usage", async () => {
     database.close();
     const SQL = await initSqlJs();
     const legacy = new SQL.Database();
@@ -186,6 +199,21 @@ describe("CostDatabase with Copilot CLI rows", () => {
     expect(database.getAllTurns()).toEqual([expect.objectContaining({ sessionId: "chat-1", source: "chat", requestCount: 1 })]);
     expect(database.getCliSourceStates().size).toBe(0);
     expect(database.getCostSince(0, undefined, "cli")).toMatchObject({ credits: 0, turns: 0 });
+    expect(database.didRecoverFromCorruption).toBe(false);
+
+    const first = turn({ sessionId: "chat-1", spanId: "backfill-1", costSource: "real" });
+    expect(database.insertTurn(first, 0.01, 1, "Org/Repo")).toBe(true);
+    expect(database.insertTurn(first, 0.01, 1, "Org/Repo")).toBe(false);
+    expect(database.insertTurn({ ...first, spanId: "backfill-2" }, 0.02, 2, "Org/Repo")).toBe(true);
+    expect(database.insertTurn({ ...first, spanId: "backfill-3" }, 0.03, 3, "Org/Repo")).toBe(true);
+    expect(database.insertTurn(turn({ sessionId: "chat-1" }), 0.5, 50, "Org/Repo")).toBe(false);
+    expect(database.getCostSince(0)).toMatchObject({ credits: 6, turns: 3 });
+
+    database.close();
+    database = new CostDatabase(storageDir);
+    await database.initialize();
+    expect(database.getCostSince(0)).toMatchObject({ credits: 6, turns: 3 });
+    expect(database.insertTurn(first, 0.01, 1, "Org/Repo")).toBe(false);
   });
 
   it("filters totals by source and counts LLM requests as turns", () => {

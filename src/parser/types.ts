@@ -56,6 +56,7 @@ export const CLI_AGENT_NAME = "copilot-cli";
 
 export interface ParsedTurn {
   sessionId: string;
+  spanId?: string;
   timestamp: number;
   duration: number;
   agentName?: string;
@@ -69,6 +70,7 @@ export interface ParsedTurn {
   status: string;
   /** Whether credits are from real billing data or token-based estimates. */
   costSource?: "real" | "estimated";
+  realCredits?: number;
   /** Defaults to "chat". */
   source?: TurnSource;
   /** Model requests this row represents; defaults to 1. */

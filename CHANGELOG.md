@@ -4,6 +4,20 @@ All notable changes to the **Copilot Cost Tracker** extension will be documented
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.1] - 2026-10-10
+
+### Bug Fixes
+
+- Chat calls use telemetry span IDs instead of only session, timestamp, and model, so distinct parallel agent calls cannot collapse into one row. Existing history is preserved and acquires span IDs during backfill
+- JSONL fallback imports delegated-agent and title model calls as well as the main log, and uses GitHub's recorded billing credits when available, including zero-credit calls
+- Late JSONL requests and corrected billing amounts are re-read without double counting. Changed credits, models, and token counts are refreshed; token estimates cannot overwrite recorded billing amounts
+- Source switches reuse the same span identity, and fallback entries with an unknown agent name do not replace known agent attribution
+
+### Documentation
+
+- Updated manual-install examples to 0.8.1, corrected the cloned directory name, and identified the 0.7.0/0.7.1 benchmark as a historical comparison
+- Added billing-discrepancy troubleshooting and clarified subagent support and recorded credits versus pricing estimates
+
 ## [0.8.0] - 2026-10-09
 
 GitHub Copilot CLI as a separate data source, with GitHub's billed credits and deduplication.

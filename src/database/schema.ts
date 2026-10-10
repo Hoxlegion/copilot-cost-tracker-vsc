@@ -1,27 +1,7 @@
 import type { Database } from "sql.js";
 
 export function createTables(db: Database): void {
-  db.run(`
-    CREATE TABLE IF NOT EXISTS turns (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      session_id TEXT NOT NULL,
-      timestamp INTEGER NOT NULL,
-      duration INTEGER NOT NULL,
-      agent_name TEXT NOT NULL DEFAULT 'unknown',
-      model TEXT NOT NULL,
-      model_family TEXT NOT NULL,
-      input_tokens INTEGER NOT NULL,
-      output_tokens INTEGER NOT NULL,
-      cached_tokens INTEGER NOT NULL,
-      cache_write_tokens INTEGER NOT NULL DEFAULT 0,
-      total_tokens INTEGER NOT NULL,
-      cost_usd REAL NOT NULL,
-      credits REAL NOT NULL,
-      workspace TEXT NOT NULL,
-      status TEXT NOT NULL,
-      UNIQUE(session_id, timestamp, model)
-    )
-  `);
+  createTurnsTable(db);
 
   db.run(`
     CREATE TABLE IF NOT EXISTS sessions (
@@ -58,6 +38,35 @@ export function createTables(db: Database): void {
   db.run(`CREATE INDEX IF NOT EXISTS idx_turns_model ON turns(model_family)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_turns_agent ON turns(agent_name)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_turns_source_timestamp ON turns(source, timestamp)`);
+  db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_turns_span_identity ON turns(source, span_id) WHERE span_id IS NOT NULL`);
+  db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_turns_legacy_identity ON turns(session_id, timestamp, model) WHERE span_id IS NULL`);
+}
+
+function createTurnsTable(db: Database): void {
+  db.run(`
+    CREATE TABLE IF NOT EXISTS turns (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      timestamp INTEGER NOT NULL,
+      duration INTEGER NOT NULL,
+      agent_name TEXT NOT NULL DEFAULT 'unknown',
+      model TEXT NOT NULL,
+      model_family TEXT NOT NULL,
+      input_tokens INTEGER NOT NULL,
+      output_tokens INTEGER NOT NULL,
+      cached_tokens INTEGER NOT NULL,
+      cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+      total_tokens INTEGER NOT NULL,
+      cost_usd REAL NOT NULL,
+      credits REAL NOT NULL,
+      workspace TEXT NOT NULL,
+      status TEXT NOT NULL,
+      cost_source TEXT NOT NULL DEFAULT 'estimated',
+      source TEXT NOT NULL DEFAULT 'chat',
+      request_count INTEGER NOT NULL DEFAULT 1,
+      span_id TEXT
+    )
+  `);
 }
 
 function ensureSessionsSchema(db: Database): void {
@@ -82,6 +91,22 @@ function ensureTurnsSchema(db: Database): void {
   addTurnsColumnIfMissing(existingColumns, db, "cost_source", "TEXT NOT NULL DEFAULT 'estimated'");
   addTurnsColumnIfMissing(existingColumns, db, "source", "TEXT NOT NULL DEFAULT 'chat'");
   addTurnsColumnIfMissing(existingColumns, db, "request_count", "INTEGER NOT NULL DEFAULT 1");
+  if (existingColumns.has("span_id")) return;
+
+  const columns = `id, session_id, timestamp, duration, agent_name, model, model_family,
+    input_tokens, output_tokens, cached_tokens, cache_write_tokens, total_tokens,
+    cost_usd, credits, workspace, status, cost_source, source, request_count`;
+  db.run("BEGIN");
+  try {
+    db.run("ALTER TABLE turns RENAME TO legacy_turns");
+    createTurnsTable(db);
+    db.run(`INSERT INTO turns (${columns}) SELECT ${columns} FROM legacy_turns`);
+    db.run("DROP TABLE legacy_turns");
+    db.run("COMMIT");
+  } catch (err) {
+    db.run("ROLLBACK");
+    throw err;
+  }
 }
 
 function getTurnsColumnNames(db: Database): Set<string> {

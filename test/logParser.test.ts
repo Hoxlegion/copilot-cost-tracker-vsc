@@ -51,4 +51,41 @@ describe("JSONL session streaming", () => {
     ]);
     expect(warning).toHaveBeenCalledWith(expect.stringContaining("Skipped 1 malformed line"));
   });
+
+  it("imports delegated JSONL calls and recorded credits while keeping parent session metadata", async () => {
+    const sessionDir = join(userDataDir, "workspaceStorage", "repo-id", "GitHub.copilot-chat", "debug-logs", "parent-session");
+    await mkdir(sessionDir, { recursive: true });
+    const entry = (timestamp: number, type: string, spanId: string, sid: string, attrs: Record<string, unknown>) => ({
+      v: 1, ts: timestamp, dur: 10, sid, type, name: type, spanId, status: "ok", attrs,
+    });
+    await writeFile(join(sessionDir, "main.jsonl"), [
+      entry(100, "session_start", "start", "parent-session", { copilotVersion: "parent-version", vscodeVersion: "1.85" }),
+      entry(300, "llm_request", "parent-call", "parent-session", {
+        model: "gpt-5", inputTokens: 120, outputTokens: 40, cachedTokens: 100, copilotUsageNanoAiu: "2000000000",
+      }),
+    ].map(row => JSON.stringify(row)).join("\n"));
+    await writeFile(join(sessionDir, "runSubagent-Explore-child.jsonl"), [
+      entry(150, "session_start", "child-start", "child-session", { parentSessionId: "parent-session" }),
+      entry(200, "llm_request", "child-call", "child-session", {
+        model: "claude-haiku-4.5", inputTokens: 100, cachedTokens: 50, outputTokens: 5, copilotUsageNanoAiu: 3000000000,
+      }),
+    ].map(row => JSON.stringify(row)).join("\n"));
+    await writeFile(join(sessionDir, "title-child.jsonl"), [
+      entry(400, "llm_request", "title-call", "title-session", {
+        model: "gpt-5-mini", inputTokens: 10, outputTokens: 1, copilotUsageNanoAiu: 0,
+      }),
+    ].map(row => JSON.stringify(row)).join("\n"));
+
+    const session = await new LogParser().parseSession(sessionDir);
+
+    expect(session).toMatchObject({
+      sessionId: "parent-session", startTimestamp: 100, lastActivity: 400,
+      copilotVersion: "parent-version", vscodeVersion: "1.85",
+    });
+    expect(session?.turns).toMatchObject([
+      { sessionId: "parent-session", spanId: "child-call", timestamp: 200, inputTokens: 50, realCredits: 3 },
+      { sessionId: "parent-session", spanId: "parent-call", timestamp: 300, realCredits: 2 },
+      { sessionId: "parent-session", spanId: "title-call", timestamp: 400, realCredits: 0 },
+    ]);
+  });
 });

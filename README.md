@@ -1,6 +1,6 @@
 # Copilot Cost Tracker
 
-[![Version](https://img.shields.io/badge/version-0.8.0-blue.svg)](https://github.com/Hoxlegion/copilot-cost-tracker-vsc/releases)
+[![Version](https://img.shields.io/badge/version-0.8.1-blue.svg)](https://github.com/Hoxlegion/copilot-cost-tracker-vsc/releases)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![VS Code](https://img.shields.io/badge/VS%20Code-%5E1.85.0-blue.svg)](https://code.visualstudio.com/)
 
@@ -59,7 +59,9 @@ Get live updates on AI credit consumption with an always-visible status bar, bud
 | Context awareness alerts | Identifies patterns: micro-turn bloat, raw paste, premium model misallocation, agent sprawl |
 | File watcher strategy | Event-driven updates with 2s debounce for near-instant status bar refresh (sub-second after data arrival) |
 | Response latency metrics | Tracks model response times and displays avg latency and P90 per model |
-| DB + JSONL failover | Reads `agent-traces.db` directly; falls back to JSONL debug logs automatically |
+| DB + JSONL failover | Reads `agent-traces.db` directly; falls back to JSONL debug logs, including delegated-agent and title requests |
+| Billed Chat credits | Uses GitHub's recorded billing amount when available in either source; estimates only when it is missing |
+| Delegated agent accounting | Tracks individual subagent model calls by span ID, without collapsing parallel calls or counting source switches twice |
 | Copilot CLI tracking | Imports Copilot CLI usage with GitHub's billed credits from the CLI's session logs, without double counting resumed or re-read sessions |
 | Source filter | Switch the dashboard between all usage, Copilot Chat, and Copilot CLI; the sidebar splits period credits by source |
 | Watermark recovery | On restart, resumes from the last processed timestamp and re-reads a 15-minute overlap; unchanged turns are ignored, so nothing is counted twice |
@@ -114,16 +116,16 @@ Copilot CLI usage needs no setup; see [Copilot CLI](#copilot-cli).
 
 ### From VSIX (Manual)
 ```bash
-code --install-extension copilot-cost-tracker-0.6.5.vsix
+code --install-extension copilot-cost-tracker-0.8.1.vsix
 ```
 
 ### From Source
 ```bash
 git clone https://github.com/Hoxlegion/copilot-cost-tracker-vsc.git
-cd copilot-cost-tracker
+cd copilot-cost-tracker-vsc
 npm install
 npm run package
-code --install-extension copilot-cost-tracker-0.6.5.vsix
+code --install-extension copilot-cost-tracker-0.8.1.vsix
 ```
 
 ---
@@ -274,6 +276,15 @@ Open via **Copilot Cost Tracker: Open Dashboard** command or the graph icon in t
 **Cost appears wrong for a model**
 - Add custom rates via `copilotCostTracker.customModelRates` setting
 - Unknown models default to GPT-5.4-tier fallback rates; check logs for warnings
+- Token prices only affect estimates. When telemetry includes GitHub's billed credits, that recorded amount takes precedence
+
+### Total is lower than GitHub billing
+
+- Compare the same billing period and select **All** in the dashboard's source filter. Check `includeCliInBudget` if the sidebar or status bar excludes CLI usage
+- Run **Copilot Cost Tracker: Scan Full History** after updating to recover available local history, late requests, and corrected billing amounts
+- Check `excludedModels`, `initialScanDays` (default 30), and `retentionDays` (default 90). Filtered or pruned usage is not included in totals
+- Local VS Code subagent model calls are supported, including `runSubagent-*.jsonl` logs during JSONL fallback. Delegation itself is not an unsupported usage source
+- The extension cannot reconstruct usage that is absent from both local telemetry sources. Its totals are not a direct query of your GitHub billing account
 
 **Copilot CLI usage is missing**
 - Older CLIs only save usage when a session exits normally; other sessions appear in the "missing usage data" hint instead of the totals
@@ -332,6 +343,8 @@ This extension is built with:
 
 Data flows from VS Code's internal telemetry (traces database) and the Copilot CLI's session logs → cost calculation → in-memory DB → UI.
 
+Copilot Chat ingestion uses span IDs to identify individual model calls. JSONL fallback reads the main, delegated-agent, and title logs and prefers their recorded billed credits over token estimates. Re-reading calls can update credits and token counts without adding duplicate rows; existing history is retained when upgrading the database schema.
+
 For deeper implementation details, inspect the source under `src/` and tests under `test/`.
 
 ---
@@ -342,7 +355,7 @@ For deeper implementation details, inspect the source under `src/` and tests und
 
 ```bash
 git clone https://github.com/Hoxlegion/copilot-cost-tracker-vsc.git
-cd copilot-cost-tracker
+cd copilot-cost-tracker-vsc
 npm install
 npm run watch          # Rebuilds on changes
 code .                 # Open in VS Code
@@ -382,7 +395,7 @@ npm test -- test/tracesWal.test.ts --reporter=verbose
 
 The script gives every scenario a fresh copy of the capture and runs the production reader, ingester, and cost database of each code version in separate processes. It writes to the temporary copies with SQLite to create real WAL commits and restarts, and uses SQLite as the correctness reference. A replay makes spans visible in the order they ended to measure late-span losses. Temporary files are removed afterwards, and span identifiers are hashed. Node's native SQLite is only used for measurements and test fixtures, not by the extension.
 
-Measured on Windows with Node.js 22.19.0 on 2026-10-09 (main file 824,958,976 bytes, WAL 6,538,472 bytes, 30 days, median of three runs):
+Historical performance comparison of releases 0.7.0 and 0.7.1, measured on Windows with Node.js 22.19.0 on 2026-10-09 (main file 824,958,976 bytes, WAL 6,538,472 bytes, 30 days, median of three runs). These measurements have not been rerun for 0.8.1:
 
 | Scenario | 0.7.0 | 0.7.1 |
 |----------|-------|-------|

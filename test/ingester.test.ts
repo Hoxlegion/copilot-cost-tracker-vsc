@@ -16,7 +16,7 @@ import { TracesIngester, type TracesIngesterOptions } from "../src/watcher/trace
 import { CostDatabase, setWasmPath } from "../src/database/costDatabase";
 import { TracesDbReader } from "../src/parser/tracesDbReader";
 import { setUserDataPathOverride } from "../src/shared/paths";
-import type { ParsedTurn, TraceSpan } from "../src/parser/types";
+import type { ParsedSession, ParsedTurn, TraceSpan } from "../src/parser/types";
 
 type IngesterArgs = ConstructorParameters<typeof TracesIngester>;
 
@@ -50,11 +50,11 @@ function spanReader(spans: TraceSpan[]) {
   };
 }
 
-function createIngester(reader: unknown, database: unknown, options: TracesIngesterOptions = {}) {
+function createIngester(reader: unknown, database: unknown, options: TracesIngesterOptions = {}, sessions: ParsedSession[] = []) {
   const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
   const ingester = new TracesIngester(
     reader as IngesterArgs[0],
-    { discoverSessionTitles: () => new Map<string, string>() } as unknown as IngesterArgs[1],
+    { discoverSessionTitles: () => new Map<string, string>(), parseAllSessions: async () => sessions } as unknown as IngesterArgs[1],
     { calculateCost: () => 0.01, costToCredits: (costUsd: number) => costUsd * 100 } as unknown as IngesterArgs[2],
     database as IngesterArgs[3],
     { config: { excludedModels: ["gpt-4o-mini"] } } as unknown as IngesterArgs[4],
@@ -473,6 +473,82 @@ describe("bounded trace ingestion", () => {
     function creditTotal(): number {
       return database.getAllTurns().reduce((sum, turn) => sum + turn.credits, 0);
     }
+
+    it("retains distinct agent calls with the same session, timestamp, and model", async () => {
+      const spans = [
+        traceSpan("parent", BASE_MS, { chatSessionId: "shared-session", realCredits: 1 }),
+        traceSpan("explore", BASE_MS, { chatSessionId: "shared-session", agentName: "subagent/explore", realCredits: 2 }),
+        traceSpan("review", BASE_MS, { chatSessionId: "shared-session", agentName: "subagent/review", realCredits: 3 }),
+      ];
+      const { ingester } = createIngester(spanReader(spans), database, { batchSize: 2 });
+
+      try {
+        expect(await ingester.ingest()).toBe(3);
+        expect(database.getAllTurns()).toHaveLength(3);
+        expect(creditTotal()).toBe(6);
+        expect(await ingester.fullIngest()).toBe(0);
+        expect(creditTotal()).toBe(6);
+      } finally {
+        ingester.dispose();
+      }
+    });
+
+    it("refreshes recorded billing credits and tokens when a span is corrected", async () => {
+      const spans = [traceSpan("corrected", BASE_MS, { realCredits: 1 })];
+      const { ingester } = createIngester(spanReader(spans), database);
+
+      try {
+        expect(await ingester.ingest()).toBe(1);
+        spans[0] = { ...spans[0], inputTokens: 100, outputTokens: 20, cachedTokens: 30, realCredits: 3 };
+        expect(await ingester.ingest()).toBe(1);
+        expect(creditTotal()).toBe(3);
+        expect(database.getAllTurns()[0]).toMatchObject({ inputTokens: 70, outputTokens: 20, cachedTokens: 30 });
+        expect(await ingester.ingest()).toBe(0);
+      } finally {
+        ingester.dispose();
+      }
+    });
+
+    it("recovers late delegated JSONL calls using recorded credits without double counting the DB source", async () => {
+      const parsedTurn = (span: TraceSpan) => ({
+        sessionId: "fallback-session", spanId: span.spanId, timestamp: span.startTimeMs,
+        duration: span.endTimeMs - span.startTimeMs, agentName: span.agentName ?? "unknown",
+        model: span.responseModel ?? "gpt-5", modelFamily: span.responseModel ?? "gpt-5",
+        inputTokens: span.inputTokens, outputTokens: span.outputTokens, cachedTokens: 0, cacheWriteTokens: 0,
+        totalTokens: span.inputTokens + span.outputTokens, status: "ok", realCredits: span.realCredits,
+      });
+      const spans = [traceSpan("parent", BASE_MS + 2_000, { chatSessionId: "fallback-session", realCredits: 3 })];
+      const session: ParsedSession = {
+        sessionId: "fallback-session", startTimestamp: BASE_MS, lastActivity: BASE_MS + 2_000,
+        copilotVersion: "test", vscodeVersion: "test", workspace: "workspace", turns: [parsedTurn(spans[0])],
+      };
+      const { ingester } = createIngester(spanReader(spans), database, {}, [session]);
+      ingester.setTelemetrySource("jsonl");
+
+      try {
+        expect(await ingester.ingest()).toBe(1);
+        expect(creditTotal()).toBe(3);
+
+        spans.push(traceSpan("child", BASE_MS + 1_000, {
+          chatSessionId: "fallback-session", agentName: "tool/runSubagent", realCredits: 2,
+        }));
+        session.turns.push(parsedTurn(spans[1]));
+        expect(await ingester.ingest()).toBe(1);
+        expect(creditTotal()).toBe(5);
+        expect(await ingester.ingest()).toBe(0);
+
+        session.turns[0] = { ...parsedTurn(spans[0]), realCredits: 4 };
+        expect(await ingester.ingest()).toBe(1);
+        expect(creditTotal()).toBe(6);
+        spans[0] = { ...spans[0], realCredits: 4 };
+        ingester.setTelemetrySource("database");
+        expect(await ingester.fullIngest()).toBe(0);
+        expect(database.getAllTurns()).toHaveLength(2);
+        expect(creditTotal()).toBe(6);
+      } finally {
+        ingester.dispose();
+      }
+    });
 
     it("re-reads the overlap window without double counting or change events", async () => {
       const spans = [traceSpan("a", BASE_MS + 1_000), traceSpan("b", BASE_MS + 2_000, { realCredits: 2 })];

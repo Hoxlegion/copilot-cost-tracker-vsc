@@ -227,7 +227,7 @@ export class CostDatabase implements CostReader, CostWriter, CostMaintenance, Cl
       console.info(`[CostDatabase] Found ${duplicates.length} duplicate session pair(s) to merge`);
 
       for (const dup of duplicates) {
-        // Move turns that won't violate the UNIQUE(session_id, timestamp, model) constraint
+        // Only unidentified legacy rows can conflict when moving turns between sessions.
         db.run(
           `UPDATE turns SET session_id = ?
            WHERE session_id = ?
@@ -236,6 +236,7 @@ export class CostDatabase implements CostReader, CostWriter, CostMaintenance, Cl
                WHERE t2.session_id = ?
                  AND t2.timestamp = turns.timestamp
                  AND t2.model = turns.model
+                 AND t2.span_id IS NULL AND turns.span_id IS NULL
              )`,
           [dup.primary_id, dup.duplicate_id, dup.primary_id]
         );
@@ -328,20 +329,55 @@ export class CostDatabase implements CostReader, CostWriter, CostMaintenance, Cl
       }
       return false;
     }
+    const source = turn.source ?? "chat";
+    let spanId = turn.spanId ?? null;
+    let identified = false;
+    if (spanId !== null) {
+      this.db.run(
+        `UPDATE turns SET span_id = ?
+         WHERE session_id = ? AND timestamp = ? AND model = ? AND source = ? AND span_id IS NULL
+           AND NOT EXISTS (SELECT 1 FROM turns WHERE source = ? AND span_id = ?)`,
+        [spanId, turn.sessionId, turn.timestamp, turn.model, source, source, spanId],
+      );
+      identified = this.db.getRowsModified() > 0;
+    } else if (source === "chat") {
+      const identity = this.db.prepare(
+        `SELECT span_id FROM turns
+         WHERE session_id = ? AND timestamp = ? AND model = ? AND source = ? AND span_id IS NOT NULL
+         ORDER BY id LIMIT 1`,
+      );
+      try {
+        identity.bind([turn.sessionId, turn.timestamp, turn.model, source]);
+        if (identity.step()) spanId = String(identity.getAsObject().span_id);
+      } finally {
+        identity.free();
+      }
+    }
+    const conflictTarget = spanId === null
+      ? "(session_id, timestamp, model) WHERE span_id IS NULL"
+      : "(source, span_id) WHERE span_id IS NOT NULL";
+    const refreshAllowed = "(excluded.cost_source = 'real' OR turns.cost_source != 'real')";
+    const refreshedColumns = [
+      "duration", "model", "model_family", "input_tokens", "output_tokens", "cached_tokens",
+      "cache_write_tokens", "total_tokens", "cost_usd", "credits", "status", "cost_source", "request_count",
+    ];
+    const updates = refreshedColumns.map((column) =>
+      `${column} = CASE WHEN ${refreshAllowed} THEN excluded.${column} ELSE turns.${column} END`,
+    ).join(",\n         ");
+    const changed = refreshedColumns.map((column) => `turns.${column} IS NOT excluded.${column}`).join(" OR ");
     // The WHERE clause turns re-ingested, unchanged turns into no-ops so they neither count as
     // changes nor make the database dirty.
     this.db.run(
       `INSERT INTO turns
-        (session_id, timestamp, duration, agent_name, model, model_family, input_tokens, output_tokens, cached_tokens, cache_write_tokens, total_tokens, cost_usd, credits, workspace, status, cost_source, source, request_count)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(session_id, timestamp, model) DO UPDATE SET
-         cost_usd = CASE WHEN excluded.cost_source = 'real' AND cost_source != 'real' THEN excluded.cost_usd ELSE cost_usd END,
-         credits = CASE WHEN excluded.cost_source = 'real' AND cost_source != 'real' THEN excluded.credits ELSE credits END,
-         cost_source = CASE WHEN excluded.cost_source = 'real' AND cost_source != 'real' THEN excluded.cost_source ELSE cost_source END,
+        (session_id, timestamp, duration, agent_name, model, model_family, input_tokens, output_tokens, cached_tokens, cache_write_tokens, total_tokens, cost_usd, credits, workspace, status, cost_source, source, request_count, span_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT ${conflictTarget} DO UPDATE SET
+         ${updates},
+         agent_name = CASE WHEN ${refreshAllowed} AND excluded.agent_name != 'unknown' THEN excluded.agent_name ELSE turns.agent_name END,
          -- Self-heal workspace to an authoritative repo label ("Org/Repo") when a
          -- later ingest provides one; never let a non-repo fallback overwrite it.
          workspace = CASE WHEN instr(excluded.workspace, '/') > 0 THEN excluded.workspace ELSE workspace END
-       WHERE (excluded.cost_source = 'real' AND turns.cost_source != 'real')
+       WHERE (${refreshAllowed} AND (${changed} OR (excluded.agent_name != 'unknown' AND turns.agent_name IS NOT excluded.agent_name)))
           OR (instr(excluded.workspace, '/') > 0 AND excluded.workspace != turns.workspace)`,
       [
         turn.sessionId,
@@ -360,11 +396,12 @@ export class CostDatabase implements CostReader, CostWriter, CostMaintenance, Cl
         workspace,
         turn.status,
         turn.costSource ?? "estimated",
-        turn.source ?? "chat",
+        source,
         turn.requestCount ?? 1,
+        spanId,
       ]
     );
-    return this.db.getRowsModified() > 0;
+    return this.db.getRowsModified() > 0 || identified;
   }
 
   /**

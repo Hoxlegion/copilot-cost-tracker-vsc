@@ -262,6 +262,7 @@ export class TracesIngester implements vscode.Disposable {
     return this.database.insertTurn(
       {
         sessionId: span.chatSessionId ?? span.conversationId ?? "unknown",
+        spanId: span.spanId,
         timestamp: span.startTimeMs,
         duration: span.endTimeMs - span.startTimeMs,
         agentName: span.agentName ?? "unknown",
@@ -389,33 +390,27 @@ export class TracesIngester implements vscode.Disposable {
     this.database.beginTransaction();
     try {
       for (const session of sessions) {
-        const lastProcessedSessionTimestamp = this.database.getSessionLastTimestamp(session.sessionId);
-        const sessionTurns = lastProcessedSessionTimestamp == null
-          ? session.turns
-          : session.turns.filter((turn) => turn.timestamp > lastProcessedSessionTimestamp);
-
-        if (sessionTurns.length === 0) continue;
-
-        for (const turn of sessionTurns) {
-          const costUsd = this.pricing.calculateCost(
-            turn.modelFamily,
-            turn.inputTokens,
-            turn.outputTokens,
-            turn.cachedTokens,
-            turn.cacheWriteTokens
-          );
-          const credits = this.pricing.costToCredits(costUsd);
-          turn.costSource = "estimated";
-          if (this.database.insertTurn(turn, costUsd, credits, session.workspace ?? "unknown")) {
-            newTurns++;
+        let sessionChanges = 0;
+        for (const turn of session.turns) {
+          if (this.configManager.config.excludedModels.some((model) => turn.model.toLowerCase().includes(model.toLowerCase()))) continue;
+          if (turn.agentName === AGGREGATE_AGENT_NAME && turn.realCredits == null) continue;
+          const costUsd = turn.realCredits == null
+            ? this.pricing.calculateCost(turn.modelFamily, turn.inputTokens, turn.outputTokens, turn.cachedTokens, turn.cacheWriteTokens)
+            : turn.realCredits / 100;
+          const credits = turn.realCredits ?? this.pricing.costToCredits(costUsd);
+          const costSource = turn.realCredits == null ? "estimated" : "real";
+          if (this.database.insertTurn({ ...turn, costSource }, costUsd, credits, session.workspace ?? "unknown")) {
+            sessionChanges++;
           }
         }
+        if (sessionChanges === 0) continue;
+        newTurns += sessionChanges;
 
         this.database.markSessionProcessed(
           session.sessionId,
           session.workspace ?? "unknown",
-          session.turns[0]?.timestamp ?? Date.now(),
-          session.turns.at(-1)?.timestamp ?? Date.now(),
+          session.startTimestamp,
+          session.lastActivity,
           session.copilotVersion ?? "unknown",
           session.vscodeVersion ?? "unknown"
         );
