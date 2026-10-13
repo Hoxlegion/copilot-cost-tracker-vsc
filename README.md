@@ -55,8 +55,9 @@ Get live updates on AI credit consumption with an always-visible status bar, bud
 | Multi-model prices | Built-in rates for all June 2026 GA models from OpenAI, Anthropic, Google, GitHub |
 | Custom model rates | Define credits-per-1M-tokens for models not in the built-in table |
 | Model exclusion | Filter out models you don't want tracked (default: `gpt-4o-mini` code completions) |
-| Context weight notifications | Warnings at 20K, 40K, 80K tokens when active sessions accumulate heavy context |
-| Context awareness alerts | Identifies patterns: micro-turn bloat, raw paste, premium model misallocation, agent sprawl |
+| Context weight notifications | One notification when the active chat's context per request passes 128K tokens (heavy) and one past 256K (critical); never repeated for the same chat |
+| Context tiers | Light up to 64K, Moderate up to 128K, Heavy up to 256K, Critical above. A fresh agent chat already carries roughly 20-50K tokens of system prompt, tools, and workspace context |
+| Context awareness alerts | Identifies patterns: micro-turn bloat, large uncached input, premium model misallocation, agent sprawl |
 | File watcher strategy | Event-driven updates with 2s debounce for near-instant status bar refresh (sub-second after data arrival) |
 | Response latency metrics | Tracks model response times and displays avg latency and P90 per model |
 | DB + JSONL failover | Reads `agent-traces.db` directly; falls back to JSONL debug logs, including delegated-agent and title requests |
@@ -170,12 +171,12 @@ Most users won't need to change anything. These are the most common settings:
 | `dashboardSessionLimit` | number | `200` | Max recent sessions loaded when opening the dashboard (10–1000). |
 | `weekStartDay` | enum | `"monday"` | First day of the week for the sidebar's weekly total (`monday`/`sunday`). |
 | `showStatusBar` | boolean | `true` | Show cost in status bar |
-| `contextWeightNotifications` | boolean | `true` | Show warnings for heavy context (20K, 40K, 80K tokens) |
+| `contextWeightNotifications` | boolean | `true` | Notify when the active chat's context per request passes 128K and 256K tokens |
 | `microTurnGapSeconds` | number | `120` | Max seconds between turns for micro-turn pattern detection |
 | `microTurnMinCount` | number | `5` | Consecutive rapid turns to trigger Micro-Turn Bloat alert |
-| `rawPasteMinInputTokens` | number | `15000` | Min uncached tokens in a turn to trigger Raw Paste alert |
-| `premiumMisallocationMinCredits` | number | `2` | Min credits for Premium Model Misallocation alert |
-| `agentSprawlMinInputTokens` | number | `80000` | Min input tokens to trigger Massive Context Turn alert |
+| `rawPasteMinInputTokens` | number | `50000` | Min new, uncached tokens added by one request to trigger the Large Uncached Input alert |
+| `premiumMisallocationMinCredits` | number | `5` | Min credits for Premium Model Misallocation alert |
+| `agentSprawlMinInputTokens` | number | `256000` | Min total input tokens of one request to trigger Massive Context Turn alert |
 
 See the [Advanced: Pricing & Configuration](#advanced-pricing--configuration) section below for the full settings reference.
 

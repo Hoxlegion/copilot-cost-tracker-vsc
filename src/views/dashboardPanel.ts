@@ -100,11 +100,11 @@ export class DashboardPanel {
         this.htmlLoaded = true;
       }
 
-      const { billingCycleStartDay, budgetCredits, currency, exchangeRate, alertWindowHours, dashboardSessionLimit, includeCliInBudget } = this.configManager.config;
+      const { billingCycleStartDay, budgetCredits, currency, exchangeRate, alertWindowHours, alertThresholds, dashboardSessionLimit, includeCliInBudget } = this.configManager.config;
 
       const rawData = await this.assembler.assemble(
         billingCycleStartDay, budgetCredits, currency, exchangeRate, alertWindowHours, dashboardSessionLimit,
-        { sourceFilter: this.sourceFilter, includeCliInBudget },
+        { sourceFilter: this.sourceFilter, includeCliInBudget, alertThresholds },
       );
       
       this.panel.webview.postMessage({

@@ -1,7 +1,7 @@
 import { CostReader, AlertMetrics } from "../database";
 import {
   HIGH_VERBOSITY_AVG_OUTPUT_TOKENS,
-  CONTEXT_BLOAT_SESSION_INPUT_TOKENS,
+  CONTEXT_BLOAT_REQUEST_TOKENS,
   CACHE_DECAY_IDLE_GAP_MS,
   DEFAULT_ALERT_WINDOW_HOURS,
 } from "./alertThresholds";
@@ -56,24 +56,24 @@ function checkHighVerbosity(metrics: AlertMetrics): DashboardAlert | null {
     id: "high_verbosity",
     severity: "warning",
     title: "High Output Verbosity",
-    message: `Your AI is averaging ${Math.round(avg).toLocaleString()} output tokens per turn today. A large share of that is conversational framing rather than code.`,
+    message: `Requests are averaging ${Math.round(avg).toLocaleString()} output tokens today, reasoning included. Output is billed at the highest token rate, so long explanations around the code add up.`,
     tip: 'Try appending "Respond in Caveman Mode" or "Skip explanations, code only" to your prompts to cut output tokens by up to 65% without losing technical accuracy.',
     metric: { label: "Avg output / turn (today)", value: `${Math.round(avg).toLocaleString()} tokens` },
   };
 }
 
 function checkContextBloat(metrics: AlertMetrics): DashboardAlert | null {
-  const max = metrics.maxSessionInputTokens;
-  if (max <= CONTEXT_BLOAT_SESSION_INPUT_TOKENS) {
+  const peak = metrics.peakContextTokens;
+  if (peak <= CONTEXT_BLOAT_REQUEST_TOKENS) {
     return null;
   }
   return {
     id: "context_bloat",
     severity: "warning",
     title: "Stale Context Accumulation",
-    message: `A session today has accumulated ${formatTokens(max)} input tokens. Each subsequent turn pays to re-send this growing context window.`,
+    message: `A session today reached ${formatTokens(peak)} of context in a single request. Every request in that session re-sends this history, so each message costs more than it would in a fresh chat.`,
     tip: "Run /compact or start a fresh chat window to clear dead context. This prevents exponential input-token scaling over long sessions.",
-    metric: { label: "Peak session input (today)", value: `${formatTokens(max)}` },
+    metric: { label: "Peak context per request (today)", value: `${formatTokens(peak)}` },
   };
 }
 
@@ -87,8 +87,8 @@ function checkCacheDecay(metrics: AlertMetrics): DashboardAlert | null {
     id: "cache_decay",
     severity: "info",
     title: "Cache Decay Detected",
-    message: `A ${gapMinutes}-minute idle gap was detected in a session today. Gaps over 5 minutes likely expire the prompt cache, turning a cheap cache-read into a full-price cache-write.`,
-    tip: "If you've stepped away for more than 5 minutes, start a fresh chat session instead of continuing the old one. You'll avoid re-paying to warm up a stale context.",
+    message: `A ${gapMinutes}-minute idle gap was detected in a session today. After about 30 idle minutes the prompt cache has usually expired, so the next request re-sends the whole conversation at the full input rate instead of the cheaper cached rate.`,
+    tip: "If you've stepped away for more than 30 minutes, consider starting a fresh chat instead of continuing a long one. You'll avoid re-paying to warm up a stale context.",
     metric: { label: "Longest idle gap (today)", value: `${gapMinutes} min` },
   };
 }
@@ -101,7 +101,7 @@ function checkMicroTurnTrap(metrics: AlertMetrics): DashboardAlert | null {
     id: "micro_turn_trap",
     severity: "warning",
     title: "Micro-Turn Bloat Detected",
-    message: `A session today had ${metrics.microTurnCount} rapid-fire turns (avg ${metrics.microTurnAvgOutput} output tokens each). Every turn resends the entire conversation history — back-and-forth messaging compounds costs exponentially.`,
+    message: `A session today had ${metrics.microTurnCount} rapid-fire turns in a row (avg ${metrics.microTurnAvgOutput} output tokens each). Every turn resends the entire conversation history — back-and-forth messaging compounds costs exponentially.`,
     tip: "Batch your requests into a single prompt. Instead of \"Fix the typo\", then \"Add a docstring\", say \"Fix the typo and add a docstring\" in one message.",
     metric: { label: "Rapid turns in session (today)", value: `${metrics.microTurnCount} turns` },
   };
@@ -114,10 +114,10 @@ function checkRawPaste(metrics: AlertMetrics): DashboardAlert | null {
   return {
     id: "raw_paste",
     severity: "warning",
-    title: "Large Uncached Paste Detected",
-    message: `A single turn today sent ${formatTokens(metrics.rawPasteMaxNetInput)} of net (uncached) input — likely a raw file or log paste. This bypasses context caching and is billed at full price.`,
+    title: "Large Uncached Input Detected",
+    message: `A single request today added ${formatTokens(metrics.rawPasteMaxNetInput)} of new, uncached input — typically a pasted file or log, an attached folder, or a large tool result. New input is billed at the full input rate and then re-sent with every later request.`,
     tip: "Open the file in your editor and reference it with #file instead of pasting raw text. This allows Copilot to chunk and cache the context efficiently. Use .copilotignore to exclude large build logs.",
-    metric: { label: "Peak uncached input (today)", value: formatTokens(metrics.rawPasteMaxNetInput) },
+    metric: { label: "Largest new input (today)", value: formatTokens(metrics.rawPasteMaxNetInput) },
   };
 }
 
@@ -144,7 +144,7 @@ function checkMassiveContextTurn(metrics: AlertMetrics): DashboardAlert | null {
     id: "massive_context_turn",
     severity: "critical",
     title: "Massive Context Turn Detected",
-    message: `A single turn today sent ${formatTokens(metrics.massiveContextMaxInput)} total input tokens. This typically happens when an agent scans a large portion of your workspace or when extensive file context is attached.`,
+    message: `A single request today sent ${formatTokens(metrics.massiveContextMaxInput)} of input. This typically happens in very long sessions, when an agent scans a large portion of your workspace, or when extensive file context is attached.`,
     tip: "Constrain your agent's scope with explicit boundaries in your prompt: \"Only look at the currently open file\" or \"Limit your search to the /src folder\". This prevents it from reading irrelevant code across the entire repository.",
     metric: { label: "Peak total input (today)", value: formatTokens(metrics.massiveContextMaxInput) },
   };

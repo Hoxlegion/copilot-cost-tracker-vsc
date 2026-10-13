@@ -40,6 +40,30 @@ describe("Copilot CLI settings", () => {
   });
 });
 
+describe("alert threshold settings", () => {
+  it("defaults to the calibrated alert thresholds", () => {
+    settings.values = {};
+    expect(new ConfigManager().config.alertThresholds).toEqual({
+      microTurnGapMs: 120_000,
+      microTurnMinCount: 5,
+      microTurnMaxOutputTokens: 200,
+      rawPasteMinInputTokens: 50_000,
+      premiumMisallocationMinCredits: 5,
+      premiumMisallocationMaxOutputTokens: 50,
+      agentSprawlMinInputTokens: 256_000,
+    });
+  });
+
+  it("reads the documented settings and clamps them to their minimums", () => {
+    settings.values = { microTurnGapSeconds: 30, rawPasteMinInputTokens: 10, agentSprawlMinInputTokens: "lots" };
+    expect(new ConfigManager().config.alertThresholds).toMatchObject({
+      microTurnGapMs: 30_000,
+      rawPasteMinInputTokens: 1_000,
+      agentSprawlMinInputTokens: 256_000,
+    });
+  });
+});
+
 /**
  * Unit tests for configuration validation logic.
  * Tests the core clamping, sanitization, and filtering functions.

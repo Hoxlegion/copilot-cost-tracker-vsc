@@ -15,28 +15,34 @@ export function getAlertThresholdConfig(thresholds?: Partial<AlertThresholdConfi
   };
 }
 
+interface AlertMetricRow {
+  sessionId: string;
+  timestamp: number;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  credits: number;
+  /** Prompt size of the session's previous request in the window, or null for its first one. */
+  previousPrompt: number | null;
+}
+
 function applyAlertMetricRow(
   acc: AlertMetricAccumulator,
-  row: unknown[],
+  row: AlertMetricRow,
   cfg: AlertThresholdConfig
 ): void {
-  const sessionId = (row[0] as string) ?? "";
-  const timestamp = (row[1] as number) || 0;
-  const inputTokens = (row[2] as number) || 0;
-  const outputTokens = (row[3] as number) || 0;
-  const cachedTokens = (row[4] as number) || 0;
-  const credits = (row[5] as number) || 0;
+  const { sessionId, timestamp, inputTokens, outputTokens, cachedTokens, credits, previousPrompt } = row;
 
   const totalInput = inputTokens + cachedTokens;
-  if (totalInput > acc.massiveContextMaxInput) {
+  if (totalInput >= cfg.agentSprawlMinInputTokens && totalInput > acc.massiveContextMaxInput) {
     acc.massiveContextMaxInput = totalInput;
   }
 
-  // `inputTokens` is stored as the non-cached (net new) portion of the prompt, so it is
-  // already the uncached input used for raw-paste detection.
-  const netInput = Math.max(0, inputTokens);
-  if (netInput >= cfg.rawPasteMinInputTokens && netInput > acc.rawPasteMaxNetInput) {
-    acc.rawPasteMaxNetInput = netInput;
+  // `inputTokens` is the uncached part of the prompt. Only the growth since the previous request
+  // is new content; the rest is a cache warm-up (first request, resume, model switch, compaction).
+  const newInput = previousPrompt === null ? 0 : Math.min(inputTokens, Math.max(0, totalInput - previousPrompt));
+  if (newInput >= cfg.rawPasteMinInputTokens && newInput > acc.rawPasteMaxNetInput) {
+    acc.rawPasteMaxNetInput = newInput;
   }
 
   if (credits >= cfg.premiumMisallocationMinCredits && outputTokens <= cfg.premiumMisallocationMaxOutputTokens) {
@@ -44,12 +50,17 @@ function applyAlertMetricRow(
     acc.premiumMisallocationCreditsTotal += credits;
   }
 
-  if (acc.previousSessionId === sessionId) {
-    const gap = timestamp - acc.previousTimestamp;
-    if (gap >= 0 && gap <= cfg.microTurnGapMs && outputTokens <= cfg.microTurnMaxOutputTokens) {
-      acc.microTurnCount++;
-      acc.microTurnOutputTotal += outputTokens;
+  const gap = timestamp - acc.previousTimestamp;
+  if (acc.previousSessionId === sessionId && gap >= 0 && gap <= cfg.microTurnGapMs && outputTokens <= cfg.microTurnMaxOutputTokens) {
+    acc.microTurnStreak++;
+    acc.microTurnStreakOutput += outputTokens;
+    if (acc.microTurnStreak > acc.microTurnCount) {
+      acc.microTurnCount = acc.microTurnStreak;
+      acc.microTurnOutputTotal = acc.microTurnStreakOutput;
     }
+  } else {
+    acc.microTurnStreak = 0;
+    acc.microTurnStreakOutput = 0;
   }
 
   acc.previousSessionId = sessionId;
@@ -123,9 +134,10 @@ export function getAlertMetrics(
 ): AlertMetrics {
   const cfg = getAlertThresholdConfig(thresholds);
 
-  // Single-pass query: compute verbosity, session totals, idle gaps, and per-row
-  // threshold metrics in one scan using window functions. Chat only: these heuristics
-  // assume one row per model request.
+  // Single-pass query: compute verbosity, peak context, idle gaps, and per-row threshold
+  // metrics in one scan using window functions. Chat only: these heuristics assume one row
+  // per model request. Calls without a chat session (Next Edit Suggestions, background
+  // helpers) are not part of any conversation.
   const stmt = db.prepare(`
     SELECT
       session_id,
@@ -134,23 +146,26 @@ export function getAlertMetrics(
       output_tokens,
       cached_tokens,
       credits,
-      SUM(input_tokens + cached_tokens) OVER (PARTITION BY session_id) AS session_total_input,
+      LAG(input_tokens + cached_tokens) OVER (PARTITION BY session_id ORDER BY timestamp) AS prev_prompt,
       LAG(timestamp) OVER (PARTITION BY session_id ORDER BY timestamp) AS prev_timestamp
     FROM turns
     WHERE timestamp >= :since
       AND source = 'chat'
+      AND session_id <> 'unknown'
     ORDER BY session_id ASC, timestamp ASC
   `);
   stmt.bind({ ":since": sinceMs });
 
   let totalOutputTokens = 0;
   let turnsWithOutput = 0;
-  let maxSessionInputTokens = 0;
+  let peakContextTokens = 0;
   let maxIdleGapMs = 0;
 
   const acc: AlertMetricAccumulator = {
     microTurnCount: 0,
     microTurnOutputTotal: 0,
+    microTurnStreak: 0,
+    microTurnStreakOutput: 0,
     rawPasteMaxNetInput: 0,
     premiumMisallocationCount: 0,
     premiumMisallocationCreditsTotal: 0,
@@ -164,7 +179,7 @@ export function getAlertMetrics(
     const outputTokens = (row.output_tokens as number) || 0;
     const inputTokens = (row.input_tokens as number) || 0;
     const cachedTokens = (row.cached_tokens as number) || 0;
-    const sessionTotalInput = (row.session_total_input as number) || 0;
+    const prevPrompt = row.prev_prompt as number | null;
     const prevTimestamp = row.prev_timestamp as number | null;
     const timestamp = (row.timestamp as number) || 0;
 
@@ -174,10 +189,8 @@ export function getAlertMetrics(
       turnsWithOutput++;
     }
 
-    // Max session input
-    if (sessionTotalInput > maxSessionInputTokens) {
-      maxSessionInputTokens = sessionTotalInput;
-    }
+    // Context re-sent by a single request
+    peakContextTokens = Math.max(peakContextTokens, inputTokens + cachedTokens);
 
     // Max idle gap
     if (prevTimestamp != null) {
@@ -188,11 +201,15 @@ export function getAlertMetrics(
     }
 
     // Threshold alert metrics (reuse existing accumulator logic)
-    applyAlertMetricRow(
-      acc,
-      [row.session_id, timestamp, inputTokens, outputTokens, cachedTokens, row.credits],
-      cfg
-    );
+    applyAlertMetricRow(acc, {
+      sessionId: (row.session_id as string) ?? "",
+      timestamp,
+      inputTokens,
+      outputTokens,
+      cachedTokens,
+      credits: (row.credits as number) || 0,
+      previousPrompt: prevPrompt ?? null,
+    }, cfg);
   }
   stmt.free();
 
@@ -204,7 +221,7 @@ export function getAlertMetrics(
   return {
     avgOutputTokensToday: turnsWithOutput > 0 ? totalOutputTokens / turnsWithOutput : 0,
     turnsToday: turnsWithOutput,
-    maxSessionInputTokens,
+    peakContextTokens,
     maxIdleGapMs,
     microTurnCount: acc.microTurnCount,
     microTurnAvgOutput: acc.microTurnCount > 0 ? Math.round(acc.microTurnOutputTotal / acc.microTurnCount) : 0,

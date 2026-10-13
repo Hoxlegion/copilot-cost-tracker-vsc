@@ -11,6 +11,7 @@
   import { formatCompactNumber, formatTokens, formatSessionLabel } from '../../utils/format';
   import { friendlyAgentName } from '../../utils/agentLabels';
   import { computeEfficiency } from '../../utils/efficiency';
+  import { CONTEXT_TIER_LABELS, CONTEXT_TIER_THRESHOLDS, classifyContextTier } from '../../../shared/contextTiers';
   
   $: data = $dashboardData;
   $: sessions = $filteredSessions;
@@ -112,14 +113,11 @@
   
   $: avgContext = contextDistribution.length > 0
     ? contextDistribution.reduce((sum, d) => sum + d.currentContextWeight, 0) / contextDistribution.length : 0;
-  $: heavySessionsCount = contextDistribution.filter(d => d.currentContextWeight > 20000).length;
+  $: heavySessionsCount = contextDistribution.filter(d => d.currentContextWeight > CONTEXT_TIER_THRESHOLDS.heavy).length;
   $: peakContext = contextDistribution.length > 0 ? contextDistribution[0].currentContextWeight : 0;
   
   function tierLabel(tokens: number): string {
-    if (tokens <= 5000) return 'Light';
-    if (tokens <= 20000) return 'Moderate';
-    if (tokens <= 40000) return 'Heavy';
-    return 'Critical';
+    return CONTEXT_TIER_LABELS[classifyContextTier(tokens)];
   }
   
   function formatPages(tokens: number): string {
@@ -129,7 +127,7 @@
     return `~${pages} pages`;
   }
   
-  $: avgContextColor = avgContext > 20000 ? '#e57373' : avgContext > 5000 ? '#ffb74d' : '#81c784';
+  $: avgContextColor = avgContext > CONTEXT_TIER_THRESHOLDS.heavy ? '#e57373' : avgContext > CONTEXT_TIER_THRESHOLDS.moderate ? '#ffb74d' : '#81c784';
   
   const ctxTableColumns = [
     { key: 'session', label: 'Session', type: 'string' as const, primary: true },
@@ -257,7 +255,7 @@
         <StatCard 
           label="Heavy Sessions"
           value={heavySessionsCount}
-          sub=">20K tokens"
+          sub=">{CONTEXT_TIER_THRESHOLDS.heavy / 1000}K tokens"
           valueColor={heavySessionsCount > 0 ? '#ffb74d' : '#81c784'}
         />
       </div>

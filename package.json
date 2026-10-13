@@ -291,7 +291,7 @@
         "copilotCostTracker.contextWeightNotifications": {
           "type": "boolean",
           "default": true,
-          "description": "Show warnings when the active chat session accumulates heavy context (20K, 40K, 80K tokens). Each new message resends the entire conversation history."
+          "description": "Notify when the active chat's context per request grows past 128K tokens (heavy) and 256K tokens (critical). Each chat is notified at most once per level. Every request re-sends the whole conversation history."
         },
         "copilotCostTracker.pricingUrl": {
           "type": "string",
@@ -323,27 +323,27 @@
         },
         "copilotCostTracker.rawPasteMinInputTokens": {
           "type": "number",
-          "default": 15000,
+          "default": 50000,
           "minimum": 1000,
-          "description": "Minimum net (uncached) input tokens in a single turn to trigger the Raw Paste alert."
+          "description": "Minimum new, uncached input tokens added by a single request (compared with the previous request in the same chat) to trigger the Large Uncached Input alert."
         },
         "copilotCostTracker.premiumMisallocationMinCredits": {
           "type": "number",
-          "default": 2,
+          "default": 5,
           "minimum": 0.1,
           "description": "Minimum credits consumed in a single turn (combined with low output) to trigger the Premium Model Misallocation alert."
         },
         "copilotCostTracker.premiumMisallocationMaxOutputTokens": {
           "type": "number",
-          "default": 100,
+          "default": 50,
           "minimum": 10,
           "description": "Maximum output tokens in a turn for it to be considered a 'trivial task' for the Premium Model Misallocation alert."
         },
         "copilotCostTracker.agentSprawlMinInputTokens": {
           "type": "number",
-          "default": 80000,
+          "default": 256000,
           "minimum": 10000,
-          "description": "Minimum input tokens in a single turn to trigger the Massive Context Turn alert."
+          "description": "Minimum total input tokens (the full context) of a single request to trigger the Massive Context Turn alert."
         },
         "copilotCostTracker.alertWindowHours": {
           "type": "number",

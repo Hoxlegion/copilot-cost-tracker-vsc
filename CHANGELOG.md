@@ -4,6 +4,27 @@ All notable changes to the **Copilot Cost Tracker** extension will be documented
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+Context limits and alerts calibrated for agentic chat, where a fresh chat already starts at roughly 20-50K tokens.
+
+### Bug Fixes
+
+- **Context notifications no longer repeat**: switching between chats, a running subagent, or Next Edit Suggestions made the tracker treat every switch as a new chat and show all thresholds again. Each chat is now notified at most once per level, only for the highest level reached, only while it is active, and not again after a window reload or in another window
+- The active chat ignores calls without a chat session (Next Edit Suggestions, background helpers) and subagent-only sessions, and reads its context from its own requests
+- **Massive Context Turn** fired for any usage at all: its threshold (`agentSprawlMinInputTokens`) was never applied
+- **Stale Context Accumulation** compared the sum of all input in a session with 40K tokens, so every session tripped it. It now uses the context of a single request
+- **Micro-Turn Bloat** counted rapid requests across all sessions instead of consecutive ones in one session, as its message and setting describe
+- **Large Uncached Input** (raw paste) counted the cache warm-up of every new chat. It now only counts new input compared with the previous request, so warm-ups after a new chat, a resume, a model switch, or compaction are ignored
+- The alert threshold settings (`microTurnGapSeconds`, `microTurnMinCount`, `microTurnMaxOutputTokens`, `rawPasteMinInputTokens`, `premiumMisallocationMinCredits`, `premiumMisallocationMaxOutputTokens`, `agentSprawlMinInputTokens`) were ignored; they now apply
+
+### Changes
+
+- **Context tiers**: Light up to 64K, Moderate up to 128K, Heavy up to 256K, Critical above (were 5K/20K/40K). Applies to the context scatter chart, Heaviest Sessions, Context Health, the status bar, and the context part of the efficiency score
+- **Context notifications** at 128K (information) and 256K (warning) tokens per request, instead of 20K, 40K, and 80K
+- **Alert defaults**: Massive Context Turn at 256K tokens per request, Stale Context Accumulation above 128K, Large Uncached Input at 50K new tokens, Premium Model Misallocation at 5 credits with at most 50 output tokens, High Output Verbosity above 1,500 average output tokens (output includes reasoning), and Cache Decay after 30 idle minutes. On Copilot Chat the prompt cache was measured to usually survive 5-30 idle minutes and to be gone after 30
+- Replaying 30 days of real agentic usage: sessions were 88% Critical before and now spread over 27% Light, 35% Moderate, 22% Heavy, and 16% Critical. Pattern alerts that fired on almost every active day now fire on 2 to 12 of 19 days; the context-size alerts still fire on the days that had sessions above 128K or 256K tokens
+
 ## [0.8.1] - 2026-10-10
 
 ### Bug Fixes

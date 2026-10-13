@@ -54,6 +54,7 @@ function createHarness(configOverrides: Record<string, unknown> = {}) {
   const configManager = { config: {
     billingCycleStartDay: 17, budgetCredits: 500, currency: "EUR", exchangeRate: 1.2,
     alertWindowHours: 48, dashboardSessionLimit: 25, includeCliInBudget: true,
+    alertThresholds: { rawPasteMinInputTokens: 70_000 },
     ...configOverrides,
   } };
 
@@ -79,7 +80,7 @@ describe("dashboard panel", () => {
     expect(webview.html).toContain(`<script nonce="${nonce}" src="vscode-resource:/extension/dist/webview/bundle.js"></script>`);
     expect(database.getSessionSummaries).toHaveBeenCalledWith(undefined, 25, undefined);
     expect(database.getCurrentMonthTotal).toHaveBeenCalledWith(17, undefined, undefined);
-    expect(mocks.getAlerts).toHaveBeenCalledWith(database, undefined, 48);
+    expect(mocks.getAlerts).toHaveBeenCalledWith(database, { rawPasteMinInputTokens: 70_000 }, 48);
     expect(webview.postMessage.mock.calls[0][0].data).toMatchObject({
       sourceFilter: "all", hasCliData: true, cliSessionsWithoutUsage: 3,
     });

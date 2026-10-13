@@ -833,7 +833,7 @@ export class CostDatabase implements CostReader, CostWriter, CostMaintenance, Cl
       return {
         avgOutputTokensToday: 0,
         turnsToday: 0,
-        maxSessionInputTokens: 0,
+        peakContextTokens: 0,
         maxIdleGapMs: 0,
         microTurnCount: 0,
         microTurnAvgOutput: 0,

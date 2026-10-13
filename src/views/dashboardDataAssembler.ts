@@ -7,17 +7,18 @@ import { CostReader } from "../database";
 import { TracesDbReader } from "../parser";
 import { PricingEngine } from "../pricing";
 import { getBillingPeriodEndMs, getBillingPeriodStartMs } from "../billing";
-import { getAlerts, buildPlaybook } from "../insights";
+import { getAlerts, buildPlaybook, type AlertThresholds } from "../insights";
 import { resolveWorkspaceName } from "./helpers/workspaceResolver";
 import type { TurnSource } from "../parser/types";
 import type { DashboardRawData, DashboardSourceFilter } from "../shared/dashboardTypes";
 
 export type { DashboardRawData };
 
-export interface DashboardSourceOptions {
+export interface DashboardAssembleOptions {
   sourceFilter?: DashboardSourceFilter;
   /** Whether Copilot CLI credits count toward the budget when all sources are shown. */
   includeCliInBudget?: boolean;
+  alertThresholds?: AlertThresholds;
 }
 
 /**
@@ -38,7 +39,7 @@ export class DashboardDataAssembler {
     exchangeRate: number = 1,
     alertWindowHours?: number,
     sessionLimit: number = 200,
-    { sourceFilter = "all", includeCliInBudget = true }: DashboardSourceOptions = {},
+    { sourceFilter = "all", includeCliInBudget = true, alertThresholds }: DashboardAssembleOptions = {},
   ): Promise<DashboardRawData> {
     const periodStartMs = getBillingPeriodStartMs(billingCycleStartDay);
     const periodEndMs = getBillingPeriodEndMs(billingCycleStartDay);
@@ -99,7 +100,7 @@ export class DashboardDataAssembler {
       })),
     }));
 
-    const alerts = getAlerts(this.database, undefined, alertWindowHours);
+    const alerts = getAlerts(this.database, alertThresholds, alertWindowHours);
     const playbook = buildPlaybook(alerts);
 
     const topHeaviestSessions = contextDistribution.filter((s) => s.turnCount > 3).slice(0, 5);

@@ -3,6 +3,7 @@
   import { filterState } from '../../stores/filter';
   import ChartWrapper from '../shared/ChartWrapper.svelte';
   import { tooltipConfig, baseScaleConfig, LEGEND_COLOR } from '../../utils/chartStyles';
+  import { CONTEXT_TIER_LABELS, CONTEXT_TIER_THRESHOLDS, classifyContextTier, type ContextTier } from '../../../shared/contextTiers';
   
   $: allDistribution = $dashboardData?.contextDistribution ?? [];
   
@@ -12,49 +13,26 @@
     return true;
   });
   
+  const k = (tokens: number) => `${tokens / 1000}K`;
+  const { moderate, heavy, critical } = CONTEXT_TIER_THRESHOLDS;
+  const TIERS: Array<{ tier: ContextTier; range: string; rgb: string }> = [
+    { tier: 'light', range: `0-${k(moderate)}`, rgb: '129, 199, 132' },
+    { tier: 'moderate', range: `${k(moderate)}-${k(heavy)}`, rgb: '255, 183, 77' },
+    { tier: 'heavy', range: `${k(heavy)}-${k(critical)}`, rgb: '255, 138, 101' },
+    { tier: 'critical', range: `${k(critical)}+`, rgb: '229, 115, 115' },
+  ];
+  
   $: chartData = {
-    datasets: [
-      {
-        label: 'Light (0-5K)',
-        data: contextDistribution
-          .filter(d => d.currentContextWeight <= 5000)
-          .map(d => ({ x: d.turnCount, y: d.currentContextWeight })),
-        backgroundColor: 'rgba(129, 199, 132, 0.7)',
-        borderColor: 'rgba(129, 199, 132, 1)',
-        pointRadius: 5,
-        pointHoverRadius: 7,
-      },
-      {
-        label: 'Moderate (5K-20K)',
-        data: contextDistribution
-          .filter(d => d.currentContextWeight > 5000 && d.currentContextWeight <= 20000)
-          .map(d => ({ x: d.turnCount, y: d.currentContextWeight })),
-        backgroundColor: 'rgba(255, 183, 77, 0.7)',
-        borderColor: 'rgba(255, 183, 77, 1)',
-        pointRadius: 5,
-        pointHoverRadius: 7,
-      },
-      {
-        label: 'Heavy (20K-40K)',
-        data: contextDistribution
-          .filter(d => d.currentContextWeight > 20000 && d.currentContextWeight <= 40000)
-          .map(d => ({ x: d.turnCount, y: d.currentContextWeight })),
-        backgroundColor: 'rgba(255, 138, 101, 0.7)',
-        borderColor: 'rgba(255, 138, 101, 1)',
-        pointRadius: 5,
-        pointHoverRadius: 7,
-      },
-      {
-        label: 'Critical (40K+)',
-        data: contextDistribution
-          .filter(d => d.currentContextWeight > 40000)
-          .map(d => ({ x: d.turnCount, y: d.currentContextWeight })),
-        backgroundColor: 'rgba(229, 115, 115, 0.7)',
-        borderColor: 'rgba(229, 115, 115, 1)',
-        pointRadius: 5,
-        pointHoverRadius: 7,
-      },
-    ],
+    datasets: TIERS.map(({ tier, range, rgb }) => ({
+      label: `${CONTEXT_TIER_LABELS[tier]} (${range})`,
+      data: contextDistribution
+        .filter(d => classifyContextTier(d.currentContextWeight) === tier)
+        .map(d => ({ x: d.turnCount, y: d.currentContextWeight })),
+      backgroundColor: `rgba(${rgb}, 0.7)`,
+      borderColor: `rgba(${rgb}, 1)`,
+      pointRadius: 5,
+      pointHoverRadius: 7,
+    })),
   };
   
   $: chartOptions = {
@@ -114,26 +92,26 @@
       },
       annotation: {
         annotations: {
-          line5k: {
+          lineModerate: {
             type: 'line',
-            yMin: 5000,
-            yMax: 5000,
+            yMin: moderate,
+            yMax: moderate,
             borderColor: 'rgba(129, 199, 132, 0.3)',
             borderWidth: 1,
             borderDash: [5, 5],
           },
-          line20k: {
+          lineHeavy: {
             type: 'line',
-            yMin: 20000,
-            yMax: 20000,
+            yMin: heavy,
+            yMax: heavy,
             borderColor: 'rgba(255, 183, 77, 0.3)',
             borderWidth: 1,
             borderDash: [5, 5],
           },
-          line40k: {
+          lineCritical: {
             type: 'line',
-            yMin: 40000,
-            yMax: 40000,
+            yMin: critical,
+            yMax: critical,
             borderColor: 'rgba(229, 115, 115, 0.3)',
             borderWidth: 1,
             borderDash: [5, 5],
