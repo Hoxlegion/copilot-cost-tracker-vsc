@@ -474,8 +474,16 @@ export function getSessionLastTimestamp(db: Database, sessionId: string): number
   return lastTimestamp;
 }
 
+/**
+ * Copilot stores calls without a chat session (Next Edit Suggestions, background helpers) under
+ * session 'unknown'; delegated subagents (`tool/runSubagent*`) carry a context of their own.
+ * Neither is the conversation context that every chat request re-sends.
+ */
+const SUBAGENT_ROW_SQL = "agent_name LIKE 'tool/%'";
+
 export function getMostRecentSessionContext(db: Database, sinceMs: number, workspace?: string): SessionContextInfo | null {
   const since = safeSinceMs(sinceMs);
+  // Subagent rows that share the chat's session still count toward its cost and activity.
   const stmt = db.prepare(`
     WITH ranked AS (
       SELECT
@@ -486,23 +494,26 @@ export function getMostRecentSessionContext(db: Database, sinceMs: number, works
         cached_tokens,
         cost_usd,
         credits,
-        ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY timestamp DESC) AS rn
+        NOT (${SUBAGENT_ROW_SQL}) AS is_conversation,
+        ROW_NUMBER() OVER (PARTITION BY session_id, NOT (${SUBAGENT_ROW_SQL}) ORDER BY timestamp DESC) AS rn
       FROM turns
       WHERE timestamp >= :since
         AND source = 'chat'
+        AND session_id <> 'unknown'
         AND (:workspace IS NULL OR workspace = :workspace)
     )
     SELECT
       session_id,
-      MAX(CASE WHEN rn = 1 THEN workspace ELSE NULL END) AS workspace,
+      MAX(CASE WHEN is_conversation AND rn = 1 THEN workspace ELSE NULL END) AS workspace,
       COUNT(*) AS turn_count,
       MAX(timestamp) AS last_activity_ms,
       MIN(timestamp) AS first_activity_ms,
-      MAX(CASE WHEN rn = 1 THEN input_tokens + cached_tokens ELSE NULL END) AS current_context_weight,
+      MAX(CASE WHEN is_conversation AND rn = 1 THEN input_tokens + cached_tokens ELSE NULL END) AS current_context_weight,
       COALESCE(SUM(cost_usd), 0) AS total_cost,
       COALESCE(SUM(credits), 0) AS total_credits
     FROM ranked
     GROUP BY session_id
+    HAVING MAX(is_conversation) = 1
     ORDER BY last_activity_ms DESC
     LIMIT 1
   `);

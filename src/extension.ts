@@ -86,7 +86,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   ingester.setTelemetrySource(configManager.config.telemetrySource);
 
   // UI components
-  const contextTracker = new ContextTracker(database, logger, getCurrentWorkspaceRepo());
+  const contextTracker = new ContextTracker(database, logger, getCurrentWorkspaceRepo(), context.globalState);
   contextTracker.setNotificationsEnabled(configManager.config.contextWeightNotifications);
   const statusBar = new StatusBarIndicator(database, pricing, configManager, logger, contextTracker, getCurrentWorkspaceRepo());
   const promptIntelligence = new PromptCostIntelligenceProvider(configManager, logger);

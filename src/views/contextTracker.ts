@@ -26,7 +26,36 @@ const TIER_THRESHOLDS = {
   heavy: 40_000,
 };
 
-const NOTIFICATION_THRESHOLDS = [20_000, 40_000, 80_000];
+interface ContextNotificationLevel {
+  minTokens: number;
+  warning: boolean;
+  message: (pages: string, kTokens: string) => string;
+}
+
+// Ascending. Each session gets at most one notification per level, and only for the highest level reached.
+const NOTIFICATION_LEVELS: readonly ContextNotificationLevel[] = [
+  {
+    minTokens: 20_000,
+    warning: false,
+    message: (pages, kTokens) => `Copilot Cost Tracker: Your active chat session is carrying ${pages} of context (~${kTokens}K tokens). Each new message re-sends all of it. Consider starting a fresh chat for unrelated work.`,
+  },
+  {
+    minTokens: 40_000,
+    warning: false,
+    message: (pages, kTokens) => `Copilot Cost Tracker: Your chat session context has reached ${pages} (~${kTokens}K tokens). Each new message re-sends all of it, so costs climb quickly. Consider starting a fresh chat or running /compact.`,
+  },
+  {
+    minTokens: 80_000,
+    warning: true,
+    message: (pages, kTokens) => `Copilot Cost Tracker: Your chat session context is extremely heavy — ${pages} (~${kTokens}K tokens). Response quality may degrade and every new message re-sends all of it. Start a fresh chat to improve speed and cut costs.`,
+  },
+];
+
+/** Shared state key, so window reloads and other windows don't repeat a session's notifications. */
+const NOTIFIED_LEVELS_KEY = "contextTracker.notifiedLevels";
+const NOTIFIED_LEVELS_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+
+type NotifiedLevels = Record<string, { level: number; at: number }>;
 
 const TIER_LABELS: Record<ContextTier, string> = {
   light: "Light",
@@ -52,17 +81,18 @@ function tokensToPages(tokens: number): string {
 export class ContextTracker implements vscode.Disposable {
   private readonly database: CostReader;
   private readonly logger: Logger;
+  private readonly state: vscode.Memento | undefined;
   private currentWeight: ContextWeight | null = null;
-  private trackedSessionId: string | null = null;
-  private readonly firedThresholds: Set<number> = new Set();
+  private readonly notifiedLevels = new Map<string, number>();
   private notificationsEnabled: boolean = true;
   /** When set, context/cost is scoped to this repo so multiple windows stay independent. */
   private workspaceRepo: string | null = null;
 
-  constructor(database: CostReader, logger: Logger, workspaceRepo: string | null = null) {
+  constructor(database: CostReader, logger: Logger, workspaceRepo: string | null = null, state?: vscode.Memento) {
     this.database = database;
     this.logger = logger;
     this.workspaceRepo = workspaceRepo;
+    this.state = state;
   }
 
   setNotificationsEnabled(enabled: boolean): void {
@@ -107,12 +137,10 @@ export class ContextTracker implements vscode.Disposable {
       stale,
     };
 
-    if (info.sessionId !== this.trackedSessionId) {
-      this.trackedSessionId = info.sessionId;
-      this.firedThresholds.clear();
+    // A stale session is not being worked on, so there is nothing to act on yet.
+    if (!stale) {
+      this.checkNotificationThresholds(info);
     }
-
-    this.checkNotificationThresholds(info);
 
     return this.currentWeight;
   }
@@ -124,29 +152,37 @@ export class ContextTracker implements vscode.Disposable {
   private checkNotificationThresholds(info: SessionContextInfo): void {
     if (!this.notificationsEnabled) return;
 
-    for (const threshold of NOTIFICATION_THRESHOLDS) {
-      if (info.currentContextWeight >= threshold && !this.firedThresholds.has(threshold)) {
-        this.firedThresholds.add(threshold);
-        const pages = tokensToPages(info.currentContextWeight);
-        const kTokens = (info.currentContextWeight / 1000).toFixed(0);
+    const tokens = info.currentContextWeight;
+    const level = NOTIFICATION_LEVELS.reduce((highest, l, index) => (tokens >= l.minTokens ? index : highest), -1);
+    if (level < 0 || level <= this.getNotifiedLevel(info.sessionId)) return;
 
-        let message: string;
-        if (threshold >= 80_000) {
-          message = `Copilot Cost Tracker: Your chat session context is extremely heavy — ${pages} (~${kTokens}K tokens). Response quality may degrade and every new message re-sends all of it. Start a fresh chat to improve speed and cut costs.`;
-        } else if (threshold >= 40_000) {
-          message = `Copilot Cost Tracker: Your chat session context has reached ${pages} (~${kTokens}K tokens). Each new message re-sends all of it, so costs climb quickly. Consider starting a fresh chat or running /compact.`;
-        } else {
-          message = `Copilot Cost Tracker: Your active chat session is carrying ${pages} of context (~${kTokens}K tokens). Each new message re-sends all of it. Consider starting a fresh chat for unrelated work.`;
-        }
-
-        if (threshold >= 80_000) {
-          vscode.window.showWarningMessage(message);
-        } else {
-          vscode.window.showInformationMessage(message);
-        }
-        this.logger.warn(message);
-      }
+    this.recordNotifiedLevel(info.sessionId, level);
+    const { warning, message: buildMessage } = NOTIFICATION_LEVELS[level];
+    const message = buildMessage(tokensToPages(tokens), (tokens / 1000).toFixed(0));
+    if (warning) {
+      vscode.window.showWarningMessage(message);
+    } else {
+      vscode.window.showInformationMessage(message);
     }
+    this.logger.warn(message);
+  }
+
+  private getNotifiedLevel(sessionId: string): number {
+    const stored = this.state?.get<NotifiedLevels>(NOTIFIED_LEVELS_KEY)?.[sessionId]?.level;
+    return Math.max(typeof stored === "number" ? stored : -1, this.notifiedLevels.get(sessionId) ?? -1);
+  }
+
+  private recordNotifiedLevel(sessionId: string, level: number): void {
+    this.notifiedLevels.set(sessionId, level);
+    if (!this.state) return;
+
+    const now = Date.now();
+    const kept: NotifiedLevels = {};
+    for (const [id, entry] of Object.entries(this.state.get<NotifiedLevels>(NOTIFIED_LEVELS_KEY) ?? {})) {
+      if (now - entry.at < NOTIFIED_LEVELS_RETENTION_MS) kept[id] = entry;
+    }
+    kept[sessionId] = { level, at: now };
+    this.state.update(NOTIFIED_LEVELS_KEY, kept).then(undefined, (err) => this.logger.debug("Failed to store context notification state", err));
   }
 
   dispose(): void {
