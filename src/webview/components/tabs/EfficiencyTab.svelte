@@ -127,7 +127,8 @@
     return `~${pages} pages`;
   }
   
-  $: avgContextColor = avgContext > CONTEXT_TIER_THRESHOLDS.heavy ? '#e57373' : avgContext > CONTEXT_TIER_THRESHOLDS.moderate ? '#ffb74d' : '#81c784';
+  const TIER_COLORS = { light: '#81c784', moderate: '#ffb74d', heavy: '#ff8a65', critical: '#e57373' };
+  $: avgContextColor = TIER_COLORS[classifyContextTier(avgContext)];
   
   const ctxTableColumns = [
     { key: 'session', label: 'Session', type: 'string' as const, primary: true },

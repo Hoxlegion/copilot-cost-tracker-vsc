@@ -1,15 +1,16 @@
 /**
  * Context size of one chat request: the conversation history that every request re-sends.
  * Calibrated for agentic chat, where a fresh chat already starts at roughly 20-50K tokens
- * (system prompt, tool definitions, instructions, and workspace context).
+ * (system prompt, tool definitions, instructions, and workspace context) and a typical
+ * working session stays moderate. Heavy is about 5x and critical about 10x a fresh chat.
  */
 export type ContextTier = "light" | "moderate" | "heavy" | "critical";
 
 /** A request with more context tokens than a threshold belongs to that tier; up to `moderate` it is light. */
 export const CONTEXT_TIER_THRESHOLDS = {
-  moderate: 64_000,
-  heavy: 128_000,
-  critical: 256_000,
+  moderate: 80_000,
+  heavy: 160_000,
+  critical: 320_000,
 } as const;
 
 export const CONTEXT_TIER_LABELS: Record<ContextTier, string> = {

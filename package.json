@@ -291,7 +291,7 @@
         "copilotCostTracker.contextWeightNotifications": {
           "type": "boolean",
           "default": true,
-          "description": "Notify when the active chat's context per request grows past 128K tokens (heavy) and 256K tokens (critical). Each chat is notified at most once per level. Every request re-sends the whole conversation history."
+          "description": "Notify when the active chat's context per request grows past 160K tokens (heavy) and 320K tokens (critical). Each chat is notified at most once per level. Every request re-sends the whole conversation history."
         },
         "copilotCostTracker.pricingUrl": {
           "type": "string",
@@ -341,7 +341,7 @@
         },
         "copilotCostTracker.agentSprawlMinInputTokens": {
           "type": "number",
-          "default": 256000,
+          "default": 320000,
           "minimum": 10000,
           "description": "Minimum total input tokens (the full context) of a single request to trigger the Massive Context Turn alert."
         },

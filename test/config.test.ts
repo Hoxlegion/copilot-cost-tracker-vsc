@@ -50,7 +50,7 @@ describe("alert threshold settings", () => {
       rawPasteMinInputTokens: 50_000,
       premiumMisallocationMinCredits: 5,
       premiumMisallocationMaxOutputTokens: 50,
-      agentSprawlMinInputTokens: 256_000,
+      agentSprawlMinInputTokens: 320_000,
     });
   });
 
@@ -59,7 +59,7 @@ describe("alert threshold settings", () => {
     expect(new ConfigManager().config.alertThresholds).toMatchObject({
       microTurnGapMs: 30_000,
       rawPasteMinInputTokens: 1_000,
-      agentSprawlMinInputTokens: 256_000,
+      agentSprawlMinInputTokens: 320_000,
     });
   });
 });

@@ -70,8 +70,8 @@ describe("ContextTracker notifications", () => {
     const { observe } = createTracker();
 
     expect(observe(session("chat-a", 35_000))).toMatchObject({ tier: "light", label: "Light" });
-    observe(session("chat-a", 90_000));
-    observe(session("chat-a", 128_000));
+    observe(session("chat-a", 120_000));
+    observe(session("chat-a", 160_000));
 
     expect(notificationCount()).toBe(0);
   });
@@ -80,14 +80,14 @@ describe("ContextTracker notifications", () => {
     const { observe } = createTracker();
     const tierOf = (tokens: number) => observe(session("chat-a", tokens, { lastActivityMs: 0 }))?.tier;
 
-    expect([64_000, 64_001, 128_000, 128_001, 256_000, 256_001].map(tierOf))
+    expect([80_000, 80_001, 160_000, 160_001, 320_000, 320_001].map(tierOf))
       .toEqual(["light", "moderate", "moderate", "heavy", "heavy", "critical"]);
   });
 
   it("shows one notification for the highest level a session reached", () => {
     const { observe } = createTracker();
 
-    observe(session("chat-a", 300_000));
+    observe(session("chat-a", 400_000));
 
     expect(notify.warning).toHaveBeenCalledTimes(1);
     expect(notify.info).not.toHaveBeenCalled();
@@ -96,12 +96,12 @@ describe("ContextTracker notifications", () => {
   it("escalates through levels without repeating a level", () => {
     const { observe } = createTracker();
 
-    observe(session("chat-a", 130_000));
-    observe(session("chat-a", 140_000));
+    observe(session("chat-a", 170_000));
+    observe(session("chat-a", 180_000));
     expect(notify.info).toHaveBeenCalledTimes(1);
 
-    observe(session("chat-a", 260_000));
-    observe(session("chat-a", 270_000));
+    observe(session("chat-a", 330_000));
+    observe(session("chat-a", 340_000));
     expect(notify.info).toHaveBeenCalledTimes(1);
     expect(notify.warning).toHaveBeenCalledTimes(1);
   });
@@ -110,8 +110,8 @@ describe("ContextTracker notifications", () => {
     const { observe } = createTracker();
 
     for (let i = 0; i < 5; i++) {
-      observe(session("chat-a", 300_000 + i));
-      observe(session("chat-b", 150_000 + i));
+      observe(session("chat-a", 400_000 + i));
+      observe(session("chat-b", 200_000 + i));
     }
 
     expect(notify.warning).toHaveBeenCalledTimes(1);
@@ -121,19 +121,19 @@ describe("ContextTracker notifications", () => {
   it("stays silent for a stale session but still reports its weight", () => {
     const { observe } = createTracker();
 
-    const weight = observe(session("chat-a", 300_000, { lastActivityMs: Date.now() - 31 * 60_000 }));
+    const weight = observe(session("chat-a", 400_000, { lastActivityMs: Date.now() - 31 * 60_000 }));
 
-    expect(weight).toMatchObject({ tokens: 300_000, stale: true, tier: "critical" });
+    expect(weight).toMatchObject({ tokens: 400_000, stale: true, tier: "critical" });
     expect(notificationCount()).toBe(0);
   });
 
   it("remembers notified sessions across tracker instances through shared state", () => {
     const state = new MemoryState();
-    createTracker(state).observe(session("chat-a", 300_000));
+    createTracker(state).observe(session("chat-a", 400_000));
     expect(notificationCount()).toBe(1);
 
-    createTracker(state).observe(session("chat-a", 310_000));
-    createTracker(new MemoryState()).observe(session("chat-a", 310_000));
+    createTracker(state).observe(session("chat-a", 410_000));
+    createTracker(new MemoryState()).observe(session("chat-a", 410_000));
 
     expect(notificationCount()).toBe(2);
   });
@@ -142,7 +142,7 @@ describe("ContextTracker notifications", () => {
     const { tracker, observe } = createTracker();
     tracker.setNotificationsEnabled(false);
 
-    observe(session("chat-a", 300_000));
+    observe(session("chat-a", 400_000));
 
     expect(notificationCount()).toBe(0);
   });

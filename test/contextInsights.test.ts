@@ -108,11 +108,11 @@ describe("context insights", () => {
     it("computes alert metrics for the selected source from single-request rows", () => {
       const start = Date.now() - 60 * 60_000;
       add(call("chat-b", start, 100_000));
-      add(cli("cli-big", start + 1_000, { inputTokens: 10_000, cachedTokens: 280_000, cacheWriteTokens: 10_000 }));
+      add(cli("cli-big", start + 1_000, { inputTokens: 10_000, cachedTokens: 380_000, cacheWriteTokens: 10_000 }));
       add(cli("cli-old", start + 2_000, { inputTokens: 100_000, cachedTokens: 700_000, cacheWriteTokens: 100_000, requestCount: 2 }));
 
       const massive = (source?: TurnSource) => database.getAlertMetrics(start, undefined, source).massiveContextMaxInput;
-      expect([massive("chat"), massive("cli"), massive()]).toEqual([0, 300_000, 300_000]);
+      expect([massive("chat"), massive("cli"), massive()]).toEqual([0, 400_000, 400_000]);
     });
   });
 
@@ -142,11 +142,11 @@ describe("context insights", () => {
     });
 
     it("measures context per request and applies the massive-context threshold", () => {
-      agentLoop("chat-a", 1_000, 2, { firstPrompt: 200_000 });
-      expect(database.getAlertMetrics(0)).toMatchObject({ peakContextTokens: 202_000, massiveContextMaxInput: 0 });
+      agentLoop("chat-a", 1_000, 2, { firstPrompt: 300_000 });
+      expect(database.getAlertMetrics(0)).toMatchObject({ peakContextTokens: 302_000, massiveContextMaxInput: 0 });
 
-      agentLoop("chat-b", 100_000, 2, { firstPrompt: 300_000 });
-      expect(database.getAlertMetrics(0)).toMatchObject({ peakContextTokens: 302_000, massiveContextMaxInput: 302_000 });
+      agentLoop("chat-b", 100_000, 2, { firstPrompt: 400_000 });
+      expect(database.getAlertMetrics(0)).toMatchObject({ peakContextTokens: 402_000, massiveContextMaxInput: 402_000 });
     });
 
     it("counts only new input as a paste, not cache warm-ups", () => {

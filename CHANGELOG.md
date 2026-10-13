@@ -22,10 +22,10 @@ Context limits and alerts calibrated for agentic chat, where a fresh chat alread
 
 ### Changes
 
-- **Context tiers**: Light up to 64K, Moderate up to 128K, Heavy up to 256K, Critical above (were 5K/20K/40K). Applies to the context scatter chart, Heaviest Sessions, Context Health, the status bar, and the context part of the efficiency score
-- **Context notifications** at 128K (information) and 256K (warning) tokens per request, instead of 20K, 40K, and 80K
-- **Alert defaults**: Massive Context Turn at 256K tokens per request, Stale Context Accumulation above 128K, Large Uncached Input at 50K new tokens, Premium Model Misallocation at 5 credits with at most 50 output tokens, High Output Verbosity above 1,500 average output tokens (output includes reasoning), and Cache Decay after 30 idle minutes. On Copilot Chat the prompt cache was measured to usually survive 5-30 idle minutes and to be gone after 30
-- Replaying 30 days of real agentic usage: sessions were 88% Critical before and now spread over 27% Light, 35% Moderate, 22% Heavy, and 16% Critical. Pattern alerts that fired on almost every active day now fire on 2 to 12 of 19 days; the context-size alerts still fire on the days that had sessions above 128K or 256K tokens
+- **Context tiers**: Light up to 80K, Moderate up to 160K, Heavy up to 320K, Critical above (were 5K/20K/40K), so a typical working session is Moderate and Heavy/Critical mean about 5x/10x the context of a fresh chat. Applies to the context scatter chart, Heaviest Sessions, Context Health, the status bar, and the context part of the efficiency score. Heavy averages are shown in orange instead of the Critical red
+- **Context notifications** at 160K (information) and 320K (warning) tokens per request, instead of 20K, 40K, and 80K
+- **Alert defaults**: Massive Context Turn at 320K tokens per request, Stale Context Accumulation above 160K, Large Uncached Input at 50K new tokens, Premium Model Misallocation at 5 credits with at most 50 output tokens, High Output Verbosity above 1,500 average output tokens (output includes reasoning), and Cache Decay after 30 idle minutes. On Copilot Chat the prompt cache was measured to usually survive 5-30 idle minutes and to be gone after 30
+- Replaying 30 days of real agentic usage (a fresh chat started at about 33K tokens, the median session reached 136K): sessions were 88% Critical before and now spread over 29% Light, 36% Moderate, 23% Heavy, and 13% Critical. Pattern alerts that fired on almost every active day now fire on 2 to 12 of 19 days; the context-size alerts fire on the 14 and 9 days that had sessions above 160K and 320K tokens
 
 ## [0.8.1] - 2026-10-10
 
