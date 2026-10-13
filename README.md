@@ -1,6 +1,6 @@
 # Copilot Cost Tracker
 
-[![Version](https://img.shields.io/badge/version-0.8.1-blue.svg)](https://github.com/Hoxlegion/copilot-cost-tracker-vsc/releases)
+[![Version](https://img.shields.io/badge/version-0.8.2-blue.svg)](https://github.com/Hoxlegion/copilot-cost-tracker-vsc/releases)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![VS Code](https://img.shields.io/badge/VS%20Code-%5E1.85.0-blue.svg)](https://code.visualstudio.com/)
 
@@ -55,8 +55,9 @@ Get live updates on AI credit consumption with an always-visible status bar, bud
 | Multi-model prices | Built-in rates for all June 2026 GA models from OpenAI, Anthropic, Google, GitHub |
 | Custom model rates | Define credits-per-1M-tokens for models not in the built-in table |
 | Model exclusion | Filter out models you don't want tracked (default: `gpt-4o-mini` code completions) |
-| Context weight notifications | Warnings at 20K, 40K, 80K tokens when active sessions accumulate heavy context |
-| Context awareness alerts | Identifies patterns: micro-turn bloat, raw paste, premium model misallocation, agent sprawl |
+| Context weight notifications | One notification when the active chat's context per request passes 160K tokens (heavy) and one past 320K (critical); never repeated for the same chat |
+| Context tiers | Light up to 80K, Moderate up to 160K, Heavy up to 320K, Critical above. A fresh agent chat already carries roughly 20-50K tokens of system prompt, tools, and workspace context |
+| Context awareness alerts | Identifies patterns: micro-turn bloat, large uncached input, premium model misallocation, agent sprawl |
 | File watcher strategy | Event-driven updates with 2s debounce for near-instant status bar refresh (sub-second after data arrival) |
 | Response latency metrics | Tracks model response times and displays avg latency and P90 per model |
 | DB + JSONL failover | Reads `agent-traces.db` directly; falls back to JSONL debug logs, including delegated-agent and title requests |
@@ -116,7 +117,7 @@ Copilot CLI usage needs no setup; see [Copilot CLI](#copilot-cli).
 
 ### From VSIX (Manual)
 ```bash
-code --install-extension copilot-cost-tracker-0.8.1.vsix
+code --install-extension copilot-cost-tracker-0.8.2.vsix
 ```
 
 ### From Source
@@ -125,7 +126,7 @@ git clone https://github.com/Hoxlegion/copilot-cost-tracker-vsc.git
 cd copilot-cost-tracker-vsc
 npm install
 npm run package
-code --install-extension copilot-cost-tracker-0.8.1.vsix
+code --install-extension copilot-cost-tracker-0.8.2.vsix
 ```
 
 ---
@@ -170,12 +171,12 @@ Most users won't need to change anything. These are the most common settings:
 | `dashboardSessionLimit` | number | `200` | Max recent sessions loaded when opening the dashboard (10–1000). |
 | `weekStartDay` | enum | `"monday"` | First day of the week for the sidebar's weekly total (`monday`/`sunday`). |
 | `showStatusBar` | boolean | `true` | Show cost in status bar |
-| `contextWeightNotifications` | boolean | `true` | Show warnings for heavy context (20K, 40K, 80K tokens) |
+| `contextWeightNotifications` | boolean | `true` | Notify when the active chat's context per request passes 160K and 320K tokens |
 | `microTurnGapSeconds` | number | `120` | Max seconds between turns for micro-turn pattern detection |
 | `microTurnMinCount` | number | `5` | Consecutive rapid turns to trigger Micro-Turn Bloat alert |
-| `rawPasteMinInputTokens` | number | `15000` | Min uncached tokens in a turn to trigger Raw Paste alert |
-| `premiumMisallocationMinCredits` | number | `2` | Min credits for Premium Model Misallocation alert |
-| `agentSprawlMinInputTokens` | number | `80000` | Min input tokens to trigger Massive Context Turn alert |
+| `rawPasteMinInputTokens` | number | `50000` | Min new, uncached tokens added by one request to trigger the Large Uncached Input alert |
+| `premiumMisallocationMinCredits` | number | `5` | Min credits for Premium Model Misallocation alert |
+| `agentSprawlMinInputTokens` | number | `320000` | Min total input tokens of one request to trigger Massive Context Turn alert |
 
 See the [Advanced: Pricing & Configuration](#advanced-pricing--configuration) section below for the full settings reference.
 
@@ -218,7 +219,7 @@ GitHub Copilot CLI usage is tracked as a separate source next to Copilot Chat. N
 
 Limitations:
 - Older CLI versions, such as 1.0.71, save usage only when a session exits normally. A session closed another way, or a resumed session that is still running, has no or incomplete usage data on disk. Its usage is not estimated; the sidebar and dashboard show how many CLI sessions this period are affected.
-- Per-call details such as latency, context weight, and tool calls are not available, so the Turn Explorer, alerts, and context insights use Copilot Chat data only.
+- Latency and tool calls are not logged, so the Turn Explorer uses Copilot Chat data only. Context insights and alerts follow the dashboard's source filter: newer CLIs log every request; for older CLIs, which only log totals per session exit, context insights show the average context per request and alerts skip those rows.
 - Turning `cliEnabled` off stops reading CLI logs. CLI usage that was already imported stays until `retentionDays` removes it.
 
 Privacy: the session logs contain your full CLI conversations. The extension only parses session, context, and usage events and stores model names, token counts, credits, timestamps, the workspace label, and the session title. Prompts, responses, and tool output are not parsed or stored, and nothing leaves your machine.
@@ -395,7 +396,7 @@ npm test -- test/tracesWal.test.ts --reporter=verbose
 
 The script gives every scenario a fresh copy of the capture and runs the production reader, ingester, and cost database of each code version in separate processes. It writes to the temporary copies with SQLite to create real WAL commits and restarts, and uses SQLite as the correctness reference. A replay makes spans visible in the order they ended to measure late-span losses. Temporary files are removed afterwards, and span identifiers are hashed. Node's native SQLite is only used for measurements and test fixtures, not by the extension.
 
-Historical performance comparison of releases 0.7.0 and 0.7.1, measured on Windows with Node.js 22.19.0 on 2026-10-09 (main file 824,958,976 bytes, WAL 6,538,472 bytes, 30 days, median of three runs). These measurements have not been rerun for 0.8.1:
+Historical performance comparison of releases 0.7.0 and 0.7.1, measured on Windows with Node.js 22.19.0 on 2026-10-09 (main file 824,958,976 bytes, WAL 6,538,472 bytes, 30 days, median of three runs). These measurements have not been rerun for 0.8.2:
 
 | Scenario | 0.7.0 | 0.7.1 |
 |----------|-------|-------|

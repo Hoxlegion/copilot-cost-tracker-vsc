@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import * as os from "node:os";
 import * as path from "node:path";
+import { DEFAULT_ALERT_THRESHOLDS, type AlertThresholdDefaults } from "./insights/alertThresholds";
 
 /**
  * Log level for the extension's OutputChannel logger.
@@ -60,6 +61,7 @@ export interface ExtensionConfig {
 
   // Insights
   alertWindowHours: number;
+  alertThresholds: AlertThresholdDefaults;
   dashboardSessionLimit: number;
 
   // Display
@@ -94,6 +96,24 @@ function sanitizeModelName(value: string): string | null {
  */
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
+}
+
+function readClamped(cfg: vscode.WorkspaceConfiguration, key: string, fallback: number, min: number, max: number): number {
+  const value = Number(cfg.get<number>(key));
+  return Number.isFinite(value) ? clamp(value, min, max) : fallback;
+}
+
+function readAlertThresholds(cfg: vscode.WorkspaceConfiguration): AlertThresholdDefaults {
+  const d = DEFAULT_ALERT_THRESHOLDS;
+  return {
+    microTurnGapMs: Math.round(readClamped(cfg, "microTurnGapSeconds", d.microTurnGapMs / 1000, 10, 3600) * 1000),
+    microTurnMinCount: Math.round(readClamped(cfg, "microTurnMinCount", d.microTurnMinCount, 2, 1000)),
+    microTurnMaxOutputTokens: Math.round(readClamped(cfg, "microTurnMaxOutputTokens", d.microTurnMaxOutputTokens, 50, 100_000)),
+    rawPasteMinInputTokens: Math.round(readClamped(cfg, "rawPasteMinInputTokens", d.rawPasteMinInputTokens, 1000, 10_000_000)),
+    premiumMisallocationMinCredits: readClamped(cfg, "premiumMisallocationMinCredits", d.premiumMisallocationMinCredits, 0.1, 100_000),
+    premiumMisallocationMaxOutputTokens: Math.round(readClamped(cfg, "premiumMisallocationMaxOutputTokens", d.premiumMisallocationMaxOutputTokens, 10, 100_000)),
+    agentSprawlMinInputTokens: Math.round(readClamped(cfg, "agentSprawlMinInputTokens", d.agentSprawlMinInputTokens, 10_000, 10_000_000)),
+  };
 }
 
 function parseCustomModelRates(rawCustomRates: unknown): Record<string, ModelRate> {
@@ -208,6 +228,7 @@ function readConfig(): ExtensionConfig {
   const plan = cfg.get<string>("plan") ?? "pro";
 
   const alertWindowHours = clamp(Math.round(cfg.get<number>("alertWindowHours") ?? 24), 1, 168);
+  const alertThresholds = readAlertThresholds(cfg);
   const dashboardSessionLimit = clamp(Math.round(cfg.get<number>("dashboardSessionLimit") ?? 200), 10, 1000);
   const weekStartDay = cfg.get<string>("weekStartDay") === "sunday" ? "sunday" : "monday";
 
@@ -241,6 +262,7 @@ function readConfig(): ExtensionConfig {
     enabledFileExtensions,
     plan,
     alertWindowHours,
+    alertThresholds,
     dashboardSessionLimit,
     weekStartDay,
     currency,

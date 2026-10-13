@@ -6,11 +6,15 @@
  *  - Cache hit rate is normally high (85-95%) because every turn re-reads the
  *    cached conversation, so we only reward the upper band and stop crediting
  *    below 55%.
- *  - Context size: a smaller average working context is cheaper and faster.
+ *  - Context size: a smaller average working context is cheaper and faster. Full credit
+ *    while it stays light (a fresh agent chat already carries 20-50K tokens), no credit
+ *    once it reaches the critical tier.
  *  - Input:Output uses NET (non-cached) input vs output. Using cache-inflated
  *    input made the ratio astronomically high for everyone and unfairly tanked
  *    the score; net input reflects how much *fresh* context you send per result.
  */
+
+import { CONTEXT_TIER_THRESHOLDS } from "../../shared/contextTiers";
 
 export type Grade = "A" | "B" | "C" | "D" | "F";
 
@@ -62,7 +66,7 @@ export function gradeFromScore(score: number): Grade {
 
 export function computeEfficiency(input: EfficiencyInputs): EfficiencyResult {
   const cacheScore = rampUp(input.cacheHitPct, 55, 90, WEIGHTS.cache);
-  const contextScore = rampDown(input.avgContextTokens, 8000, 60000, WEIGHTS.context);
+  const contextScore = rampDown(input.avgContextTokens, CONTEXT_TIER_THRESHOLDS.moderate, CONTEXT_TIER_THRESHOLDS.critical, WEIGHTS.context);
 
   const ioRatio = input.outputTokens > 0 ? input.netInputTokens / input.outputTokens : 0;
   const ioScore = input.outputTokens > 0 ? rampDown(ioRatio, 3, 15, WEIGHTS.io) : 0;

@@ -474,8 +474,22 @@ export function getSessionLastTimestamp(db: Database, sessionId: string): number
   return lastTimestamp;
 }
 
+/**
+ * Copilot stores calls without a chat session (Next Edit Suggestions, background helpers) under
+ * session 'unknown'; delegated subagents (`tool/runSubagent*`) carry a context of their own.
+ * Neither is the conversation context that every chat request re-sends.
+ */
+const SUBAGENT_ROW_SQL = "agent_name LIKE 'tool/%'";
+
+/** Uncached prompt tokens of a row: Chat input already includes cache writes, the CLI stores them separately. */
+export const UNCACHED_INPUT_SQL = "(input_tokens + CASE WHEN source = 'cli' THEN cache_write_tokens ELSE 0 END)";
+
+/** Prompt tokens per model request; CLI rows saved at session exit combine several requests. */
+const REQUEST_CONTEXT_SQL = `((${UNCACHED_INPUT_SQL} + cached_tokens) / MAX(request_count, 1))`;
+
 export function getMostRecentSessionContext(db: Database, sinceMs: number, workspace?: string): SessionContextInfo | null {
   const since = safeSinceMs(sinceMs);
+  // Subagent rows that share the chat's session still count toward its cost and activity.
   const stmt = db.prepare(`
     WITH ranked AS (
       SELECT
@@ -486,23 +500,26 @@ export function getMostRecentSessionContext(db: Database, sinceMs: number, works
         cached_tokens,
         cost_usd,
         credits,
-        ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY timestamp DESC) AS rn
+        NOT (${SUBAGENT_ROW_SQL}) AS is_conversation,
+        ROW_NUMBER() OVER (PARTITION BY session_id, NOT (${SUBAGENT_ROW_SQL}) ORDER BY timestamp DESC) AS rn
       FROM turns
       WHERE timestamp >= :since
         AND source = 'chat'
+        AND session_id <> 'unknown'
         AND (:workspace IS NULL OR workspace = :workspace)
     )
     SELECT
       session_id,
-      MAX(CASE WHEN rn = 1 THEN workspace ELSE NULL END) AS workspace,
+      MAX(CASE WHEN is_conversation AND rn = 1 THEN workspace ELSE NULL END) AS workspace,
       COUNT(*) AS turn_count,
       MAX(timestamp) AS last_activity_ms,
       MIN(timestamp) AS first_activity_ms,
-      MAX(CASE WHEN rn = 1 THEN input_tokens + cached_tokens ELSE NULL END) AS current_context_weight,
+      MAX(CASE WHEN is_conversation AND rn = 1 THEN input_tokens + cached_tokens ELSE NULL END) AS current_context_weight,
       COALESCE(SUM(cost_usd), 0) AS total_cost,
       COALESCE(SUM(credits), 0) AS total_credits
     FROM ranked
     GROUP BY session_id
+    HAVING MAX(is_conversation) = 1
     ORDER BY last_activity_ms DESC
     LIMIT 1
   `);
@@ -533,10 +550,10 @@ export function getSessionContextTimeline(db: Database, sessionId: string): Cont
       input_tokens, 
       cached_tokens, 
       output_tokens,
-      (input_tokens + cached_tokens) AS current_context_weight
+      ${REQUEST_CONTEXT_SQL} AS current_context_weight
     FROM turns
     WHERE session_id = :sessionId
-      AND source = 'chat'
+      AND NOT (${SUBAGENT_ROW_SQL})
     ORDER BY timestamp ASC
   `);
   stmt.bind({ ":sessionId": sessionId });
@@ -556,37 +573,40 @@ export function getSessionContextTimeline(db: Database, sessionId: string): Cont
   return rows;
 }
 
-export function getSessionContextDistribution(db: Database, sinceMs: number): SessionContextDistribution[] {
+export function getSessionContextDistribution(db: Database, sinceMs: number, source?: TurnSource): SessionContextDistribution[] {
   const since = safeSinceMs(sinceMs);
+  // Subagent rows that share a chat's session still count toward its requests and cost.
   const stmt = db.prepare(`
     WITH ranked AS (
       SELECT
         session_id,
         timestamp,
-        input_tokens,
-        cached_tokens,
+        request_count,
         cost_usd,
         workspace,
-        ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY timestamp DESC) AS rn_desc,
+        ${REQUEST_CONTEXT_SQL} AS context_tokens,
+        NOT (${SUBAGENT_ROW_SQL}) AS is_conversation,
+        ROW_NUMBER() OVER (PARTITION BY session_id, NOT (${SUBAGENT_ROW_SQL}) ORDER BY timestamp DESC) AS rn_desc,
         ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY timestamp ASC) AS rn_asc
       FROM turns
       WHERE timestamp >= :since
-        AND source = 'chat'
+        AND session_id <> 'unknown'
+        AND (:source IS NULL OR source = :source)
     )
     SELECT
       session_id,
-      MAX(CASE WHEN rn_desc = 1 THEN input_tokens + cached_tokens ELSE NULL END) AS current_context_weight,
+      MAX(CASE WHEN is_conversation AND rn_desc = 1 THEN context_tokens ELSE NULL END) AS current_context_weight,
       MAX(CASE WHEN rn_asc = 1 THEN workspace ELSE NULL END) AS workspace,
-      COUNT(*) AS turn_count,
+      SUM(request_count) AS turn_count,
       MIN(timestamp) AS start_ms,
       MAX(timestamp) AS last_ms,
       SUM(cost_usd) AS total_cost
     FROM ranked
     GROUP BY session_id
-    HAVING COUNT(*) >= 2
+    HAVING SUM(request_count) >= 2 AND MAX(is_conversation) = 1
     ORDER BY current_context_weight DESC
   `);
-  stmt.bind({ ":since": since });
+  stmt.bind({ ":since": since, ":source": source ?? null });
 
   const rows: SessionContextDistribution[] = [];
   while (stmt.step()) {

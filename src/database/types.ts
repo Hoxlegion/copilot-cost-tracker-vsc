@@ -27,7 +27,7 @@ export interface CostReader {
   countCliSessionsWithoutUsage(sinceMs: number): number;
   getWorkspaces(): string[];
   getInsightMetrics(days?: number, source?: TurnSource): InsightMetrics;
-  getAlertMetrics(sinceMs: number, thresholds?: Partial<AlertThresholdConfig>): AlertMetrics;
+  getAlertMetrics(sinceMs: number, thresholds?: Partial<AlertThresholdConfig>, source?: TurnSource): AlertMetrics;
   getCacheSavingsMetrics(
     sinceMs: number,
     workspace?: string,
@@ -36,7 +36,7 @@ export interface CostReader {
   ): CacheSavingsMetrics;
   getMostRecentSessionContext(sinceMs: number, workspace?: string): SessionContextInfo | null;
   getSessionContextTimeline(sessionId: string): ContextTimelinePoint[];
-  getSessionContextDistribution(sinceMs: number): SessionContextDistribution[];
+  getSessionContextDistribution(sinceMs: number, source?: TurnSource): SessionContextDistribution[];
 }
 
 /** Write access for ingestion and session management. */
@@ -248,10 +248,13 @@ export interface InsightMetrics {
 export interface AlertMetrics {
   avgOutputTokensToday: number;
   turnsToday: number;
-  maxSessionInputTokens: number;
+  /** Largest context (full prompt) sent by a single request. */
+  peakContextTokens: number;
   maxIdleGapMs: number;
+  /** Longest run of consecutive rapid, low-output requests in one session (0 below the minimum). */
   microTurnCount: number;
   microTurnAvgOutput: number;
+  /** Largest new, uncached input added by one request (0 below the threshold). */
   rawPasteMaxNetInput: number;
   premiumMisallocationCount: number;
   premiumMisallocationAvgCredits: number;
@@ -271,6 +274,8 @@ export interface AlertThresholdConfig {
 export interface AlertMetricAccumulator {
   microTurnCount: number;
   microTurnOutputTotal: number;
+  microTurnStreak: number;
+  microTurnStreakOutput: number;
   rawPasteMaxNetInput: number;
   premiumMisallocationCount: number;
   premiumMisallocationCreditsTotal: number;

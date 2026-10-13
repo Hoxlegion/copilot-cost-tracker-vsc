@@ -147,17 +147,22 @@ describe("Ingester Failover & Polling", () => {
       expect(ingestionCount).toBe(1);
     });
 
-    it("fallback poll triggers ingestion when no file events arrive", async () => {
-      const fallbackIntervalMs = 100;
-      let ingestionCount = 0;
+    it("fallback poll triggers ingestion when no file events arrive", () => {
+      vi.useFakeTimers();
+      try {
+        const fallbackIntervalMs = 100;
+        let ingestionCount = 0;
 
-      const fallbackTimer = setInterval(() => {
-        ingestionCount++;
-      }, fallbackIntervalMs);
+        const fallbackTimer = setInterval(() => {
+          ingestionCount++;
+        }, fallbackIntervalMs);
 
-      await new Promise((resolve) => setTimeout(resolve, fallbackIntervalMs * 3 + 50));
-      clearInterval(fallbackTimer);
-      expect(ingestionCount).toBeGreaterThanOrEqual(3);
+        vi.advanceTimersByTime(fallbackIntervalMs * 3 + 50);
+        clearInterval(fallbackTimer);
+        expect(ingestionCount).toBe(3);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("runs a requested full scan after an ongoing incremental ingest", async () => {

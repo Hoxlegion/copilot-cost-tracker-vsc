@@ -4,6 +4,38 @@ All notable changes to the **Copilot Cost Tracker** extension will be documented
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.2] - 2026-10-13
+
+Context limits and alerts calibrated for agentic chat, where a fresh chat already starts at roughly 20-50K tokens.
+
+### Bug Fixes
+
+- **Context notifications no longer repeat**: switching between chats, a running subagent, or Next Edit Suggestions made the tracker treat every switch as a new chat and show all thresholds again. Each chat is now notified at most once per level, only for the highest level reached, only while it is active, and not again after a window reload or in another window
+- The active chat ignores calls without a chat session (Next Edit Suggestions, background helpers) and subagent-only sessions, and reads its context from its own requests
+- **Massive Context Turn** fired for any usage at all: its threshold (`agentSprawlMinInputTokens`) was never applied
+- **Stale Context Accumulation** compared the sum of all input in a session with 40K tokens, so every session tripped it. It now uses the context of a single request
+- **Micro-Turn Bloat** counted rapid requests across all sessions instead of consecutive ones in one session, as its message and setting describe
+- **Large Uncached Input** (raw paste) counted the cache warm-up of every new chat. It now only counts new input compared with the previous request, so warm-ups after a new chat, a resume, a model switch, or compaction are ignored
+- The alert threshold settings (`microTurnGapSeconds`, `microTurnMinCount`, `microTurnMaxOutputTokens`, `rawPasteMinInputTokens`, `premiumMisallocationMinCredits`, `premiumMisallocationMaxOutputTokens`, `agentSprawlMinInputTokens`) were ignored; they now apply
+- **Context insights follow the All / Chat / CLI filter**: the context distribution, context growth chart, Heaviest Sessions, Context Health, and the context part of the efficiency score always showed Copilot Chat sessions. Alerts follow the filter too, computed from rows that hold a single request. CLI context counts cache writes, which the CLI stores apart from fresh input; rows from older CLIs that combine several requests count as their average per request
+- Context insights skip calls without a chat session and subagent-only sessions, and a chat's context comes from its own requests rather than from a subagent that ran last
+
+### Changes
+
+- **Context tiers**: Light up to 80K, Moderate up to 160K, Heavy up to 320K, Critical above (were 5K/20K/40K), so a typical working session is Moderate and Heavy/Critical mean about 5x/10x the context of a fresh chat. Applies to the context scatter chart, Heaviest Sessions, Context Health, the status bar, and the context part of the efficiency score. Heavy averages are shown in orange instead of the Critical red
+- **Context notifications** at 160K (information) and 320K (warning) tokens per request, instead of 20K, 40K, and 80K
+- **Alert defaults**: Massive Context Turn at 320K tokens per request, Stale Context Accumulation above 160K, Large Uncached Input at 50K new tokens, Premium Model Misallocation at 5 credits with at most 50 output tokens, High Output Verbosity above 1,500 average output tokens (output includes reasoning), and Cache Decay after 30 idle minutes. On Copilot Chat the prompt cache was measured to usually survive 5-30 idle minutes and to be gone after 30
+- Replaying 30 days of real agentic usage (a fresh chat started at about 33K tokens, the median session reached 136K): sessions were 88% Critical before and now spread over 29% Light, 36% Moderate, 23% Heavy, and 13% Critical. Pattern alerts that fired on almost every active day now fire on 2 to 12 of 19 days; the context-size alerts fire on the 14 and 9 days that had sessions above 160K and 320K tokens
+
+### Documentation
+
+- README documents the context tiers, the notification levels, the new alert defaults, and that context insights and alerts follow the source filter for Copilot CLI data. Manual-install examples use 0.8.2
+
+### Internal
+
+- Context tiers are defined once in `src/shared/contextTiers.ts` and shared by the extension and the dashboard webview
+- Tests exercise the real `ContextTracker`, context queries, and alert metrics against a real cost database instead of reimplementing their logic, and the fallback poll timer test uses fake timers so it no longer fails under load
+
 ## [0.8.1] - 2026-10-10
 
 ### Bug Fixes
