@@ -4,7 +4,7 @@ All notable changes to the **Copilot Cost Tracker** extension will be documented
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.8.2] - 2026-10-13
 
 Context limits and alerts calibrated for agentic chat, where a fresh chat already starts at roughly 20-50K tokens.
 
@@ -26,6 +26,15 @@ Context limits and alerts calibrated for agentic chat, where a fresh chat alread
 - **Context notifications** at 160K (information) and 320K (warning) tokens per request, instead of 20K, 40K, and 80K
 - **Alert defaults**: Massive Context Turn at 320K tokens per request, Stale Context Accumulation above 160K, Large Uncached Input at 50K new tokens, Premium Model Misallocation at 5 credits with at most 50 output tokens, High Output Verbosity above 1,500 average output tokens (output includes reasoning), and Cache Decay after 30 idle minutes. On Copilot Chat the prompt cache was measured to usually survive 5-30 idle minutes and to be gone after 30
 - Replaying 30 days of real agentic usage (a fresh chat started at about 33K tokens, the median session reached 136K): sessions were 88% Critical before and now spread over 29% Light, 36% Moderate, 23% Heavy, and 13% Critical. Pattern alerts that fired on almost every active day now fire on 2 to 12 of 19 days; the context-size alerts fire on the 14 and 9 days that had sessions above 160K and 320K tokens
+
+### Documentation
+
+- README documents the context tiers, the notification levels, the new alert defaults, and that context insights and alerts follow the source filter for Copilot CLI data. Manual-install examples use 0.8.2
+
+### Internal
+
+- Context tiers are defined once in `src/shared/contextTiers.ts` and shared by the extension and the dashboard webview
+- Tests exercise the real `ContextTracker`, context queries, and alert metrics against a real cost database instead of reimplementing their logic, and the fallback poll timer test uses fake timers so it no longer fails under load
 
 ## [0.8.1] - 2026-10-10
 

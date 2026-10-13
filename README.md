@@ -1,6 +1,6 @@
 # Copilot Cost Tracker
 
-[![Version](https://img.shields.io/badge/version-0.8.1-blue.svg)](https://github.com/Hoxlegion/copilot-cost-tracker-vsc/releases)
+[![Version](https://img.shields.io/badge/version-0.8.2-blue.svg)](https://github.com/Hoxlegion/copilot-cost-tracker-vsc/releases)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![VS Code](https://img.shields.io/badge/VS%20Code-%5E1.85.0-blue.svg)](https://code.visualstudio.com/)
 
@@ -117,7 +117,7 @@ Copilot CLI usage needs no setup; see [Copilot CLI](#copilot-cli).
 
 ### From VSIX (Manual)
 ```bash
-code --install-extension copilot-cost-tracker-0.8.1.vsix
+code --install-extension copilot-cost-tracker-0.8.2.vsix
 ```
 
 ### From Source
@@ -126,7 +126,7 @@ git clone https://github.com/Hoxlegion/copilot-cost-tracker-vsc.git
 cd copilot-cost-tracker-vsc
 npm install
 npm run package
-code --install-extension copilot-cost-tracker-0.8.1.vsix
+code --install-extension copilot-cost-tracker-0.8.2.vsix
 ```
 
 ---
@@ -396,7 +396,7 @@ npm test -- test/tracesWal.test.ts --reporter=verbose
 
 The script gives every scenario a fresh copy of the capture and runs the production reader, ingester, and cost database of each code version in separate processes. It writes to the temporary copies with SQLite to create real WAL commits and restarts, and uses SQLite as the correctness reference. A replay makes spans visible in the order they ended to measure late-span losses. Temporary files are removed afterwards, and span identifiers are hashed. Node's native SQLite is only used for measurements and test fixtures, not by the extension.
 
-Historical performance comparison of releases 0.7.0 and 0.7.1, measured on Windows with Node.js 22.19.0 on 2026-10-09 (main file 824,958,976 bytes, WAL 6,538,472 bytes, 30 days, median of three runs). These measurements have not been rerun for 0.8.1:
+Historical performance comparison of releases 0.7.0 and 0.7.1, measured on Windows with Node.js 22.19.0 on 2026-10-09 (main file 824,958,976 bytes, WAL 6,538,472 bytes, 30 days, median of three runs). These measurements have not been rerun for 0.8.2:
 
 | Scenario | 0.7.0 | 0.7.1 |
 |----------|-------|-------|
