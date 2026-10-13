@@ -828,7 +828,7 @@ export class CostDatabase implements CostReader, CostWriter, CostMaintenance, Cl
     return metrics.getInsightMetrics(this.db, days, source);
   }
 
-  getAlertMetrics(sinceMs: number, thresholds?: Partial<AlertThresholdConfig>): AlertMetrics {
+  getAlertMetrics(sinceMs: number, thresholds?: Partial<AlertThresholdConfig>, source?: TurnSource): AlertMetrics {
     if (!this.db) {
       return {
         avgOutputTokensToday: 0,
@@ -843,7 +843,7 @@ export class CostDatabase implements CostReader, CostWriter, CostMaintenance, Cl
         massiveContextMaxInput: 0,
       };
     }
-    return metrics.getAlertMetrics(this.db, sinceMs, thresholds);
+    return metrics.getAlertMetrics(this.db, sinceMs, thresholds, source);
   }
 
   getCacheSavingsMetrics(
@@ -876,9 +876,9 @@ export class CostDatabase implements CostReader, CostWriter, CostMaintenance, Cl
     return queries.getSessionContextTimeline(this.db, sessionId);
   }
 
-  getSessionContextDistribution(sinceMs: number): SessionContextDistribution[] {
+  getSessionContextDistribution(sinceMs: number, source?: TurnSource): SessionContextDistribution[] {
     if (!this.db) return [];
-    return queries.getSessionContextDistribution(this.db, sinceMs);
+    return queries.getSessionContextDistribution(this.db, sinceMs, source);
   }
 
   // ── Maintenance ─────────────────────────────────────

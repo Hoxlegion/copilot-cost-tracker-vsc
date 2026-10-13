@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { CostDatabase, setWasmPath } from "../src/database/costDatabase";
 import { getAlerts } from "../src/insights";
-import type { ParsedTurn } from "../src/parser/types";
+import type { ParsedTurn, TurnSource } from "../src/parser/types";
 
 let spanCounter = 0;
 
@@ -69,6 +69,50 @@ describe("context insights", () => {
         lastActivityMs: 3_000,
         credits: 9,
       });
+    });
+  });
+
+  describe("source filter", () => {
+    const cli = (sessionId: string, timestamp: number, overrides: Partial<ParsedTurn>) =>
+      call(sessionId, timestamp, 0, { spanId: undefined, agentName: "copilot-cli", source: "cli", ...overrides });
+
+    beforeEach(() => {
+      add(call("chat-a", 1_000, 40_000));
+      add(call("chat-a", 2_000, 90_000));
+      add(call("chat-a", 3_000, 20_000, { agentName: "tool/runSubagent" }));
+      // Newer CLIs write one row per request and store cache writes apart from fresh input.
+      add(cli("cli-records", 4_000, { inputTokens: 1_000, cachedTokens: 30_000, cacheWriteTokens: 9_000 }));
+      add(cli("cli-records", 5_000, { inputTokens: 2_000, cachedTokens: 40_000, cacheWriteTokens: 8_000 }));
+      // Older CLIs write one row per session exit that combines several requests.
+      add(cli("cli-legacy", 6_000, { inputTokens: 30_000, cachedTokens: 240_000, cacheWriteTokens: 30_000, requestCount: 3 }));
+      add(call("unknown", 7_000, 3_000, { agentName: "XtabProvider" }));
+      add(call("unknown", 8_000, 3_000, { agentName: "XtabProvider" }));
+      add(call("subagent-1", 9_000, 20_000, { agentName: "tool/runSubagent-Explore" }));
+      add(call("subagent-1", 10_000, 25_000, { agentName: "tool/runSubagent-Explore" }));
+    });
+
+    const distribution = (source?: TurnSource) => database.getSessionContextDistribution(0, source)
+      .map((d) => [d.sessionId, d.currentContextWeight, d.turnCount]);
+
+    it("limits the context distribution to the selected source and measures context per request", () => {
+      expect(distribution("chat")).toEqual([["chat-a", 90_000, 3]]);
+      expect(distribution("cli")).toEqual([["cli-legacy", 100_000, 3], ["cli-records", 50_000, 2]]);
+      expect(distribution().map(([sessionId]) => sessionId)).toEqual(["cli-legacy", "chat-a", "cli-records"]);
+    });
+
+    it("draws context growth from the conversation's own requests for either source", () => {
+      expect(database.getSessionContextTimeline("chat-a").map((p) => p.currentContextWeight)).toEqual([40_000, 90_000]);
+      expect(database.getSessionContextTimeline("cli-records").map((p) => p.currentContextWeight)).toEqual([40_000, 50_000]);
+    });
+
+    it("computes alert metrics for the selected source from single-request rows", () => {
+      const start = Date.now() - 60 * 60_000;
+      add(call("chat-b", start, 100_000));
+      add(cli("cli-big", start + 1_000, { inputTokens: 10_000, cachedTokens: 280_000, cacheWriteTokens: 10_000 }));
+      add(cli("cli-old", start + 2_000, { inputTokens: 100_000, cachedTokens: 700_000, cacheWriteTokens: 100_000, requestCount: 2 }));
+
+      const massive = (source?: TurnSource) => database.getAlertMetrics(start, undefined, source).massiveContextMaxInput;
+      expect([massive("chat"), massive("cli"), massive()]).toEqual([0, 300_000, 300_000]);
     });
   });
 

@@ -74,7 +74,7 @@ export class DashboardDataAssembler {
       (model, write, read) => this.pricing.calculateCacheSavings(model, write, read),
       source,
     );
-    const contextDistribution = this.database.getSessionContextDistribution(sinceMs30d);
+    const contextDistribution = this.database.getSessionContextDistribution(sinceMs30d, source);
     const hasCliData = this.database.getCostBySourceSince(0).some((s) => s.source === "cli");
     const cliSessionsWithoutUsage = this.database.countCliSessionsWithoutUsage(periodStartMs);
 
@@ -100,7 +100,7 @@ export class DashboardDataAssembler {
       })),
     }));
 
-    const alerts = getAlerts(this.database, alertThresholds, alertWindowHours);
+    const alerts = getAlerts(this.database, alertThresholds, alertWindowHours, source);
     const playbook = buildPlaybook(alerts);
 
     const topHeaviestSessions = contextDistribution.filter((s) => s.turnCount > 3).slice(0, 5);

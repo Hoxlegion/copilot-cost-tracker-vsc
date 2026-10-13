@@ -219,7 +219,7 @@ GitHub Copilot CLI usage is tracked as a separate source next to Copilot Chat. N
 
 Limitations:
 - Older CLI versions, such as 1.0.71, save usage only when a session exits normally. A session closed another way, or a resumed session that is still running, has no or incomplete usage data on disk. Its usage is not estimated; the sidebar and dashboard show how many CLI sessions this period are affected.
-- Per-call details such as latency, context weight, and tool calls are not available, so the Turn Explorer, alerts, and context insights use Copilot Chat data only.
+- Latency and tool calls are not logged, so the Turn Explorer uses Copilot Chat data only. Context insights and alerts follow the dashboard's source filter: newer CLIs log every request; for older CLIs, which only log totals per session exit, context insights show the average context per request and alerts skip those rows.
 - Turning `cliEnabled` off stops reading CLI logs. CLI usage that was already imported stays until `retentionDays` removes it.
 
 Privacy: the session logs contain your full CLI conversations. The extension only parses session, context, and usage events and stores model names, token counts, credits, timestamps, the workspace label, and the session title. Prompts, responses, and tool output are not parsed or stored, and nothing leaves your machine.

@@ -1,4 +1,5 @@
 import { CostReader, AlertMetrics } from "../database";
+import type { TurnSource } from "../parser/types";
 import {
   HIGH_VERBOSITY_AVG_OUTPUT_TOKENS,
   CONTEXT_BLOAT_REQUEST_TOKENS,
@@ -150,7 +151,12 @@ function checkMassiveContextTurn(metrics: AlertMetrics): DashboardAlert | null {
   };
 }
 
-export function getAlerts(database: CostReader, thresholds?: AlertThresholds, windowHours: number = DEFAULT_ALERT_WINDOW_HOURS): DashboardAlert[] {
+export function getAlerts(
+  database: CostReader,
+  thresholds?: AlertThresholds,
+  windowHours: number = DEFAULT_ALERT_WINDOW_HOURS,
+  source?: TurnSource,
+): DashboardAlert[] {
   const safeWindowHours = Number.isFinite(windowHours) && windowHours > 0 ? windowHours : DEFAULT_ALERT_WINDOW_HOURS;
   const sinceMs = Date.now() - safeWindowHours * 60 * 60 * 1000;
   const metrics = database.getAlertMetrics(sinceMs, thresholds ? {
@@ -161,7 +167,7 @@ export function getAlerts(database: CostReader, thresholds?: AlertThresholds, wi
     premiumMisallocationMinCredits: thresholds.premiumMisallocationMinCredits,
     premiumMisallocationMaxOutputTokens: thresholds.premiumMisallocationMaxOutputTokens,
     agentSprawlMinInputTokens: thresholds.agentSprawlMinInputTokens,
-  } : undefined);
+  } : undefined, source);
 
   const alerts: DashboardAlert[] = [];
   const verbosity = checkHighVerbosity(metrics);

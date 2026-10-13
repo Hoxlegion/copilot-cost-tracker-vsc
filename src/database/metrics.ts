@@ -2,6 +2,7 @@ import type { Database } from "sql.js";
 import type { AlertMetrics, AlertThresholdConfig, InsightMetrics, CacheSavingsMetrics, AlertMetricAccumulator } from "./types";
 import type { TurnSource } from "../parser/types";
 import { DEFAULT_ALERT_THRESHOLDS } from "../insights/alertThresholds";
+import { UNCACHED_INPUT_SQL } from "./queries";
 
 export function getAlertThresholdConfig(thresholds?: Partial<AlertThresholdConfig>): AlertThresholdConfig {
   return {
@@ -130,31 +131,33 @@ export function getInsightMetrics(db: Database, days: number = 30, source?: Turn
 export function getAlertMetrics(
   db: Database,
   sinceMs: number,
-  thresholds?: Partial<AlertThresholdConfig>
+  thresholds?: Partial<AlertThresholdConfig>,
+  source?: TurnSource,
 ): AlertMetrics {
   const cfg = getAlertThresholdConfig(thresholds);
 
   // Single-pass query: compute verbosity, peak context, idle gaps, and per-row threshold
-  // metrics in one scan using window functions. Chat only: these heuristics assume one row
-  // per model request. Calls without a chat session (Next Edit Suggestions, background
-  // helpers) are not part of any conversation.
+  // metrics in one scan using window functions. These heuristics assume one row per model
+  // request, so CLI rows that combine several requests are skipped. Calls without a chat
+  // session (Next Edit Suggestions, background helpers) are not part of any conversation.
   const stmt = db.prepare(`
     SELECT
       session_id,
       timestamp,
-      input_tokens,
+      ${UNCACHED_INPUT_SQL} AS input_tokens,
       output_tokens,
       cached_tokens,
       credits,
-      LAG(input_tokens + cached_tokens) OVER (PARTITION BY session_id ORDER BY timestamp) AS prev_prompt,
+      LAG(${UNCACHED_INPUT_SQL} + cached_tokens) OVER (PARTITION BY session_id ORDER BY timestamp) AS prev_prompt,
       LAG(timestamp) OVER (PARTITION BY session_id ORDER BY timestamp) AS prev_timestamp
     FROM turns
     WHERE timestamp >= :since
-      AND source = 'chat'
+      AND (:source IS NULL OR source = :source)
+      AND request_count = 1
       AND session_id <> 'unknown'
     ORDER BY session_id ASC, timestamp ASC
   `);
-  stmt.bind({ ":since": sinceMs });
+  stmt.bind({ ":since": sinceMs, ":source": source ?? null });
 
   let totalOutputTokens = 0;
   let turnsWithOutput = 0;

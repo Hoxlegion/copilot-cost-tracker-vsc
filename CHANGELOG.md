@@ -17,6 +17,8 @@ Context limits and alerts calibrated for agentic chat, where a fresh chat alread
 - **Micro-Turn Bloat** counted rapid requests across all sessions instead of consecutive ones in one session, as its message and setting describe
 - **Large Uncached Input** (raw paste) counted the cache warm-up of every new chat. It now only counts new input compared with the previous request, so warm-ups after a new chat, a resume, a model switch, or compaction are ignored
 - The alert threshold settings (`microTurnGapSeconds`, `microTurnMinCount`, `microTurnMaxOutputTokens`, `rawPasteMinInputTokens`, `premiumMisallocationMinCredits`, `premiumMisallocationMaxOutputTokens`, `agentSprawlMinInputTokens`) were ignored; they now apply
+- **Context insights follow the All / Chat / CLI filter**: the context distribution, context growth chart, Heaviest Sessions, Context Health, and the context part of the efficiency score always showed Copilot Chat sessions. Alerts follow the filter too, computed from rows that hold a single request. CLI context counts cache writes, which the CLI stores apart from fresh input; rows from older CLIs that combine several requests count as their average per request
+- Context insights skip calls without a chat session and subagent-only sessions, and a chat's context comes from its own requests rather than from a subagent that ran last
 
 ### Changes
 

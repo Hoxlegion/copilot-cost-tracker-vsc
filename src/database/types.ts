@@ -27,7 +27,7 @@ export interface CostReader {
   countCliSessionsWithoutUsage(sinceMs: number): number;
   getWorkspaces(): string[];
   getInsightMetrics(days?: number, source?: TurnSource): InsightMetrics;
-  getAlertMetrics(sinceMs: number, thresholds?: Partial<AlertThresholdConfig>): AlertMetrics;
+  getAlertMetrics(sinceMs: number, thresholds?: Partial<AlertThresholdConfig>, source?: TurnSource): AlertMetrics;
   getCacheSavingsMetrics(
     sinceMs: number,
     workspace?: string,
@@ -36,7 +36,7 @@ export interface CostReader {
   ): CacheSavingsMetrics;
   getMostRecentSessionContext(sinceMs: number, workspace?: string): SessionContextInfo | null;
   getSessionContextTimeline(sessionId: string): ContextTimelinePoint[];
-  getSessionContextDistribution(sinceMs: number): SessionContextDistribution[];
+  getSessionContextDistribution(sinceMs: number, source?: TurnSource): SessionContextDistribution[];
 }
 
 /** Write access for ingestion and session management. */
